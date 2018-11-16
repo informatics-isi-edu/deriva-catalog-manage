@@ -4,6 +4,8 @@ import autopep8
 import re
 
 from tableschema import Table, Schema, Field, exceptions
+from goodtables import validate
+
 from deriva.core import ErmrestCatalog, get_credential
 from dump_catalog import print_variable, print_tag_variables, print_annotations, print_table_def, tag_map
 
@@ -159,12 +161,18 @@ def print_foreign_key_defs(table_schema, stream):
 
 def print_key_defs(table_schema, schema_name, table_name, stream):
     s = 'key_defs = [\n'
-    constraint_name = (schema_name, cannonical_column_name('{}_{}_Key)'.format(table_name, table_schema.primary_key)))
+    constraint_name = (schema_name, cannonical_column_name('{}_{}_Key)'.format(table_name, 'RID')))
     s += """    em.Key.define({},
-                 constraint_names={},\n)\n""".format(table_schema.primary_key, constraint_name)
+                 constraint_names={},\n),\n""".format(['RID'], constraint_name)
+
+    if len(table_schema.primary_key) > 1:
+        constraint_name = \
+                (schema_name, cannonical_column_name('{}_{}_Key)'.format(table_name, '_'.join(table_schema.primary_key))))
+        s += """    em.Key.define({},
+                     constraint_names={},\n),\n""".format(table_schema.primary_key, constraint_name)
 
     for col in table_schema.fields:
-        if col.required and col.constraints['unique']:
+        if col.constraints.get('unique', False):
             constraint_name = (schema_name, cannonical_column_name('{}_{}_Key)'.format(table_name, col.name)))
             s += """    em.Key.define([{!r}],
                      constraint_names={},\n""".format(col.name, constraint_name)
@@ -205,8 +213,9 @@ def print_column_defs(table_schema, stream):
 def print_table(server, catalog_id, table_schema, schema_name, table_name, stream):
     print("""import argparse
 from deriva.core import ErmrestCatalog, get_credential, DerivaPathError
+from deriva.utils.catalog.manage import update_catalog
+
 import deriva.core.ermrest_model as em
-import update_catalog
 
 table_name = '{}'
 schema_name = '{}'
@@ -235,6 +244,7 @@ if __name__ == "__main__":
 
 
 def cannonical_column_name(name):
+    # This is not quite right.  Doesn't handle 'Treatment Volume (mM)'
     split_words = '[A-Z]+[a-z0-9]*|[a-z0-9]+'
     return '_'.join(list(map(lambda x: x[0].upper() + x[1:], re.findall(split_words, name))))
 
@@ -252,7 +262,7 @@ def convert_table_to_deriva(table_loc, server, catalog_id, schema_name, table_na
     :param table_name: Table name to be used.  Will default to file name.
     :param outfile: Where to put the deriva_py program.
     :param map_column_names:
-    :param key_columns:
+    :param key_columns: a list of columns that will make up the primary key.
     :return: dictionary that has the column name mapping derived by this routine.
     """
     column_map = {}
@@ -261,19 +271,64 @@ def convert_table_to_deriva(table_loc, server, catalog_id, schema_name, table_na
         table_name = os.path.splitext(os.path.basename(table_loc))[0]
     if not outfile:
         outfile = table_name + '.py'
+
     table = Table(table_loc)
     table.infer()
     if map_column_names:
         for c in table.schema.fields:
             column_map[c.name] = cannonical_column_name(c.name)
             c.descriptor['name'] = column_map[c.name]
+
     if key_columns:
+        if not type(key_columns) is list:
+            key_columns = [ key_columns ]
+        # Set the primary key value
         table.schema.descriptor['primaryKey'] = key_columns
-    for i, col in enumerate(table.schema.fields):
-        if col.name in key_columns:
-            table.schema.descriptor['fields'][i]['constraints'] = {'required': True, 'unique': True}
+        for i, col in enumerate(table.schema.fields):
+            if col.name in key_columns:
+                table.schema.descriptor['fields'][i]['constraints'] = {'required': True, 'unique': True}
     table.schema.commit()
 
     with open(outfile, 'w') as stream:
         print_table(server, catalog_id, table.schema, schema_name, table_name, stream)
     return column_map
+
+
+def upload_table_to_deriva(table_loc, server, catalog_id, schema_name, table_name=None, create_table=False, validate=True):
+    """
+
+    :param table_loc: Location of the source table. Can be file name or URL
+    :param server: Server on which the catalog exists.
+    :param catalog_id: Catalog ID of target catalog
+    :param schema_name: Schema into which the table will be uploaded
+    :param table_name: Name of table to upload. If not provided, the filename of the CSV is used for the table name
+    :param create_table:
+    :param validate: Run table validation on input before trying to upload
+    :return:
+    """
+
+    if not table_name:
+        table_name = os.path.splitext(os.path.basename(table_loc))[0]
+
+    credential = get_credential(server)
+    catalog = ErmrestCatalog('https', server, catalog_id, credentials=credential)
+
+    table_schema = table_schema_from_catalog(server, catalog_id, schema_name, table_name)
+
+    if validate:
+        report = validate(table_loc, schema=table_schema)
+        print(report)
+
+    pb = catalog.getPathBuilder()
+    source_table = Table(table_loc, schema=table_schema)
+    target_table = pb.schemas[schema_name].tables['table_name']
+    entities = source_table.read(keyed=True)
+    target_table.insert(entities, add_system_defaults=True)
+    return
+
+def main():
+    return
+
+
+if __name__ == "__main__":
+    main()
