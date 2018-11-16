@@ -87,7 +87,7 @@ def print_schema(server, catalog_id, schema_name, stream):
     print("""import argparse
 from deriva.core import ErmrestCatalog, get_credential, DerivaPathError
 import deriva.core.ermrest_model as em
-import update_catalog
+from deriva.utils.catalog.manage import update_catalog
 """, file=stream)
     print('table_names = [', file=stream)
     for i in schema.tables:
@@ -131,7 +131,7 @@ def print_catalog(server, catalog_id, dumpdir):
     with open('{}/catalog_{}.py'.format(dumpdir, catalog_id), 'w') as f:
         print("""import argparse
 from deriva.core import ErmrestCatalog, get_credential, DerivaPathError
-import update_catalog
+from deriva.utils.catalog import update_catalog
 import deriva.core.ermrest_model as em
 """, file=f)
         print_tag_variables(model_root.annotations, tag_map, f)
@@ -289,7 +289,7 @@ def print_table(server, catalog_id, schema_name, table_name, stream):
     print("""import argparse
 from deriva.core import ErmrestCatalog, get_credential, DerivaPathError
 import deriva.core.ermrest_model as em
-import update_catalog
+from deriva.utils.catalog.manage import update_catalog
 
 table_name = '{}'
 schema_name = '{}'

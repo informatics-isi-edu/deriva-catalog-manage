@@ -4,9 +4,7 @@ import autopep8
 import re
 
 from tableschema import Table, Schema, Field, exceptions
-
 from deriva.core import ErmrestCatalog, get_credential
-
 from dump_catalog import print_variable, print_tag_variables, print_annotations, print_table_def, tag_map
 
 # We should get range info in there....
@@ -81,9 +79,9 @@ def table_schema_from_catalog(server, catalog_id, schema_name, table_name, outfi
     model_root = catalog.getCatalogModel()
     schema = model_root.schemas[schema_name]
     table = schema.tables[table_name]
-    table_schema = Schema({})
-    
+
     try:
+        table_schema = Schema({})
         for col in table.column_definitions:
             field = Field({
                 "name": col.name,
@@ -269,7 +267,8 @@ def convert_table_to_deriva(table_loc, server, catalog_id, schema_name, table_na
         for c in table.schema.fields:
             column_map[c.name] = cannonical_column_name(c.name)
             c.descriptor['name'] = column_map[c.name]
-    table.schema.descriptor['primaryKey'] = 'RID'
+    if key_columns:
+        table.schema.descriptor['primaryKey'] = key_columns
     for i, col in enumerate(table.schema.fields):
         if col.name in key_columns:
             table.schema.descriptor['fields'][i]['constraints'] = {'required': True, 'unique': True}
