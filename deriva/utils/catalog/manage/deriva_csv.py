@@ -66,6 +66,12 @@ table_schema_ermrest_type_map = {
 }
 
 
+def cannonical_deriva_name(name):
+    # This is not quite right.  Doesn't handle 'Treatment Volume (mM)'
+    split_words = '[A-Z]+[a-z0-9]*|[a-z0-9]+'
+    return '_'.join(list(map(lambda x: x[0].upper() + x[1:], re.findall(split_words, name))))
+
+
 def table_schema_from_catalog(server, catalog_id, schema_name, table_name, outfile=None):
     """
     Create a TableSchema by querying an ERMRest catalog and converting the model format.
@@ -161,19 +167,19 @@ def print_foreign_key_defs(table_schema, stream):
 
 def print_key_defs(table_schema, schema_name, table_name, stream):
     s = 'key_defs = [\n'
-    constraint_name = (schema_name, cannonical_column_name('{}_{}_Key)'.format(table_name, 'RID')))
+    constraint_name = (schema_name, cannonical_deriva_name('{}_{}_Key)'.format(table_name, 'RID')))
     s += """    em.Key.define({},
                  constraint_names={},\n),\n""".format(['RID'], constraint_name)
 
     if len(table_schema.primary_key) > 1:
         constraint_name = \
-                (schema_name, cannonical_column_name('{}_{}_Key)'.format(table_name, '_'.join(table_schema.primary_key))))
+                (schema_name, cannonical_deriva_name('{}_{}_Key)'.format(table_name, '_'.join(table_schema.primary_key))))
         s += """    em.Key.define({},
                      constraint_names={},\n),\n""".format(table_schema.primary_key, constraint_name)
 
     for col in table_schema.fields:
         if col.constraints.get('unique', False):
-            constraint_name = (schema_name, cannonical_column_name('{}_{}_Key)'.format(table_name, col.name)))
+            constraint_name = (schema_name, cannonical_deriva_name('{}_{}_Key)'.format(table_name, col.name)))
             s += """    em.Key.define([{!r}],
                      constraint_names={},\n""".format(col.name, constraint_name)
             s += '),\n'
@@ -243,12 +249,6 @@ if __name__ == "__main__":
     return
 
 
-def cannonical_column_name(name):
-    # This is not quite right.  Doesn't handle 'Treatment Volume (mM)'
-    split_words = '[A-Z]+[a-z0-9]*|[a-z0-9]+'
-    return '_'.join(list(map(lambda x: x[0].upper() + x[1:], re.findall(split_words, name))))
-
-
 def convert_table_to_deriva(table_loc, server, catalog_id, schema_name, table_name=None, outfile=None,
                             map_column_names=False, key_columns=None):
     """
@@ -269,6 +269,7 @@ def convert_table_to_deriva(table_loc, server, catalog_id, schema_name, table_na
 
     if not table_name:
         table_name = os.path.splitext(os.path.basename(table_loc))[0]
+        table_name = cannonical_deriva_name(table_name)
     if not outfile:
         outfile = table_name + '.py'
 
@@ -276,12 +277,12 @@ def convert_table_to_deriva(table_loc, server, catalog_id, schema_name, table_na
     table.infer()
     if map_column_names:
         for c in table.schema.fields:
-            column_map[c.name] = cannonical_column_name(c.name)
+            column_map[c.name] = cannonical_deriva_name(c.name)
             c.descriptor['name'] = column_map[c.name]
 
     if key_columns:
         if not type(key_columns) is list:
-            key_columns = [ key_columns ]
+            key_columns = [key_columns]
         # Set the primary key value
         table.schema.descriptor['primaryKey'] = key_columns
         for i, col in enumerate(table.schema.fields):
