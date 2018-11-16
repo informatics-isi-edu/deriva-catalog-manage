@@ -29,7 +29,7 @@ Current modules include:
 
 To load load a specific module, you can use a import statement such as:
 ```
-from deriva.utils.catalog.manage import update_catalog
+from deriva.utils.catalog.manage import deriva_csv
 ```
 
 
