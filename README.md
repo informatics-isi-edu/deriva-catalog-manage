@@ -21,7 +21,7 @@ $ pip install --user --upgrade git+https://github.com/informatics-isi-edu/deriva
 ## Packages
 
 This repo will install a number of different subpackages that will all live in the deriva package hierachy under: 
-deriva.utils.catalog.manage.  
+`deriva.utils.catalog.manage`.  
 
 Current modules include:
 - dump_catalog. A module for querying an ERMRest catalog and creation a set of deriva-py scripts to recreate elements of that catalog
@@ -43,10 +43,6 @@ Main entry points of this module are:
 - Create tableschema from a table in a deriva catalog.
 - Create a deriva-py program to create a table from a CSV, Google Sheet, database table, or other table format.
 - Validate a CSV against an ERMRest table and upload it.
-
-## dump_catalog
-
-
 
 ## CLIs
 
