@@ -32,6 +32,13 @@ To load load a specific module, you can use a import statement such as:
 from deriva.utils.catalog.manage import deriva_csv
 ```
 
+## Dependencies
+
+Modeules in this package will require the following outside packages, which can be found in conda in most cases, or PyPy:
+
+- autopep8
+- dataschema
+- good 
 
 ## APIs
 
@@ -40,9 +47,10 @@ from deriva.utils.catalog.manage import deriva_csv
 The module relys on tools for table manipulation that have been developed as part of the [Frictionless Data](https://frictionlessdata.io) initiative.  Documentation and related tools are available from their GitHub [repo](https://github.com/frictionlessdata).
 
 Main entry points of this module are:
-- Create tableschema from a table in a deriva catalog.
-- Create a deriva-py program to create a table from a CSV, Google Sheet, database table, or other table format.
-- Validate a CSV against an ERMRest table and upload it.
+
+- table_schema_from_catalog: Create tableschema from a table in a deriva catalog.
+- conver_table_to_deriva: Create a deriva-py program to create a table from a CSV, Google Sheet, database table, or other table format.
+- upload_table: Validate a CSV against an ERMRest table and upload it.
 
 ## CLIs
 
