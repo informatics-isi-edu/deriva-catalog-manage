@@ -41,6 +41,7 @@ setup(
         'requests',
         'autopep8',
         'tableschema',
+        'goodtables',
         'deriva>=0.6.7'
     ],
     license='Apache 2.0',
