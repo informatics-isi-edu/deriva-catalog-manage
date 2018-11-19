@@ -368,7 +368,11 @@ def upload_table_to_deriva(table_loc, server, catalog_id, schema_name,
     source_table = Table(table_loc, schema=table_schema.descriptor, post_cast=[date_to_text])
     target_table = pb.schemas[schema_name].tables[table_name]
 
-    row_groups = row_grouper(chunk_size, source_table.iter(keyed=True))
+    if table_schema.primary_key == []:
+        row_groups  = [source_table.read(keyed=True)]
+        chunk_size = len(row_groups[0])
+    else:
+        row_groups = row_grouper(chunk_size, source_table.iter(keyed=True))
     chunk_cnt = 1
     row_cnt = 0
     for rows in row_groups:
