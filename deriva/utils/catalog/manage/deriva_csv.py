@@ -315,7 +315,7 @@ def convert_table_to_deriva(table_loc, server, catalog_id, schema_name, table_na
 
 def upload_table_to_deriva(table_loc, server, catalog_id, schema_name,
                            key_columns=None, table_name=None, create_table=False, validate=True,
-                           chunk_size=1000):
+                           chunk_size=1000, starting_chunk=1):
     """
 
     :param table_loc: Location of the source table. Can be file name or URL
@@ -376,6 +376,9 @@ def upload_table_to_deriva(table_loc, server, catalog_id, schema_name,
     chunk_cnt = 1
     row_cnt = 0
     for rows in row_groups:
+        if chunk_cnt < starting_chunk:
+            chunk_cnt += 1
+            continue
         try:
             target_table.insert(rows, add_system_defaults=True)
             print('Completed chunk {}'.format(chunk_cnt))
