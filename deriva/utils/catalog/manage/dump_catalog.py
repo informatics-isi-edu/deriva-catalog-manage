@@ -131,7 +131,7 @@ def print_catalog(server, catalog_id, dumpdir):
     with open('{}/catalog_{}.py'.format(dumpdir, catalog_id), 'w') as f:
         print("""import argparse
 from deriva.core import ErmrestCatalog, get_credential, DerivaPathError
-from deriva.utils.catalog import update_catalog
+from deriva.utils.catalog.manage import update_catalog
 import deriva.core.ermrest_model as em
 """, file=f)
         print_tag_variables(model_root.annotations, tag_map, f)
