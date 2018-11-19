@@ -336,7 +336,7 @@ def upload_table_to_deriva(table_loc, server, catalog_id, schema_name,
         table_name = os.path.splitext(os.path.basename(table_loc))[0]
 
     if create_table:
-        print('Creating table {}:{}'.format(schema_name, table_name))
+        print('Creating table definition {}:{}'.format(schema_name, table_name))
         with tempfile.TemporaryDirectory() as tdir:
             fname = '{}/{}.py'.format(tdir, table_name)
             convert_table_to_deriva(table_loc, server, catalog_id, schema_name,
@@ -352,7 +352,7 @@ def upload_table_to_deriva(table_loc, server, catalog_id, schema_name,
         report = goodtables.validate(table_loc, schema=table_schema.descriptor)
         if not report['valid']:
             return report
-
+    print("Loading table....")
     credential = get_credential(server)
     catalog = ErmrestCatalog('https', server, catalog_id, credentials=credential)
     pb = catalog.getPathBuilder()

@@ -94,7 +94,7 @@ def update_table(mode, replace, server, catalog_id, schema_name, table_name, tab
                  column_annotations, column_acls, column_acl_bindings, column_comment):
 
     print('Updating {}:{}'.format(schema_name, table_name))
-    print(server, catalog_id)
+
     credential = get_credential(server)
     catalog = ErmrestCatalog('https', server, catalog_id, credentials=credential)
     model_root = catalog.getCatalogModel()
