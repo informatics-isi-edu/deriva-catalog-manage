@@ -4,7 +4,9 @@ import tempfile
 import autopep8
 import re
 import datetime
+import itertools
 import importlib.util
+from requests import HTTPError
 
 from tableschema import Table, Schema, Field, exceptions
 import goodtables
@@ -312,7 +314,8 @@ def convert_table_to_deriva(table_loc, server, catalog_id, schema_name, table_na
 
 
 def upload_table_to_deriva(table_loc, server, catalog_id, schema_name,
-                           key_columns=None, table_name=None, create_table=False, validate=True):
+                           key_columns=None, table_name=None, create_table=False, validate=True,
+                           chunk_size=1000):
     """
 
     :param table_loc: Location of the source table. Can be file name or URL
@@ -323,6 +326,7 @@ def upload_table_to_deriva(table_loc, server, catalog_id, schema_name,
     :param table_name: Name of table to upload. If not provided, the filename of the CSV is used for the table name
     :param create_table: If true, then infer the types of the table columns and create a table in the catalog
     :param validate: Run table validation on input before trying to upload
+    :param chunk_size: Number of rows to upload at one time.
     :return:
     """
 
@@ -331,6 +335,10 @@ def upload_table_to_deriva(table_loc, server, catalog_id, schema_name,
         for row_number, headers, row in erows:
             row = [str(x) if type(x) is datetime.date else x for x in row]
             yield (row_number, headers, row)
+
+    def row_grouper(n, iterable):
+            iterable = iter(iterable)
+            return iter(lambda: list(itertools.islice(iterable, n)), [])
 
     if not table_name:
         table_name = os.path.splitext(os.path.basename(table_loc))[0]
@@ -352,15 +360,29 @@ def upload_table_to_deriva(table_loc, server, catalog_id, schema_name,
         report = goodtables.validate(table_loc, schema=table_schema.descriptor)
         if not report['valid']:
             return report
+
     print("Loading table....")
     credential = get_credential(server)
     catalog = ErmrestCatalog('https', server, catalog_id, credentials=credential)
     pb = catalog.getPathBuilder()
     source_table = Table(table_loc, schema=table_schema.descriptor, post_cast=[date_to_text])
     target_table = pb.schemas[schema_name].tables[table_name]
-    entities = source_table.read(keyed=True)
-    target_table.insert(entities, add_system_defaults=True)
-    return
+
+    row_groups = row_grouper(chunk_size, source_table.iter(keyed=True))
+    chunk_cnt = 1
+    row_cnt = 0
+    for rows in row_groups:
+        try:
+            target_table.insert(rows, add_system_defaults=True)
+            print('Completed chunk {}'.format(chunk_cnt))
+            chunk_cnt += 1
+            row_cnt += len(rows)
+        except HTTPError as e:
+            print('Failed on chunk {} (chunksize {})'.format(chunk_cnt, chunk_size))
+            print(e)
+            print(e.response.text)
+            raise
+    return row_cnt, chunk_cnt
 
 
 def main():

@@ -31,6 +31,7 @@ setup(
         're',
         'tempfile',
         'importlib.util',
+        'itertools',
         'logging',
         'argparse',
         'datetime',
