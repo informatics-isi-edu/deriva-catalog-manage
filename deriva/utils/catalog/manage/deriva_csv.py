@@ -327,6 +327,7 @@ def upload_table_to_deriva(table_loc, server, catalog_id, schema_name,
     :param create_table: If true, then infer the types of the table columns and create a table in the catalog
     :param validate: Run table validation on input before trying to upload
     :param chunk_size: Number of rows to upload at one time.
+    :param starting_chunk: What chunk number to start at.  Can be used to continue a failed upload.
     :return:
     """
 
