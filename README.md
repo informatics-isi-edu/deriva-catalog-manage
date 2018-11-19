@@ -32,14 +32,6 @@ To load load a specific module, you can use a import statement such as:
 from deriva.utils.catalog.manage import deriva_csv
 ```
 
-## Dependencies
-
-Modeules in this package will require the following outside packages, which can be found in conda in most cases, or PyPy:
-
-- autopep8
-- dataschema
-- good 
-
 ## APIs
 
 ### deriva_csv
@@ -50,9 +42,11 @@ Main entry points of this module are:
 
 - table_schema_from_catalog: Create tableschema from a table in a deriva catalog.
 - conver_table_to_deriva: Create a deriva-py program to create a table from a CSV, Google Sheet, database table, or other table format.
-- upload_table: Validate a CSV against an ERMRest table and upload it.
+- upload_table: Validate a CSV against an ERMRest table and upload it. This API has an option to create a table in the catalog before uploading. By default, all data is validated against the current table schema in the catalog prior to uploading.
 
 ## CLIs
 
 The CLIs include:
 - `deriva-dump-catalog`: a command-line tools that will dump the current configuration of a catalog as a set of deriva-py scripts.
+
+The scripts are pure deriva-py and have placeholder variables to set annotations, acls, and acl-bindings.  The scripts are self contained and can be run directly from the command line using the python interpreter.  
