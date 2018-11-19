@@ -1,12 +1,21 @@
 from __future__ import print_function
 import os
+import sys
 import tempfile
 import autopep8
 import re
 import datetime
 import itertools
-import importlib.util
+import argparse
 from requests import HTTPError
+
+if sys.version_info > (3, 5):
+    import importlib.util
+elif sys.version_info > (3, 3):
+    from importlib.machinery import SourceFileLoader
+else:
+    import imp
+
 
 from tableschema import Table, Schema, Field, exceptions
 import goodtables
@@ -72,6 +81,13 @@ table_schema_ermrest_type_map = {
 }
 
 
+class DerivaCSVError(HTTPError):
+    def __init__(self, chunk_size, chunk_number, http_err):
+        self.chunk_number = chunk_number
+        self.chunk_size = chunk_size
+        self.reason = http_err
+
+
 def cannonical_deriva_name(name):
     exclude_list = ['nM']
     split_words = '[A-Z]+[a-z0-9]*|[a-z0-9]+|\(.*?\)'
@@ -121,7 +137,7 @@ def table_schema_from_catalog(server, catalog_id, schema_name, table_name, skip_
         fields.append(field)
 
     try:
-        table_schema = Schema({'fields': fields, 'missingValues' : ['', 'N/A', 'NULL']}, strict=True)
+        table_schema = Schema({'fields': fields, 'missingValues': ['', 'N/A', 'NULL']}, strict=True)
         if primary_key:
             table_schema.descriptor['primaryKey'] = primary_key
         table_schema.commit(strict=True)
@@ -295,6 +311,9 @@ def convert_table_to_deriva(table_loc, server, catalog_id, schema_name, table_na
         column_map[c.name] = cannonical_deriva_name(c.name) if map_column_names else c.name
         c.descriptor['name'] = column_map[c.name]
 
+    if map_column_names:
+        key_columns = [cannonical_deriva_name(c) for c in key_columns]
+
     if key_columns:
         if not type(key_columns) is list:
             key_columns = [key_columns]
@@ -313,19 +332,24 @@ def convert_table_to_deriva(table_loc, server, catalog_id, schema_name, table_na
     return column_map
 
 
-def upload_table_to_deriva(table_loc, server, catalog_id, schema_name,
-                           key_columns=None, table_name=None, create_table=False, validate=True,
-                           chunk_size=1000, starting_chunk=1):
+def upload_table_to_deriva(tabledata, server, catalog_id, schema_name,
+                           key_columns=None, table_name=None,
+                           convert_table=True, derivafile=None,
+                           create_table=False, validate=True, load_data=True,
+                           chunk_size=1000, starting_chunk=1, validation_rows=10000):
     """
 
-    :param table_loc: Location of the source table. Can be file name or URL
+    :param tabledata: Location of the source table. Can be file name or URL
     :param server: Server on which the catalog exists.
     :param catalog_id: Catalog ID of target catalog
     :param schema_name: Schema into which the table will be uploaded
     :param key_columns: list of columns that form a primary key in the source table (non-null and unique)
     :param table_name: Name of table to upload. If not provided, the filename of the CSV is used for the table name
-    :param create_table: If true, then infer the types of the table columns and create a table in the catalog
+    :param convert_table: If set to true, use table inference to infer types for columns of table and create a deriva-py program
+    :param derivafile: Specify the file name of where the deriva-py program to create the table exisits
+    :param create_table: If true, create a table in the catalog.  If derivafile argument is not specified, then infer table definition
     :param validate: Run table validation on input before trying to upload
+    :param load_data:
     :param chunk_size: Number of rows to upload at one time.
     :param starting_chunk: What chunk number to start at.  Can be used to continue a failed upload.
     :return:
@@ -337,63 +361,111 @@ def upload_table_to_deriva(table_loc, server, catalog_id, schema_name,
             row = [str(x) if type(x) is datetime.date else x for x in row]
             yield (row_number, headers, row)
 
+    # Helper function to do chunking...
     def row_grouper(n, iterable):
             iterable = iter(iterable)
             return iter(lambda: list(itertools.islice(iterable, n)), [])
 
+    # If tablename is not specified, use the file name of the data file as the table name.
     if not table_name:
-        table_name = os.path.splitext(os.path.basename(table_loc))[0]
+        table_name = os.path.splitext(os.path.basename(tabledata))[0]
+        table_name = cannonical_deriva_name(table_name)
 
-    if create_table:
+    if create_table or convert_table:
         print('Creating table definition {}:{}'.format(schema_name, table_name))
         with tempfile.TemporaryDirectory() as tdir:
-            fname = '{}/{}.py'.format(tdir, table_name)
-            convert_table_to_deriva(table_loc, server, catalog_id, schema_name,
-                                    table_name=table_name, key_columns=key_columns,
-                                    outfile=fname)
-            modspec = importlib.util.spec_from_file_location("table_name", fname)
-            tablescript = importlib.util.module_from_spec(modspec)
-            modspec.loader.exec_module(tablescript)
-            tablescript.main(skip_args=True, mode='table')
+            # If convertdir is set, put deriva-py program in current directory.
+            odir = os.path.dirname(os.path.abspath(tabledata)) if convert_table else tdir
+            if (not derivafile) or convert_table:
+                derivafile = '{}/{}.py'.format(odir, table_name)
+                convert_table_to_deriva(tabledata, server, catalog_id, schema_name,
+                                        table_name=table_name, key_columns=key_columns,
+                                        outfile=derivafile)
+            if create_table:
+                # Now create the table.
+                if sys.version_info > (3, 5):
+                    modspec = importlib.util.spec_from_file_location("table_name", derivafile)
+                    tablescript = importlib.util.module_from_spec(modspec)
+                    modspec.loader.exec_module(tablescript)
+                elif sys.version_info > (3, 3):
+                    tablescript = SourceFileLoader("table_name", derivafile)
+                else:
+                    tablescript = imp.load_source("table_name", derivafile)
 
-    table_schema = table_schema_from_catalog(server, catalog_id, schema_name, table_name)
+                tablescript.main(skip_args=True, mode='table')
+
     if validate:
-        report = goodtables.validate(table_loc, schema=table_schema.descriptor)
+        table_schema = table_schema_from_catalog(server, catalog_id, schema_name, table_name)
+        report = goodtables.validate(tabledata, row_limit=validation_rows, schema=table_schema.descriptor)
         if not report['valid']:
-            return report
+            for i in report['tables'][0]['errors']:
+                print(i)
+            return 0, 1, report
 
-    print("Loading table....")
-    credential = get_credential(server)
-    catalog = ErmrestCatalog('https', server, catalog_id, credentials=credential)
-    pb = catalog.getPathBuilder()
-    source_table = Table(table_loc, schema=table_schema.descriptor, post_cast=[date_to_text])
-    target_table = pb.schemas[schema_name].tables[table_name]
+    if load_data:
+        print("Loading table....")
+        credential = get_credential(server)
+        catalog = ErmrestCatalog('https', server, catalog_id, credentials=credential)
+        pb = catalog.getPathBuilder()
+        table_schema = table_schema_from_catalog(server, catalog_id, schema_name, table_name)
+        source_table = Table(tabledata, schema=table_schema.descriptor, post_cast=[date_to_text])
+        target_table = pb.schemas[schema_name].tables[table_name]
 
-    if table_schema.primary_key == []:
-        row_groups  = [source_table.read(keyed=True)]
-        chunk_size = len(row_groups[0])
-    else:
-        row_groups = row_grouper(chunk_size, source_table.iter(keyed=True))
-    chunk_cnt = 1
-    row_cnt = 0
-    for rows in row_groups:
-        if chunk_cnt < starting_chunk:
-            chunk_cnt += 1
-            continue
-        try:
-            target_table.insert(rows, add_system_defaults=True)
-            print('Completed chunk {}'.format(chunk_cnt))
-            chunk_cnt += 1
-            row_cnt += len(rows)
-        except HTTPError as e:
-            print('Failed on chunk {} (chunksize {})'.format(chunk_cnt, chunk_size))
-            print(e)
-            print(e.response.text)
-            raise
-    return row_cnt, chunk_cnt
+        if table_schema.primary_key == []:
+            row_groups = [source_table.read(keyed=True)]
+            chunk_size = len(row_groups[0])
+        else:
+            row_groups = row_grouper(chunk_size, source_table.iter(keyed=True))
+        chunk_cnt = 1
+        row_cnt = 0
+        for rows in row_groups:
+            if chunk_cnt < starting_chunk:
+                chunk_cnt += 1
+                continue
+            try:
+                target_table.insert(rows, add_system_defaults=True)
+                print('Completed chunk {}'.format(chunk_cnt))
+                chunk_cnt += 1
+                row_cnt += len(rows)
+            except HTTPError as e:
+                print('Failed on chunk {} (chunksize {})'.format(chunk_cnt, chunk_size))
+                print(e)
+                print(e.response.text)
+                raise DerivaCSVError(chunk_size, chunk_cnt, e)
+        return row_cnt, chunk_size, chunk_cnt
 
 
 def main():
+    # Argument parser
+    parser = argparse.ArgumentParser(description="Load CSV and other table formats into deriva catalog")
+
+    parser.add_argument('tabledata', help='Location of tablelike date to be added to catalog')
+    parser.add_argument('server', help='Catalog server name')
+    parser.add_argument('--catalog', default=1, help='ID number of desired catalog')
+    parser.add_argument('schema', help='Name of the schema to be used for table')
+    parser.add_argument('--table', default=None, help='Name of table to be managed (Default:Filename)')
+    parser.add_argument('--key_columns', default=[],
+                        help='List of columns to be used as key when creating table schema')
+    parser.add_argument('--convert', action='store_true', help='Generate a deriva-py program to create the table [Default:False]')
+    parser.add_argument('--map_column_names', action='store_true',
+                        help='Automatically convert column names to cannonical form [Default:True]')
+    parser.add_argument('--derivafile', default=None, help='Filename for output deriva-py program')
+
+    parser.add_argument('--chunk_size', default=10000, help='Number of rows to use in chunked upload [Default:10000]')
+    parser.add_argument('--starting_chunk', default=1, help='Starting chunk number [Default:1]')
+    parser.add_argument('--skip_validate', action='store_true', help='Validate the table before uploading [Default:True]')
+    parser.add_argument('--create_table', action='store_true',
+                        help='Automatically create catalog table based on column type inference [Default:False]')
+    parser.add_argument('--skip_load', action='store_true', help='Load data into catalog [Default:True]')
+
+    args = parser.parse_args()
+    print(args)
+
+    upload_table_to_deriva(args.tabledata, args.server, args.catalog, args.schema,
+                           key_columns=args.key_columns, table_name=args.table,
+                           convert_table=args.convert, derivafile=args.derivafile,
+                           create_table=args.create_table, validate= not args.skip_validate, load_data= not args.skip_load,
+                           chunk_size=args.chunk_size, starting_chunk=args.starting_chunk)
     return
 
 

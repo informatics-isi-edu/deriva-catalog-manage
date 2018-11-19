@@ -23,6 +23,7 @@ setup(
     entry_points={
         'console_scripts': [
             'deriva-catalog-dump = deriva.utils.catalog.manage.dump_catalog:main'
+            'deriva-csv = deriva.utils.catalog.manage.deriva_csv:main'
         ]
     },
     requires=[
