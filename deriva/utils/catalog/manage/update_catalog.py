@@ -23,7 +23,7 @@ def parse_args(server, catalog_id, is_table=False, is_catalog=False):
                         help='Model element to be updated.')
 
     args = parser.parse_args()
-    return args.server, args.catalog, args.mode, args.replace
+    return args.mode, args.replace, args.server, args.catalog
 
 
 def update_annotations(o,annotations, replace=False):
@@ -40,12 +40,14 @@ def update_acls(o,acls, replace=False):
         for k, v in acls.items():
             o.acls[k] = v
 
-def update_acl_bindings(o,acl_bindings, replace=False):
+
+def update_acl_bindings(o, acl_bindings, replace=False):
     if replace:
         o.acl_bindings.update(acl_bindings)
     else:
         for k, v in acl_bindings.items():
             o.acl_bindingss[k] = v
+
 
 def update_catalog(mode, replace, server, catalog_id, annotations, acls):
 
@@ -56,7 +58,7 @@ def update_catalog(mode, replace, server, catalog_id, annotations, acls):
     if mode == 'annotations':
         update_annotations(model_root, annotations, replace)
     elif mode == 'acls':
-        update_acls(model_root,acls, replace)
+        update_acls(model_root, acls, replace)
     model_root.apply(catalog)
 
 
@@ -78,7 +80,7 @@ def update_schema(mode, replace, server, catalog_id, schema_name, schema_def, an
     else:
         schema = model_root.schemas[schema_name]
         if mode == 'annotations':
-            update_annotations(schema,annotations, replace)
+            update_annotations(schema, annotations, replace)
         elif mode == 'acls':
             update_acls(schema, acls, replace)
         elif mode == 'comment':
@@ -91,8 +93,8 @@ def update_table(mode, replace, server, catalog_id, schema_name, table_name, tab
                  table_annotations, table_acls, table_acl_bindings, table_comment,
                  column_annotations, column_acls, column_acl_bindings, column_comment):
 
-    print('Importing {}:{}'.format(schema_name, table_name))
-
+    print('Updating {}:{}'.format(schema_name, table_name))
+    print(server, catalog_id)
     credential = get_credential(server)
     catalog = ErmrestCatalog('https', server, catalog_id, credentials=credential)
     model_root = catalog.getCatalogModel()
@@ -111,6 +113,7 @@ def update_table(mode, replace, server, catalog_id, schema_name, table_name, tab
             schema = model_root.schemas[schema_name]
         if skip_fkeys:
             table_def.fkey_defs = []
+        print('Creating table...')
         table = schema.create_table(catalog, table_def)
         return table
 

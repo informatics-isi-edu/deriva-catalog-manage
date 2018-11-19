@@ -1,13 +1,17 @@
 from __future__ import print_function
 import os
+import tempfile
 import autopep8
 import re
+import datetime
+import importlib.util
 
 from tableschema import Table, Schema, Field, exceptions
-from goodtables import validate
+import goodtables
 
 from deriva.core import ErmrestCatalog, get_credential
-from dump_catalog import print_variable, print_tag_variables, print_annotations, print_table_def, tag_map
+from deriva.utils.catalog.manage.dump_catalog import \
+    print_variable, print_tag_variables, print_annotations, print_table_def, tag_map
 
 # We should get range info in there....
 table_schema_type_map = {
@@ -51,7 +55,7 @@ table_schema_ermrest_type_map = {
     'string:binary': 'text',
     'string:uuid': 'text',
     'number:default': 'float8',
-    'integer:default': 'integer4',
+    'integer:default': 'int4',
     'boolean:default': 'boolean',
     'object:default': 'json',
     'array:default': 'json[]',
@@ -67,12 +71,12 @@ table_schema_ermrest_type_map = {
 
 
 def cannonical_deriva_name(name):
-    # This is not quite right.  Doesn't handle 'Treatment Volume (mM)'
-    split_words = '[A-Z]+[a-z0-9]*|[a-z0-9]+'
-    return '_'.join(list(map(lambda x: x[0].upper() + x[1:], re.findall(split_words, name))))
+    exclude_list = ['nM']
+    split_words = '[A-Z]+[a-z0-9]*|[a-z0-9]+|\(.*?\)'
+    return '_'.join(list(map(lambda x: x if x in exclude_list else x[0].upper() + x[1:], re.findall(split_words, name))))
 
 
-def table_schema_from_catalog(server, catalog_id, schema_name, table_name, outfile=None):
+def table_schema_from_catalog(server, catalog_id, schema_name, table_name, skip_system_columns=True, outfile=None):
     """
     Create a TableSchema by querying an ERMRest catalog and converting the model format.
     :param server: Server on which the catalog resides
@@ -87,29 +91,38 @@ def table_schema_from_catalog(server, catalog_id, schema_name, table_name, outfi
     model_root = catalog.getCatalogModel()
     schema = model_root.schemas[schema_name]
     table = schema.tables[table_name]
+    fields = []
+    primary_key = None
+    for col in table.column_definitions:
+        if col.name in ['RID', 'RCB', 'RMB', 'RCT', 'RMT'] and skip_system_columns:
+            continue
+        field = {
+            "name": col.name,
+            "type": table_schema_type_map[col.type.typename][0],
+            "constraints": {}
+        }
+        if table_schema_type_map[col.type.typename][1] != 'default':
+            field['format'] = table_schema_type_map[col.type.typename][1]
+        if col.display:
+            field['title'] = col.display['name']
+        if col.comment:
+            field['description'] = col.comment
+        # Now see if column is unique.  For this to be true, it must be in the list of keys for the table, and
+        #  the unique column list must be a singleton.
+        if [col.name] in [i.unique_columns for i in table.keys]:
+            field['constraints']['unique'] = True
+        if not col.nullok:
+            field['constraints']['required'] = True
+            # See if there is a primary key value aside from the RID column
+        if field['constraints'].get('unique', False) and field['constraints'].get('required', False):
+            primary_key = [col.name]
+        fields.append(field)
 
     try:
-        table_schema = Schema({})
-        for col in table.column_definitions:
-            field = Field({
-                "name": col.name,
-                "type": table_schema_type_map[col.type.typename][0],
-                "constraints": {}
-            })
-            if table_schema_type_map[col.type.typename][1] != 'default':
-                field.descriptor['format'] = table_schema_type_map[col.type.typename][1]
-            if col.display:
-                field.descriptor['title'] = col.display
-            if col.comment:
-                field.descriptor['description'] = col.comment
-            if [col.name] in [i.unique_columns for i in table.keys]:
-                field.descriptor['constraints']['unique'] = True
-            if not col.nullok:
-                field.descriptor['constraints']['required'] = True
-            table_schema.add_field(field.descriptor)
-        table_schema.commit()
-        if not table_schema.valid:
-            print(table_schema.errors)
+        table_schema = Schema({'fields': fields, 'missingValues' : ['', 'N/A', 'NULL']}, strict=True)
+        if primary_key:
+            table_schema.descriptor['primaryKey'] = primary_key
+        table_schema.commit(strict=True)
         if outfile:
             table_schema.save(outfile)
     except exceptions.ValidationError as exception:
@@ -122,8 +135,8 @@ def print_table_annotations(table, stream):
     print_tag_variables({}, tag_map, stream)
     print_annotations({}, tag_map, stream, var_name='table_annotations')
     print_variable('table_comment', None, stream)
-    print_variable('table_acls', None, stream)
-    print_variable('table_acl_bindings', None, stream)
+    print_variable('table_acls', {}, stream)
+    print_variable('table_acl_bindings', {}, stream)
 
 
 def print_column_annotations(schema, stream):
@@ -169,19 +182,19 @@ def print_key_defs(table_schema, schema_name, table_name, stream):
     s = 'key_defs = [\n'
     constraint_name = (schema_name, cannonical_deriva_name('{}_{}_Key)'.format(table_name, 'RID')))
     s += """    em.Key.define({},
-                 constraint_names={},\n),\n""".format(['RID'], constraint_name)
+                 constraint_names=[{!r}],\n),\n""".format(['RID'], constraint_name)
 
     if len(table_schema.primary_key) > 1:
         constraint_name = \
                 (schema_name, cannonical_deriva_name('{}_{}_Key)'.format(table_name, '_'.join(table_schema.primary_key))))
         s += """    em.Key.define({},
-                     constraint_names={},\n),\n""".format(table_schema.primary_key, constraint_name)
+                     constraint_names=[{!r}],\n),\n""".format(table_schema.primary_key, constraint_name)
 
     for col in table_schema.fields:
         if col.constraints.get('unique', False):
             constraint_name = (schema_name, cannonical_deriva_name('{}_{}_Key)'.format(table_name, col.name)))
             s += """    em.Key.define([{!r}],
-                     constraint_names={},\n""".format(col.name, constraint_name)
+                     constraint_names=[{!r}],\n""".format(col.name, constraint_name)
             s += '),\n'
     s += ']'
     print(autopep8.fix_code(s, options={}), file=stream)
@@ -205,7 +218,7 @@ def print_column_defs(table_schema, stream):
             continue
         t = "{}:{}".format(col.type, col.format)
         s += "    em.Column.define('{}', em.builtin_types['{}'],".format(col.name, table_schema_ermrest_type_map[t])
-        s += "nullok={},".format(col.required)
+        s += "nullok={},".format(not col.required)
         try:
             s += "comment=column_comment['{}'],".format(col.descriptor['description'])
         except KeyError:
@@ -234,10 +247,10 @@ schema_name = '{}'
     print_foreign_key_defs(table_schema, stream)
     print_table_def(provide_system, stream)
     print('''
-def main():
-    server = '{0}'
-    catalog_id = {1}
-    mode, replace, server, catalog_id = update_catalog.parse_args(server, catalog_id, is_table=True)
+def main(skip_args=False, mode='annotations', replace=False, server={0!r}, catalog_id={1}):
+    
+    if not skip_args:
+        mode, replace, server, catalog_id = update_catalog.parse_args(server, catalog_id, is_table=True)
     update_catalog.update_table(mode, replace, server, catalog_id, schema_name, table_name, 
                                 table_def, column_defs, key_defs, fkey_defs,
                                 table_annotations, table_acls, table_acl_bindings, table_comment,
@@ -273,17 +286,20 @@ def convert_table_to_deriva(table_loc, server, catalog_id, schema_name, table_na
     if not outfile:
         outfile = table_name + '.py'
 
-    table = Table(table_loc)
-    table.infer()
-    if map_column_names:
-        for c in table.schema.fields:
-            column_map[c.name] = cannonical_deriva_name(c.name)
-            c.descriptor['name'] = column_map[c.name]
+    # We want the inference to be conservative, so we set base decsision on all of the rows in the table.
+    table = Table(table_loc, sample_size=10000)
+    table.infer(limit=10000, confidence=1)
+    for c in table.schema.fields:
+        column_map[c.name] = cannonical_deriva_name(c.name) if map_column_names else c.name
+        c.descriptor['name'] = column_map[c.name]
 
     if key_columns:
         if not type(key_columns) is list:
             key_columns = [key_columns]
         # Set the primary key value
+        for i in key_columns:
+            if i not in column_map:
+                print('Missing key column')
         table.schema.descriptor['primaryKey'] = key_columns
         for i, col in enumerate(table.schema.fields):
             if col.name in key_columns:
@@ -295,37 +311,57 @@ def convert_table_to_deriva(table_loc, server, catalog_id, schema_name, table_na
     return column_map
 
 
-def upload_table_to_deriva(table_loc, server, catalog_id, schema_name, table_name=None, create_table=False, validate=True):
+def upload_table_to_deriva(table_loc, server, catalog_id, schema_name,
+                           key_columns=None, table_name=None, create_table=False, validate=True):
     """
 
     :param table_loc: Location of the source table. Can be file name or URL
     :param server: Server on which the catalog exists.
     :param catalog_id: Catalog ID of target catalog
     :param schema_name: Schema into which the table will be uploaded
+    :param key_columns: list of columns that form a primary key in the source table (non-null and unique)
     :param table_name: Name of table to upload. If not provided, the filename of the CSV is used for the table name
-    :param create_table:
+    :param create_table: If true, then infer the types of the table columns and create a table in the catalog
     :param validate: Run table validation on input before trying to upload
     :return:
     """
 
+    # Convert date time to string so we can push it out in JSON....
+    def date_to_text(erows):
+        for row_number, headers, row in erows:
+            row = [str(x) if type(x) is datetime.date else x for x in row]
+            yield (row_number, headers, row)
+
     if not table_name:
         table_name = os.path.splitext(os.path.basename(table_loc))[0]
 
-    credential = get_credential(server)
-    catalog = ErmrestCatalog('https', server, catalog_id, credentials=credential)
+    if create_table:
+        print('Creating table {}:{}'.format(schema_name, table_name))
+        with tempfile.TemporaryDirectory() as tdir:
+            fname = '{}/{}.py'.format(tdir, table_name)
+            convert_table_to_deriva(table_loc, server, catalog_id, schema_name,
+                                    table_name=table_name, key_columns=key_columns,
+                                    outfile=fname)
+            modspec = importlib.util.spec_from_file_location("table_name", fname)
+            tablescript = importlib.util.module_from_spec(modspec)
+            modspec.loader.exec_module(tablescript)
+            tablescript.main(skip_args=True, mode='table')
 
     table_schema = table_schema_from_catalog(server, catalog_id, schema_name, table_name)
-
     if validate:
-        report = validate(table_loc, schema=table_schema)
-        print(report)
+        report = goodtables.validate(table_loc, schema=table_schema.descriptor)
+        if not report['valid']:
+            return report
 
+    credential = get_credential(server)
+    catalog = ErmrestCatalog('https', server, catalog_id, credentials=credential)
     pb = catalog.getPathBuilder()
-    source_table = Table(table_loc, schema=table_schema)
-    target_table = pb.schemas[schema_name].tables['table_name']
+    source_table = Table(table_loc, schema=table_schema.descriptor, post_cast=[date_to_text])
+    target_table = pb.schemas[schema_name].tables[table_name]
     entities = source_table.read(keyed=True)
     target_table.insert(entities, add_system_defaults=True)
     return
+
 
 def main():
     return
