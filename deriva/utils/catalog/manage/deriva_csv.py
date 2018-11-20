@@ -469,7 +469,7 @@ def main():
     upload_table_to_deriva(args.tabledata, args.server, args.catalog, args.schema,
                            key_columns=args.key_columns, table_name=args.table,
                            convert_table=args.convert, derivafile=args.derivafile, map_column_names=args.map_column_names,
-                           create_table=args.create_table, validate= not args.skip_validate, load_data= not args.skip_load,
+                           create_table=args.create_table, validate= not args.skip_validate, load_data= not args.skip_upload,
                            chunk_size=args.chunk_size, starting_chunk=args.starting_chunk)
     return
 
