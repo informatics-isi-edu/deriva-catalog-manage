@@ -90,7 +90,7 @@ class DerivaCSVError(HTTPError):
 
 def cannonical_deriva_name(name):
     exclude_list = ['nM']
-    split_words = '[A-Z]+[a-z0-9]*|[a-z0-9]+|\(.*?\)'
+    split_words = '[A-Z]+[a-z0-9]*|[a-z0-9]+|\(.*?\)|[+/-*@<>%&=]'
     return '_'.join(list(map(lambda x: x if x in exclude_list else x[0].upper() + x[1:], re.findall(split_words, name))))
 
 
@@ -304,17 +304,21 @@ def convert_table_to_deriva(table_loc, server, catalog_id, schema_name, table_na
     if not outfile:
         outfile = table_name + '.py'
 
-    # We want the inference to be conservative, so we set base decsision on all of the rows in the table.
+    # Here is the tricky bit: Inference is based on a sample and then a threshold.  Unfortunatley, a missing value will
+    # look like a text field, so if there are many missing values, this can skew the result.  There may also be
+    # issues that arrise from the sampling.  To try to balance these, we will get a large number of rows, but then
+    # tolerate some "off" values.
+
     table = Table(table_loc, sample_size=10000)
-    table.infer(limit=10000, confidence=1)
+    table.infer(limit=10000, confidence=.75)
+    print(table.schema.descriptor)
     for c in table.schema.fields:
         column_map[c.name] = cannonical_deriva_name(c.name) if map_column_names else c.name
         c.descriptor['name'] = column_map[c.name]
 
-    if map_column_names:
-        key_columns = [cannonical_deriva_name(c) for c in key_columns]
-
     if key_columns:
+        if map_column_names:
+            key_columns = [cannonical_deriva_name(c) for c in key_columns]
         if not type(key_columns) is list:
             key_columns = [key_columns]
         # Set the primary key value
@@ -334,7 +338,7 @@ def convert_table_to_deriva(table_loc, server, catalog_id, schema_name, table_na
 
 def upload_table_to_deriva(tabledata, server, catalog_id, schema_name,
                            key_columns=None, table_name=None,
-                           convert_table=True, derivafile=None,
+                           convert_table=True, derivafile=None, map_column_names=False,
                            create_table=False, validate=True, load_data=True,
                            chunk_size=1000, starting_chunk=1, validation_rows=10000):
     """
@@ -378,8 +382,8 @@ def upload_table_to_deriva(tabledata, server, catalog_id, schema_name,
             odir = os.path.dirname(os.path.abspath(tabledata)) if convert_table else tdir
             if (not derivafile) or convert_table:
                 derivafile = '{}/{}.py'.format(odir, table_name)
-                convert_table_to_deriva(tabledata, server, catalog_id, schema_name,
-                                        table_name=table_name, key_columns=key_columns,
+                convert_table_to_deriva(tabledata, server, catalog_id, schema_name, table_name=table_name,
+                                        key_columns=key_columns, map_column_names=map_column_names,
                                         outfile=derivafile)
             if create_table:
                 # Now create the table.
@@ -463,7 +467,7 @@ def main():
 
     upload_table_to_deriva(args.tabledata, args.server, args.catalog, args.schema,
                            key_columns=args.key_columns, table_name=args.table,
-                           convert_table=args.convert, derivafile=args.derivafile,
+                           convert_table=args.convert, derivafile=args.derivafile, map_column_names=args.map_column_names,
                            create_table=args.create_table, validate= not args.skip_validate, load_data= not args.skip_load,
                            chunk_size=args.chunk_size, starting_chunk=args.starting_chunk)
     return
