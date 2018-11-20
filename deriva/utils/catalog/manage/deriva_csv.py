@@ -7,13 +7,14 @@ import re
 import datetime
 import itertools
 import argparse
+from decimal import Decimal
 from requests import HTTPError
 
 if sys.version_info > (3, 5):
     import importlib.util
 elif sys.version_info > (3, 3):
     from importlib.machinery import SourceFileLoader
-else:
+elif  sys.version_info > (2, 7):
     import imp
 
 
@@ -308,11 +309,11 @@ def convert_table_to_deriva(table_loc, server, catalog_id, schema_name, table_na
     # look like a text field, so if there are many missing values, this can skew the result.  There may also be
     # issues that arrise from the sampling.  To try to balance these, we will get a large number of rows, but then
     # tolerate some "off" values.
-    confidence=1 if exact_match else .75
+    confidence = 1 if exact_match else .75
 
     table = Table(table_loc, sample_size=10000)
     table.infer(limit=10000, confidence=confidence)
-    print(table.schema.descriptor)
+
     for c in table.schema.fields:
         column_map[c.name] = cannonical_deriva_name(c.name) if map_column_names else c.name
         c.descriptor['name'] = column_map[c.name]
@@ -363,7 +364,7 @@ def upload_table_to_deriva(tabledata, server, catalog_id, schema_name,
     # Convert date time to string so we can push it out in JSON....
     def date_to_text(erows):
         for row_number, headers, row in erows:
-            row = [str(x) if type(x) is datetime.date else x for x in row]
+            row = [str(x) if type(x) is datetime.date or type(x) is Decimal else x for x in row]
             yield (row_number, headers, row)
 
     # Helper function to do chunking...
@@ -464,12 +465,11 @@ def main():
     parser.add_argument('--skip_upload', action='store_true', help='Load data into catalog [Default:True]')
 
     args = parser.parse_args()
-    print(args)
 
     upload_table_to_deriva(args.tabledata, args.server, args.catalog, args.schema,
                            key_columns=args.key_columns, table_name=args.table,
                            convert_table=args.convert, derivafile=args.derivafile, map_column_names=args.map_column_names,
-                           create_table=args.create_table, validate= not args.skip_validate, load_data= not args.skip_upload,
+                           create_table=args.create_table, validate=not args.skip_validate, load_data=not args.skip_upload,
                            chunk_size=args.chunk_size, starting_chunk=args.starting_chunk)
     return
 
