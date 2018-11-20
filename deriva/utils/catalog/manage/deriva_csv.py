@@ -90,7 +90,7 @@ class DerivaCSVError(HTTPError):
 
 def cannonical_deriva_name(name):
     exclude_list = ['nM']
-    split_words = '[A-Z]+[a-z0-9]*|[a-z0-9]+|\(.*?\)|[+/-*@<>%&=]'
+    split_words = '[A-Z]+[a-z0-9]*|[a-z0-9]+|\(.*?\)|[+\/\-*@<>%&=]'
     return '_'.join(list(map(lambda x: x if x in exclude_list else x[0].upper() + x[1:], re.findall(split_words, name))))
 
 
@@ -461,7 +461,7 @@ def main():
     parser.add_argument('--skip_validate', action='store_true', help='Validate the table before uploading [Default:True]')
     parser.add_argument('--create_table', action='store_true',
                         help='Automatically create catalog table based on column type inference [Default:False]')
-    parser.add_argument('--skip_load', action='store_true', help='Load data into catalog [Default:True]')
+    parser.add_argument('--skip_upload', action='store_true', help='Load data into catalog [Default:True]')
 
     args = parser.parse_args()
     print(args)
