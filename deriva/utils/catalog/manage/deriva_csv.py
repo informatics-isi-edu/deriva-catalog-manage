@@ -281,7 +281,7 @@ if __name__ == "__main__":
 
 
 def convert_table_to_deriva(table_loc, server, catalog_id, schema_name, table_name=None, outfile=None,
-                            map_column_names=False, key_columns=None):
+                            map_column_names=False, exact_match=False, key_columns=None):
     """
     Read in a table, try to figure out the type of its columns and output a deriva-py program that can be used to create
     the table in a catalog.
@@ -308,9 +308,10 @@ def convert_table_to_deriva(table_loc, server, catalog_id, schema_name, table_na
     # look like a text field, so if there are many missing values, this can skew the result.  There may also be
     # issues that arrise from the sampling.  To try to balance these, we will get a large number of rows, but then
     # tolerate some "off" values.
+    confidence=1 if exact_match else .75
 
     table = Table(table_loc, sample_size=10000)
-    table.infer(limit=10000, confidence=.75)
+    table.infer(limit=10000, confidence=confidence)
     print(table.schema.descriptor)
     for c in table.schema.fields:
         column_map[c.name] = cannonical_deriva_name(c.name) if map_column_names else c.name
