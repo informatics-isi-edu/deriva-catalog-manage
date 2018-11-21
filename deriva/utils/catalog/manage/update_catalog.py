@@ -145,8 +145,8 @@ def update_table(mode, replace, server, catalog_id, schema_name, table_name, tab
             try:
                 table.create_fkey(catalog, i)
                 print('Created foreign key {} {}'.format(i['names'], i))
-            except HTTPError:
-                print("Skipping: foreign key {} {} already exists".format(i['names'], i))
+            except HTTPError as e:
+                print("Skipping: foreign key {} {}: \n{}".format(i['names'], i, e.args))
     if mode == 'keys':
         if replace:
             print('deleting keys')
@@ -159,7 +159,8 @@ def update_table(mode, replace, server, catalog_id, schema_name, table_name, tab
             try:
                 table.create_key(catalog, i)
                 print('Created key {}'.format(i['names']))
-            except HTTPError:
+            except HTTPError as err:
+                print(err.response.text)
                 print("Skipping: key {} already exists".format(i['names']))
 
     if mode == 'annotations':
