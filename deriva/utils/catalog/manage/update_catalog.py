@@ -1,8 +1,7 @@
+import sys
 import argparse
 from requests.exceptions import HTTPError
-
 from deriva.core import ErmrestCatalog, get_credential
-
 
 def parse_args(server, catalog_id, is_table=False, is_catalog=False):
 
@@ -28,25 +27,19 @@ def parse_args(server, catalog_id, is_table=False, is_catalog=False):
 
 def update_annotations(o,annotations, replace=False):
     if replace:
-        o.annotations.update(annotations)
-    else:
-        for k, v in annotations.items():
-            o.annotations[k] = v
+        o.annotations.clear()
+    o.annotations.update(annotations)
 
 def update_acls(o,acls, replace=False):
     if replace:
-        o.acls.update(acls)
-    else:
-        for k, v in acls.items():
-            o.acls[k] = v
+        o.acls.clear()
+    o.acls.update(acls)
 
 
 def update_acl_bindings(o, acl_bindings, replace=False):
     if replace:
-        o.acl_bindings.update(acl_bindings)
-    else:
-        for k, v in acl_bindings.items():
-            o.acl_bindingss[k] = v
+        o.acls_binding.clear()
+    o.acl_bindings.update(acl_bindings)
 
 
 def update_catalog(mode, replace, server, catalog_id, annotations, acls):
@@ -136,7 +129,7 @@ def update_table(mode, replace, server, catalog_id, schema_name, table_name, tab
         if replace:
             print('deleting foreign_keys')
             for k in table.foreign_keys:
-                k.delete(catalog)
+                k.delete(catalog, table)
             model_root = catalog.getCatalogModel()
             schema = model_root.schemas[schema_name]
             table = schema.tables[table_name]
@@ -160,13 +153,17 @@ def update_table(mode, replace, server, catalog_id, schema_name, table_name, tab
                 table.create_key(catalog, i)
                 print('Created key {}'.format(i['names']))
             except HTTPError as err:
-                print(err.response.text)
-                print("Skipping: key {} already exists".format(i['names']))
+                if  'already exists' in err.response.text:
+                    print("Skipping: key {} already exists".format(i['names']))
+                else:
+                    print(err.response.text)
 
     if mode == 'annotations':
         update_annotations(table, table_annotations, replace)
 
         for c in table.column_definitions:
+            if replace:
+                c.annotations.clear()
             if c.name in column_annotations:
                 update_annotations(c, column_annotations[c.name], replace)
 
@@ -179,6 +176,7 @@ def update_table(mode, replace, server, catalog_id, schema_name, table_name, tab
     if mode == 'acls':
         update_acls(table, table_acls, replace)
         update_acl_bindings(table, table_acl_bindings, replace)
+        print(table.acl_bindings)
         for c in table.column_definitions:
             if c.name in column_acls:
                 update_acls(c, column_acls[c.name], replace)
