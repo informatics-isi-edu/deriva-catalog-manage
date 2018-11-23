@@ -38,8 +38,9 @@ groups = {}
 yapf_style = {
     'based_on_style' : 'pep8',
     'allow_split_before_dict_value' : False,
-    'split_before_first_argument': False,
-    'disable_ending_comma_heuristic': True,
+ #   'split_before_first_argument': False,
+  #  'disable_ending_comma_heuristic': True,
+   # 'DEDENT_CLOSING_BRACKETS': True,
     'column_limit': 90
 }
 
@@ -194,8 +195,6 @@ if __name__ == "__main__":
 
 
 def print_table_annotations(table, stream, variables=None):
-    print_variable('groups', groups, stream)
-    print_variable('tags', tag_map, stream)
     print_tag_variables(table.annotations, tag_map, stream, variables=variables)
     print_annotations(table.annotations, tag_map, stream, var_name='table_annotations', variables=variables)
     print_variable('table_comment', table.comment, stream, variables=variables)
