@@ -35,7 +35,16 @@ tag_map = AttrDict({
 
 groups = {}
 
-def print_variable(name, value, stream, variables={}):
+yapf_style = {
+    'based_on_style' : 'pep8',
+    'allow_split_before_dict_value' : False,
+    'split_before_first_argument': False,
+    'disable_ending_comma_heuristic': True,
+    'colunn_limit': 90
+}
+
+
+def print_variable(name, value, stream, variables=None):
     """
     Print out a variable assignment on one line if empty, otherwise pretty print.
     :param name:
@@ -43,18 +52,20 @@ def print_variable(name, value, stream, variables={}):
     :param stream:
     :return:
     """
+
     s = '{} = {!r}'.format(name, value)
-    for k,v in variables.items():
-        varsub = r"(['\"])+{}\1".format(v)
-        if k in tag_map:
-            repl = 'tags.{}'.format(k)
-        elif k in groups:
-            repl = 'groups.{}'.format(k)
-        s = re.sub(varsub,repl, s)
-    print(FormatCode(s, style_config='pep8')[0], file=stream)
+    if variables:
+        for k, v in variables.items():
+            varsub = r"(['\"])+{}\1".format(v)
+            if k in tag_map:
+                repl = 'tags.{}'.format(k)
+            elif k in groups:
+                repl = 'groups.{}'.format(k)
+            s = re.sub(varsub, repl, s)
+    print(FormatCode(s, style_config=yapf_style)[0], file=stream)
 
 
-def print_tag_variables(annotations, tag_map, stream, variables={}):
+def print_tag_variables(annotations, tag_map, stream, variables=None):
     """
     For each convenient annotation name in tag_map, print out a variable declaration of the form annotation = v where
     v is the value of the annotation the dictionary.  If the tag is not in the set of annotations, do nothing.
@@ -89,10 +100,10 @@ def print_annotations(annotations, tag_map, stream, var_name='annotations', vari
             else:
                 s += "'{}' : {!r},".format(t, v)
         s += '}'
-    print(FormatCode(s, style_config='pep8')[0], file=stream)
+    print(FormatCode(s, style_config=yapf_style)[0], file=stream)
 
 
-def print_schema(server, catalog_id, schema_name, stream, variables={}):
+def print_schema(server, catalog_id, schema_name, stream, variables=None):
     credential = get_credential(server)
     catalog = ErmrestCatalog('https', server, catalog_id, credentials=credential)
     model_root = catalog.getCatalogModel()
@@ -135,7 +146,7 @@ if __name__ == "__main__":
     main()'''.format(server, catalog_id, schema_name), file=stream)
 
 
-def print_catalog(server, catalog_id, dumpdir, variables = {}):
+def print_catalog(server, catalog_id, dumpdir, variables=None):
     credential = get_credential(server)
     catalog = ErmrestCatalog('https', server, catalog_id, credentials=credential)
     model_root = catalog.getCatalogModel()
@@ -182,7 +193,7 @@ if __name__ == "__main__":
             f.close()
 
 
-def print_table_annotations(table, stream, variables={}):
+def print_table_annotations(table, stream, variables=None):
     print_variable('groups', groups, stream)
     print_variable('tags', tag_map, stream)
     print_tag_variables(table.annotations, tag_map, stream, variables=variables)
@@ -192,7 +203,7 @@ def print_table_annotations(table, stream, variables={}):
     print_variable('table_acl_bindings', table.acl_bindings, stream, variables=variables)
 
 
-def print_column_annotations(table, stream, variables={}):
+def print_column_annotations(table, stream, variables=None):
     column_annotations = {}
     column_acls = {}
     column_acl_bindings = {}
@@ -216,7 +227,7 @@ def print_column_annotations(table, stream, variables={}):
     return
 
 
-def print_foreign_key_defs(table, stream, variables={}):
+def print_foreign_key_defs(table, stream, variables=None):
     s = 'fkey_defs = [\n'
     for fkey in table.foreign_keys:
         s += """    em.ForeignKey.define({},
@@ -235,7 +246,7 @@ def print_foreign_key_defs(table, stream, variables={}):
         s += '    ),\n'
 
     s += ']'
-    print(FormatCode(s, style_config='pep8')[0], file=stream)
+    print(FormatCode(s, style_config=yapf_style)[0], file=stream)
 
 
 def print_key_defs(table, stream):
@@ -250,7 +261,7 @@ def print_key_defs(table, stream):
                 s += "       {} = {},\n".format(i, v)
         s += '),\n'
     s += ']'
-    print(FormatCode(s, style_config='pep8')[0], file=stream)
+    print(FormatCode(s, style_config=yapf_style)[0], file=stream)
     return
 
 
@@ -274,7 +285,7 @@ def print_column_defs(table, stream):
                 s += "{}=column_{}['{}'],".format(i, i, col.name)
         s += '),\n'
     s += ']'
-    print(FormatCode(s, style_config='pep8')[0], file=stream)
+    print(FormatCode(s, style_config=yapf_style)[0], file=stream)
     return provide_system
 
 
@@ -290,10 +301,10 @@ def print_table_def(provide_system, stream):
     comment=table_comment,
     provide_system = {}
 )""".format(provide_system)
-    print(FormatCode(s, style_config='pep8')[0], file=stream)
+    print(FormatCode(s, style_config=yapf_style)[0], file=stream)
 
 
-def print_table(server, catalog_id, schema_name, table_name, stream, variables={}):
+def print_table(server, catalog_id, schema_name, table_name, stream, variables=None):
     credential = get_credential(server)
     catalog = ErmrestCatalog('https', server, catalog_id, credentials=credential)
     model_root = catalog.getCatalogModel()
