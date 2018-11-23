@@ -40,7 +40,7 @@ yapf_style = {
     'allow_split_before_dict_value' : False,
     'split_before_first_argument': False,
     'disable_ending_comma_heuristic': True,
-    'colunn_limit': 90
+    'column_limit': 90
 }
 
 
