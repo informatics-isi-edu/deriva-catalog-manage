@@ -101,7 +101,7 @@ def update_table(mode, replace, server, catalog_id, schema_name, table_name, tab
             print('Deleting table ', table.name)
             ok = input('Type YES to confirm:')
             if ok == 'YES':
-                table.delete(catalog)
+                table.delete(catalog, schema)
             model_root = catalog.getCatalogModel()
             schema = model_root.schemas[schema_name]
         if skip_fkeys:
@@ -115,7 +115,7 @@ def update_table(mode, replace, server, catalog_id, schema_name, table_name, tab
         if replace:
             print('deleting columns')
             for k in table.column_definitions:
-                k.delete(catalog)
+                k.delete(catalog, table)
             model_root = catalog.getCatalogModel()
             schema = model_root.schemas[schema_name]
             table = schema.tables[table_name]
@@ -144,7 +144,7 @@ def update_table(mode, replace, server, catalog_id, schema_name, table_name, tab
         if replace:
             print('deleting keys')
             for k in table.keys:
-                k.delete(catalog)
+                k.delete(catalog, table)
             model_root = catalog.getCatalogModel()
             schema = model_root.schemas[schema_name]
             table = schema.tables[table_name]
