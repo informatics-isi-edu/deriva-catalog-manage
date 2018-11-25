@@ -1,7 +1,6 @@
 from __future__ import print_function
 
 import argparse
-import pprint
 import os
 import re
 from yapf.yapflib.yapf_api import FormatCode
@@ -15,156 +14,164 @@ if sys.version_info > (3, 5):
     import importlib.util
 elif sys.version_info > (3, 3):
     from importlib.machinery import SourceFileLoader
-elif  sys.version_info > (2, 7):
+elif sys.version_info > (2, 7):
     import imp
-
-tag_map = AttrDict({
-    'immutable':          'tag:isrd.isi.edu,2016:immutable',
-    'display':            'tag:misd.isi.edu,2015:display',
-    'visible_columns':    'tag:isrd.isi.edu,2016:visible-columns',
-    'visible_foreign_keys': 'tag:isrd.isi.edu,2016:visible-foreign-keys',
-    'foreign_key':        'tag:isrd.isi.edu,2016:foreign-key',
-    'table_display':      'tag:isrd.isi.edu,2016:table-display',
-    'table_alternatives': 'tag:isrd.isi.edu,2016:table-alternatives',
-    'column_display':     'tag:isrd.isi.edu,2016:column-display',
-    'asset':              'tag:isrd.isi.edu,2017:asset',
-    'export':             'tag:isrd.isi.edu,2016:export',
-    'generated':          'tag:isrd.isi.edu,2016:generated',
-    'bulk_upload':        'tag:isrd.isi.edu,2017:bulk-upload'
-})
 
 groups = {}
 
 yapf_style = {
-    'based_on_style' : 'pep8',
-    'allow_split_before_dict_value' : False,
- #   'split_before_first_argument': False,
-  #  'disable_ending_comma_heuristic': True,
-   # 'DEDENT_CLOSING_BRACKETS': True,
+    'based_on_style': 'pep8',
+    'allow_split_before_dict_value': False,
+    'split_before_first_argument': False,
+    'disable_ending_comma_heuristic': True,
+    'DEDENT_CLOSING_BRACKETS': True,
     'column_limit': 90
 }
 
 
-def print_variable(name, value, stream, variables=None):
+def substitute_variables(code, variables):
     """
-    Print out a variable assignment on one line if empty, otherwise pretty print.
-    :param name:
-    :param value:
-    :param stream:
+    Factor out code and replace with a variable name.
+    :param code:
+    :param variables:
     :return:
     """
-
-    s = '{} = {!r}'.format(name, value)
     if variables:
         for k, v in variables.items():
             varsub = r"(['\"])+{}\1".format(v)
-            if k in tag_map:
-                repl = 'tags.{}'.format(k)
+            if k in chaise_tags:
+                repl = 'chaise_tags.{}'.format(k)
             elif k in groups:
                 repl = 'groups.{}'.format(k)
-            s = re.sub(varsub, repl, s)
-    print(FormatCode(s, style_config=yapf_style)[0], file=stream)
+            else:
+                repl = k
+            code = re.sub(varsub, repl, code)
+    return code
 
 
-def print_tag_variables(annotations, tag_map, stream, variables=None):
+def variable_to_str(name, value, variables=None):
+    """
+    Print out a variable assignment on one line if empty, otherwise pretty print.
+    :param name: Left hand side of assigment
+    :param value: Right hand side of assignment
+    :param variables: Dirctionary of variable names to be substituted
+    :return:
+    """
+
+    s = '{} = {!r}\n'.format(name, value)
+    s = substitute_variables(s, variables)
+    return s
+
+
+def tag_variables_to_str(annotations, variables=None):
     """
     For each convenient annotation name in tag_map, print out a variable declaration of the form annotation = v where
     v is the value of the annotation the dictionary.  If the tag is not in the set of annotations, do nothing.
     :param annotations:
-    :param tag_map:
-    :param stream:
+    :param variables: Dictionary of variable names to be substituted
     :return:
     """
-    for t, v in tag_map.items():
+    s = ''
+    for t, v in chaise_tags.items():
         if v in annotations:
-            print_variable(t, annotations[v], stream, variables)
+            s += variable_to_str(t, annotations[v], variables)
+            s += '\n'
+    return s
 
 
-def print_annotations(annotations, tag_map, stream, var_name='annotations', variables={}):
+def annotations_to_str(annotations, var_name='annotations', variables=None):
     """
     Print out the annotation definition in annotations, substituting the python variable for each of the tags specified
     in tag_map.
     :param annotations:
-    :param tag_map:
-    :param stream:
+    :param var_name:
+    :param variables:
     :return:
     """
-    var_map = {v: k for k, v in tag_map.items()}
+
+    var_map = {v: k for k, v in variables.items()}
     if annotations == {}:
-        s = '{} = {{}}'.format(var_name)
+        s = '{} = {{}}\n'.format(var_name)
     else:
         s = '{} = {{'.format(var_name)
         for t, v in annotations.items():
             if t in var_map:
                 # Use variable value rather then inline annotation value.
-                s += "'{}' : {},".format(t, var_map[t])
+                s += substitute_variables('{!r}:{},'.format(t, var_map[t]), variables)
             else:
                 s += "'{}' : {!r},".format(t, v)
-        s += '}'
-    print(FormatCode(s, style_config=yapf_style)[0], file=stream)
+        s += '}\n'
+    return s
 
 
-def print_schema(server, catalog_id, schema_name, stream, variables=None):
-    credential = get_credential(server)
-    catalog = ErmrestCatalog('https', server, catalog_id, credentials=credential)
-    model_root = catalog.getCatalogModel()
+def schema_to_str(model_root, server, catalog_id, schema_name, variables=None):
+
     schema = model_root.schemas[schema_name]
 
-    print("""import argparse
+    s = """import argparse
 from attrdict import AttrDict
 from deriva.core import ErmrestCatalog, get_credential, DerivaPathError
 import deriva.core.ermrest_model as em
+from deriva.core.ermrest_config import tag as chaise_tags
 from deriva.utils.catalog.manage import update_catalog
-""", file=stream)
-    print('table_names = [', file=stream)
-    for i in schema.tables:
-        print("    '{}',".format(i), file=stream)
-    print(']\n', file=stream)
-    print_variable('groups', groups, stream)
-    print_variable('tags', tag_map, stream)
-    print_tag_variables(schema.annotations, tag_map, stream, variables=variables)
-    print_annotations(schema.annotations, tag_map, stream, variables=variables)
-    print_variable('acls', schema.acls, stream, variables=variables)
-    print_variable('comment', schema.comment, stream, variables=variables)
-    print('''schema_def = em.Schema.define(
-        '{0}',
+
+{table_names}
+
+{groups}
+
+{annotations}
+
+{acls}
+
+{comments}
+
+schema_def = em.Schema.define(
+        '{schema_name}',
         comment=comment,
         acls=acls,
         annotations=annotations,
     )
-
-
+    
 def main():
-    server = '{0}'
-    catalog_id = {1}
-    schema_name = '{2}'
+    server = {server}
+    catalog_id = {catalog_id}
+    schema_name = '{schema_name}'
     
     mode, replace, server, catalog_id = update_catalog.parse_args(server, catalog_id)
     update_catalog.update_schema(mode, replace, server, catalog_id, schema_name, schema_def, annotations, acls, comment)
 
 
 if __name__ == "__main__":
-    main()'''.format(server, catalog_id, schema_name), file=stream)
+    main()
+""".format(server=server, catalog_id=catalog_id, schema_name=schema_name,
+           groups=variable_to_str('groups', groups),
+           annotations=variable_to_str('annotations', schema.annotations, variables=variables),
+           acls=variable_to_str('acls', schema.acls, variables=variables),
+           comments=variable_to_str('comment', schema.comment, variables=variables),
+           table_names='table_names = [\n{}]\n'.format(str.join('', ['{!r},\n'.format(i) for i in schema.tables])))
+    return s
 
 
-def print_catalog(server, catalog_id, dumpdir, variables=None):
-    credential = get_credential(server)
-    catalog = ErmrestCatalog('https', server, catalog_id, credentials=credential)
-    model_root = catalog.getCatalogModel()
+def catalog_to_str(model_root, server, catalog_id, variables=None):
 
-    with open('{}/{}_{}.py'.format(dumpdir, server, catalog_id), 'w') as f:
-        print("""import argparse
+    s = """import argparse
 from attrdict import AttrDict
 from deriva.core import ErmrestCatalog, get_credential, DerivaPathError
 from deriva.utils.catalog.manage import update_catalog
+from deriva.core.ermrest_config import tag as chaise_tags
 import deriva.core.ermrest_model as em
-""", file=f)
-        print_variable('groups', groups, f)
-        print_variable('tags', tag_map, f)
-        print_tag_variables(model_root.annotations, tag_map, f, variables=variables)
-        print_annotations(model_root.annotations, tag_map, f, variables=variables)
-        print_variable('acls', model_root.acls, f, variables=variables)
-        print('''
+
+
+{catalog_groups}
+
+
+{tag_variables}
+
+
+{annotations}
+
+
+{catalog_acls}
 
 
 def main():
@@ -175,34 +182,25 @@ def main():
     
 
 if __name__ == "__main__":
-    main()'''.format(server, catalog_id), file=f)
-
-    for schema_name, schema in model_root.schemas.items():
-        filename = '{}/{}.schema.py'.format(dumpdir, schema_name)
-        os.makedirs(os.path.dirname(filename), exist_ok=True)
-
-        with open(filename, 'w') as f:
-            print_schema(server, catalog_id, schema_name, f, variables=variables)
-        f.close()
-
-        for i in schema.tables:
-            print('Dumping {}:{}'.format(schema_name, i))
-            filename = '{}/{}/{}.py'.format(dumpdir, schema_name, i)
-            os.makedirs(os.path.dirname(filename), exist_ok=True)
-            with open(filename, 'w') as f:
-                print_table(server, catalog_id, schema_name, i, f, variables=variables)
-            f.close()
+    main()
+""".format(server, catalog_id,
+           catalog_groups=variable_to_str('groups', groups),
+           tag_variables=tag_variables_to_str(model_root.annotations, variables=variables),
+           annotations=annotations_to_str(model_root.annotations, variables=variables),
+           catalog_acls=variable_to_str('acls', model_root.acls, variables=variables))
+    return s
 
 
-def print_table_annotations(table, stream, variables=None):
-    print_tag_variables(table.annotations, tag_map, stream, variables=variables)
-    print_annotations(table.annotations, tag_map, stream, var_name='table_annotations', variables=variables)
-    print_variable('table_comment', table.comment, stream, variables=variables)
-    print_variable('table_acls', table.acls, stream, variables=variables)
-    print_variable('table_acl_bindings', table.acl_bindings, stream, variables=variables)
+def table_annotations_to_str(table, variables=None):
+    s = tag_variables_to_str(table.annotations, variables=variables)
+    s += annotations_to_str(table.annotations, var_name='table_annotations', variables=variables)
+    s += variable_to_str('table_comment', table.comment, variables=variables)
+    s += variable_to_str('table_acls', table.acls, variables=variables)
+    s += variable_to_str('table_acl_bindings', table.acl_bindings, variables=variables)
+    return s
 
 
-def print_column_annotations(table, stream, variables=None):
+def column_annotations_to_str(table, variables=None):
     column_annotations = {}
     column_acls = {}
     column_acl_bindings = {}
@@ -219,14 +217,14 @@ def print_column_annotations(table, stream, variables=None):
             column_acls[i.name] = i.acls
         if i.acl_bindings != {}:
             column_acl_bindings[i.name] = i.acl_bindings
-    print_variable('column_annotations', column_annotations, stream, variables=variables)
-    print_variable('column_comment', column_comment, stream, variables=variables)
-    print_variable('column_acls', column_acls, stream, variables=variables)
-    print_variable('column_acl_bindings', column_acl_bindings, stream, variables=variables)
-    return
+    s = variable_to_str('column_annotations', column_annotations, variables=variables) + '\n'
+    s += variable_to_str('column_comment', column_comment, variables=variables) + '\n'
+    s += variable_to_str('column_acls', column_acls, variables=variables) + '\n'
+    s += variable_to_str('column_acl_bindings', column_acl_bindings, variables=variables) + '\n'
+    return s
 
 
-def print_foreign_key_defs(table, stream, variables=None):
+def foreign_key_defs_to_str(table, variables=None):
     s = 'fkey_defs = [\n'
     for fkey in table.foreign_keys:
         s += """    em.ForeignKey.define({},
@@ -245,10 +243,11 @@ def print_foreign_key_defs(table, stream, variables=None):
         s += '    ),\n'
 
     s += ']'
-    print(FormatCode(s, style_config=yapf_style)[0], file=stream)
+    s = substitute_variables(s, variables)
+    return s
 
 
-def print_key_defs(table, stream):
+def key_defs_to_str(table, variables=None):
     s = 'key_defs = [\n'
     for key in table.keys:
         s += """    em.Key.define({},
@@ -260,18 +259,15 @@ def print_key_defs(table, stream):
                 s += "       {} = {},\n".format(i, v)
         s += '),\n'
     s += ']'
-    print(FormatCode(s, style_config=yapf_style)[0], file=stream)
-    return
+    s = substitute_variables(s, variables)
+    return s
 
 
-def print_column_defs(table, stream):
+def column_defs_to_str(table, variables=None):
     system_columns = ['RID', 'RCB', 'RMB', 'RCT', 'RMT']
-    provide_system = False
 
     s = 'column_defs = ['
     for col in table.column_definitions:
-        if col.name in system_columns:
-            provide_system = True
         s += '''    em.Column.define('{}', em.builtin_types['{}'],'''.\
             format(col.name, col.type.typename + '[]' if 'is_array' is True else col.type.typename)
         if col.nullok is False:
@@ -284,13 +280,11 @@ def print_column_defs(table, stream):
                 s += "{}=column_{}['{}'],".format(i, i, col.name)
         s += '),\n'
     s += ']'
-    print(FormatCode(s, style_config=yapf_style)[0], file=stream)
-    return provide_system
+    return s
 
 
-def print_table_def(provide_system, stream):
-    s = \
-"""table_def = em.Table.define(table_name,
+def table_def_to_str(provide_system):
+    s = """table_def = em.Table.define(table_name,
     column_defs=column_defs,
     key_defs=key_defs,
     fkey_defs=fkey_defs,
@@ -300,35 +294,41 @@ def print_table_def(provide_system, stream):
     comment=table_comment,
     provide_system = {}
 )""".format(provide_system)
-    print(FormatCode(s, style_config=yapf_style)[0], file=stream)
+    return s
 
 
-def print_table(server, catalog_id, schema_name, table_name, stream, variables=None):
-    credential = get_credential(server)
-    catalog = ErmrestCatalog('https', server, catalog_id, credentials=credential)
-    model_root = catalog.getCatalogModel()
+def table_to_str(model_root, server, catalog_id, schema_name, table_name, variables=None):
     schema = model_root.schemas[schema_name]
     table = schema.tables[table_name]
 
-    print("""import argparse
+    provide_system = True
+    s = """import argparse
 from attrdict import AttrDict
 from deriva.core import ErmrestCatalog, get_credential, DerivaPathError
 import deriva.core.ermrest_model as em
+from deriva.core.ermrest_config import tag as chaise_tags
 from deriva.utils.catalog.manage import update_catalog
 
-table_name = '{}'
-schema_name = '{}'
-""".format(table_name, schema_name), file=stream)
-    print_variable('groups', groups, stream)
-    print_variable('tags', tag_map, stream)
-    print_column_annotations(table, stream, variables=variables)
-    provide_system = print_column_defs(table, stream)
-    print_table_annotations(table, stream, variables=variables)
-    print_key_defs(table, stream)
-    print_foreign_key_defs(table, stream)
-    print_table_def(provide_system, stream)
-    print('''
-def main(skip_args=False, mode='annotations', replace=False, server={0!r}, catalog_id={1}):
+table_name = '{table_name}'
+
+schema_name = '{schema_name}'
+
+{groups}
+
+{column_annotations}
+
+{column_defs}
+
+{table_annotations}
+
+{key_defs}
+
+{fkey_defs}
+
+{table_def}
+
+
+def main(skip_args=False, mode='annotations', replace=False, server={server!r}, catalog_id={catalog_id}):
     
     if not skip_args:
         mode, replace, server, catalog_id = update_catalog.parse_args(server, catalog_id, is_table=True)
@@ -339,8 +339,16 @@ def main(skip_args=False, mode='annotations', replace=False, server={0!r}, catal
 
 
 if __name__ == "__main__":
-    main()'''.format(server, catalog_id), file=stream)
-    return
+    main()""".format(server=server, catalog_id=catalog_id, table_name=table_name, schema_name=schema_name,
+                     groups=variable_to_str('groups', groups),
+                     column_annotations=column_annotations_to_str(table, variables=variables),
+                     column_defs=column_defs_to_str(table),
+                     table_annotations=table_annotations_to_str(table, variables=variables),
+                     key_defs=key_defs_to_str(table),
+                     fkey_defs=foreign_key_defs_to_str(table),
+                     table_def=table_def_to_str(provide_system))
+
+    return s
 
 
 def main():
@@ -377,7 +385,36 @@ def main():
 
         groups = AttrDict(config.groups)
 
-    print_catalog(server, catalog_id, dumpdir, variables={**groups, **tag_map})
+    credential = get_credential(server)
+    catalog = ErmrestCatalog('https', server, catalog_id, credentials=credential)
+    model_root = catalog.getCatalogModel()
+
+    variables = {**groups, **chaise_tags}
+
+    print("Dumping catalog def....")
+    catalog_string = catalog_to_str(model_root, server, catalog_id, variables=variables)
+    catalog_string = FormatCode(catalog_string, style_config=yapf_style)[0]
+
+    with open('{}/{}_{}.py'.format(dumpdir, server, catalog_id), 'w') as f:
+        print(catalog_string, file=f)
+
+    for schema_name in model_root.schemas:
+        print("Dumping schema def for {}....".format(schema_name))
+        schema_string = schema_to_str(model_root, server, catalog_id, schema_name, variables=variables)
+        schema_string = FormatCode(schema_string, style_config=yapf_style)[0]
+
+        with open('{}/{}.schema.py'.format(dumpdir, schema_name), 'w') as f:
+            print(schema_string, file=f)
+
+    for schema_name, schema in model_root.schemas.items():
+        for i in schema.tables:
+            print('Dumping {}:{}'.format(schema_name, i))
+            table_string = table_to_str(model_root, server, catalog_id, schema_name, i, variables=variables)
+            table_string = FormatCode(table_string, style_config=yapf_style)[0]
+            filename = '{}/{}/{}.py'.format(dumpdir, schema_name, i)
+            os.makedirs(os.path.dirname(filename), exist_ok=True)
+            with open(filename, 'w') as f:
+                print(table_string, file=f)
 
 
 if __name__ == "__main__":
