@@ -28,6 +28,20 @@ yapf_style = {
     'column_limit': 90
 }
 
+def load_deriva_manage_config(configfile):
+    modname = os.path.splitext(os.path.basename(configfile))[0]
+    print('loading config {} {}'.format(configfile, modname))
+    if sys.version_info > (3, 5):
+        modspec = importlib.util.spec_from_file_location(modname, configfile)
+        config = importlib.util.module_from_spec(modspec)
+        modspec.loader.exec_module(config)
+    elif sys.version_info > (3, 3):
+        config = SourceFileLoader(modname, configfile)
+    else:
+        config = imp.load_source(modname, configfile)
+
+    groups = AttrDict(config.groups)
+    return groups
 
 def substitute_variables(code, variables):
     """
@@ -149,6 +163,7 @@ if __name__ == "__main__":
            acls=variable_to_str('acls', schema.acls, variables=variables),
            comments=variable_to_str('comment', schema.comment, variables=variables),
            table_names='table_names = [\n{}]\n'.format(str.join('', ['{!r},\n'.format(i) for i in schema.tables])))
+    s = FormatCode(s, style_config=yapf_style)[0]
     return s
 
 
@@ -188,6 +203,7 @@ if __name__ == "__main__":
            tag_variables=tag_variables_to_str(model_root.annotations, variables=variables),
            annotations=annotations_to_str(model_root.annotations, variables=variables),
            catalog_acls=variable_to_str('acls', model_root.acls, variables=variables))
+    s = FormatCode(s, style_config=yapf_style)[0]
     return s
 
 
@@ -347,7 +363,7 @@ if __name__ == "__main__":
                      key_defs=key_defs_to_str(table),
                      fkey_defs=foreign_key_defs_to_str(table),
                      table_def=table_def_to_str(provide_system))
-
+    s = FormatCode(s, style_config=yapf_style)[0]
     return s
 
 
@@ -372,18 +388,7 @@ def main():
         sys.exit(1)
 
     if configfile:
-        modname = os.path.splitext(os.path.basename(configfile))[0]
-        print('loading config {} {}'.format(configfile, modname))
-        if sys.version_info > (3, 5):
-            modspec = importlib.util.spec_from_file_location(modname, configfile)
-            config = importlib.util.module_from_spec(modspec)
-            modspec.loader.exec_module(config)
-        elif sys.version_info > (3, 3):
-            config = SourceFileLoader(modname, configfile)
-        else:
-            config = imp.load_source(modname, configfile)
-
-        groups = AttrDict(config.groups)
+        groups = load_deriva_manage_config(configfile)
 
     credential = get_credential(server)
     catalog = ErmrestCatalog('https', server, catalog_id, credentials=credential)

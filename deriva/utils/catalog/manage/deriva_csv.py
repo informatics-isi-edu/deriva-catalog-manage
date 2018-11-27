@@ -7,6 +7,7 @@ import re
 import datetime
 import itertools
 import argparse
+from yapf.yapflib.yapf_api import FormatCode
 from decimal import Decimal
 from requests import HTTPError
 
@@ -22,8 +23,11 @@ from tableschema import Table, Schema, Field, exceptions
 import goodtables
 
 from deriva.core import ErmrestCatalog, get_credential
-from deriva.utils.catalog.manage.dump_catalog import \
-    print_variable, print_tag_variables, print_annotations, print_table_def, tag_map
+from deriva.core.ermrest_config import tag as chaise_tags
+from deriva.utils.catalog.manage.dump_catalog import  variable_to_str, tag_variables_to_str, annotations_to_str, \
+    table_def_to_str, load_deriva_manage_config, yapf_style
+
+groups = {}
 
 # We should get range info in there....
 table_schema_type_map = {
@@ -89,6 +93,18 @@ class DerivaCSVError(HTTPError):
         self.reason = http_err
 
 
+def load_table_script(table_name, derivafile):
+    if sys.version_info > (3, 5):
+        modspec = importlib.util.spec_from_file_location(table_name, derivafile)
+        tablescript = importlib.util.module_from_spec(modspec)
+        modspec.loader.exec_module(tablescript)
+    elif sys.version_info > (3, 3):
+        tablescript = SourceFileLoader(table_name, derivafile)
+    else:
+        tablescript = imp.load_source(table_name, derivafile)
+    return tablescript
+
+
 def cannonical_deriva_name(name):
     exclude_list = ['nM']
     split_words = '[A-Z]+[a-z0-9]*|[a-z0-9]+|\(.*?\)|[+\/\-*@<>%&=]'
@@ -150,15 +166,16 @@ def table_schema_from_catalog(server, catalog_id, schema_name, table_name, skip_
     return table_schema
 
 
-def print_table_annotations(table, stream):
-    print_tag_variables({}, tag_map, stream)
-    print_annotations({}, tag_map, stream, var_name='table_annotations')
-    print_variable('table_comment', None, stream)
-    print_variable('table_acls', {}, stream)
-    print_variable('table_acl_bindings', {}, stream)
+def table_annotations_to_str(table, variables=None):
+    s = tag_variables_to_str({}, variables)
+    s += annotations_to_str({}, 'table_annotations', variables=variables)
+    s += variable_to_str('table_comment', None, variables)
+    s += variable_to_str('table_acls', {}, variables)
+    s += variable_to_str('table_acl_bindings', {}, variables)
+    return s
 
 
-def print_column_annotations(schema, stream):
+def column_annotations_to_str(schema, variables=None):
     column_annotations = {}
     column_acls = {}
     column_acl_bindings = {}
@@ -167,15 +184,14 @@ def print_column_annotations(schema, stream):
     for i in schema.fields:
         if 'description' in i.descriptor and not (i.descriptor['description'] == '' or not i.descriptor['description']):
             column_comment[i.name] = i.comment
+    s = variable_to_str('column_annotations', column_annotations, variables)
+    s += variable_to_str('column_comment', column_comment, variables)
+    s += variable_to_str('column_acls', column_acls)
+    s += variable_to_str('column_acl_bindings', column_acl_bindings, variables)
+    return s
 
-    print_variable('column_annotations', column_annotations, stream)
-    print_variable('column_comment', column_comment, stream)
-    print_variable('column_acls', column_acls, stream)
-    print_variable('column_acl_bindings', column_acl_bindings, stream)
-    return
 
-
-def print_foreign_key_defs(table_schema, stream):
+def foreign_key_defs_to_str(table_schema, variables=None):
     s = 'fkey_defs = [\n'
     for fkey in table_schema.foreign_keys:
         s += """    em.ForeignKey.define({},
@@ -194,10 +210,10 @@ def print_foreign_key_defs(table_schema, stream):
         s += '    ),\n'
 
     s += ']'
-    print(autopep8.fix_code(s, options={}), file=stream)
+    return s
 
 
-def print_key_defs(table_schema, schema_name, table_name, stream):
+def key_defs_to_str(table_schema, schema_name, table_name):
     s = 'key_defs = [\n'
     constraint_name = (schema_name, cannonical_deriva_name('{}_{}_Key)'.format(table_name, 'RID')))
     s += """    em.Key.define({},
@@ -216,15 +232,13 @@ def print_key_defs(table_schema, schema_name, table_name, stream):
                      constraint_names=[{!r}],\n""".format(col.name, constraint_name)
             s += '),\n'
     s += ']'
-    print(autopep8.fix_code(s, options={}), file=stream)
-    return
+    return s
 
 
-def print_column_defs(table_schema, stream):
+def column_defs_to_str(table_schema):
     """
     Print out a list of the deriva_py column definions, one for each field in the schema.
     :param table_schema: A table schema object
-    :param stream: Output file
     :return:
     """
     provide_system = True
@@ -244,45 +258,59 @@ def print_column_defs(table_schema, stream):
             pass
         s += '),\n'
     s += ']'
-    print(autopep8.fix_code(s, options={'aggressive': 8}), file=stream)
-    return provide_system
+    return s
 
 
-def print_table(server, catalog_id, table_schema, schema_name, table_name, stream):
-    print("""import argparse
-from deriva.core import ErmrestCatalog, get_credential, DerivaPathError
-from deriva.utils.catalog.manage import update_catalog
+def table_to_str(server, catalog_id, table_schema, schema_name, table_name):
+    s = """import argparse
+    from attrdict import AttrDict
+    from deriva.core import ErmrestCatalog, get_credential, DerivaPathError
+    import deriva.core.ermrest_model as em
+    from deriva.core.ermrest_config import tag as chaise_tags
+    from deriva.utils.catalog.manage import update_catalog
 
-import deriva.core.ermrest_model as em
+    table_name = '{table_name}'
 
-table_name = '{}'
-schema_name = '{}'
-""".format(table_name, schema_name), file=stream)
+    schema_name = '{schema_name}'
 
-    print_column_annotations(table_schema, stream)
-    provide_system = print_column_defs(table_schema, stream)
-    print_table_annotations(table_schema, stream)
-    print_key_defs(table_schema, schema_name, table_name, stream)
-    print_foreign_key_defs(table_schema, stream)
-    print_table_def(provide_system, stream)
-    print('''
-def main(skip_args=False, mode='annotations', replace=False, server={0!r}, catalog_id={1}):
-    
-    if not skip_args:
-        mode, replace, server, catalog_id = update_catalog.parse_args(server, catalog_id, is_table=True)
-    update_catalog.update_table(mode, replace, server, catalog_id, schema_name, table_name, 
-                                table_def, column_defs, key_defs, fkey_defs,
-                                table_annotations, table_acls, table_acl_bindings, table_comment,
-                                column_annotations, column_acls, column_acl_bindings, column_comment)
+    {groups}
+
+    {column_annotations}
+
+    {column_defs}
+
+    {table_annotations}
+
+    {key_defs}
+
+    {fkey_defs}
+
+    {table_def}
 
 
-if __name__ == "__main__":
-    main()'''.format(server, catalog_id), file=stream)
-    return
+    def main(skip_args=False, mode='annotations', replace=False, server={server!r}, catalog_id={catalog_id}):
+
+        if not skip_args:
+            mode, replace, server, catalog_id = update_catalog.parse_args(server, catalog_id, is_table=True)
+        update_catalog.update_table(mode, replace, server, catalog_id, schema_name, table_name, 
+                                    table_def, column_defs, key_defs, fkey_defs,
+                                    table_annotations, table_acls, table_acl_bindings, table_comment,
+                                    column_annotations, column_acls, column_acl_bindings, column_comment)
+
+
+    if __name__ == "__main__":
+        main()""".format(server=server, catalog_id=catalog_id, table_name=table_name, schema_name=schema_name,
+                         column_annotations=column_annotations_to_str(table_schema),
+                         column_defs=column_defs_to_str(table_schema),
+                         table_annotations=table_annotations_to_str(table_schema),
+                         key_defs=key_defs_to_str(table_schema, schema_name, table_name),
+                         fkey_defs=foreign_key_defs_to_str(table_schema),
+                         table_def=table_def_to_str(provide_system))
+    return s
 
 
 def convert_table_to_deriva(table_loc, server, catalog_id, schema_name, table_name=None, outfile=None,
-                            map_column_names=False, exact_match=False, key_columns=None):
+                            map_column_names=False, exact_match=False, key_columns=None, variables=None):
     """
     Read in a table, try to figure out the type of its columns and output a deriva-py program that can be used to create
     the table in a catalog.
@@ -334,11 +362,74 @@ def convert_table_to_deriva(table_loc, server, catalog_id, schema_name, table_na
     table.schema.commit()
 
     with open(outfile, 'w') as stream:
-        print_table(server, catalog_id, table.schema, schema_name, table_name, stream)
+        table_string, column_map = table_to_str(server, catalog_id, schema_name, variables)
+        table_string = FormatCode(table_string, style_config=yapf_style)[0]
     return column_map
 
 
 def upload_table_to_deriva(tabledata, server, catalog_id, schema_name,
+                           table_name=None, map_column_names=False,
+                           chunk_size=1000, starting_chunk=1):
+    """
+
+    :param tabledata: Location of the source table. Can be file name or URL
+    :param server: Server on which the catalog exists.
+    :param catalog_id: Catalog ID of target catalog
+    :param schema_name: Schema into which the table will be uploaded
+    :param table_name: Name of table to upload. If not provided, the filename of the CSV is used for the table name
+    :param chunk_size: Number of rows to upload at one time.
+    :param starting_chunk: What chunk number to start at.  Can be used to continue a failed upload.
+    :return:
+    """
+
+    # Convert date time to string so we can push it out in JSON....
+    def date_to_text(erows):
+        for row_number, headers, row in erows:
+            row = [str(x) if type(x) is datetime.date or type(x) is Decimal else x for x in row]
+            yield (row_number, headers, row)
+
+    # Helper function to do chunking...
+    def row_grouper(n, iterable):
+            iterable = iter(iterable)
+            return iter(lambda: list(itertools.islice(iterable, n)), [])
+
+    # If tablename is not specified, use the file name of the data file as the table name.
+    if not table_name:
+        table_name = os.path.splitext(os.path.basename(tabledata))[0]
+        table_name = cannonical_deriva_name(table_name)
+
+    print("Loading table....")
+    credential = get_credential(server)
+    catalog = ErmrestCatalog('https', server, catalog_id, credentials=credential)
+    pb = catalog.getPathBuilder()
+    table_schema = table_schema_from_catalog(server, catalog_id, schema_name, table_name)
+    source_table = Table(tabledata, schema=table_schema.descriptor, post_cast=[date_to_text])
+    target_table = pb.schemas[schema_name].tables[table_name]
+
+    if table_schema.primary_key == []:
+        row_groups = [source_table.read(keyed=True)]
+        chunk_size = len(row_groups[0])
+    else:
+        row_groups = row_grouper(chunk_size, source_table.iter(keyed=True))
+    chunk_cnt = 1
+    row_cnt = 0
+    for rows in row_groups:
+        if chunk_cnt < starting_chunk:
+            chunk_cnt += 1
+            continue
+        try:
+            target_table.insert(rows, add_system_defaults=True)
+            print('Completed chunk {}'.format(chunk_cnt))
+            chunk_cnt += 1
+            row_cnt += len(rows)
+        except HTTPError as e:
+            print('Failed on chunk {} (chunksize {})'.format(chunk_cnt, chunk_size))
+            print(e)
+            print(e.response.text)
+            raise DerivaCSVError(chunk_size, chunk_cnt, e)
+    return row_cnt, chunk_size, chunk_cnt
+
+def create_validate_upload_csv(tabledata, server, catalog_id, schema_name,
                            key_columns=None, table_name=None,
                            convert_table=True, derivafile=None, map_column_names=False,
                            create_table=False, validate=True, load_data=True,
@@ -361,17 +452,6 @@ def upload_table_to_deriva(tabledata, server, catalog_id, schema_name,
     :return:
     """
 
-    # Convert date time to string so we can push it out in JSON....
-    def date_to_text(erows):
-        for row_number, headers, row in erows:
-            row = [str(x) if type(x) is datetime.date or type(x) is Decimal else x for x in row]
-            yield (row_number, headers, row)
-
-    # Helper function to do chunking...
-    def row_grouper(n, iterable):
-            iterable = iter(iterable)
-            return iter(lambda: list(itertools.islice(iterable, n)), [])
-
     # If tablename is not specified, use the file name of the data file as the table name.
     if not table_name:
         table_name = os.path.splitext(os.path.basename(tabledata))[0]
@@ -383,21 +463,16 @@ def upload_table_to_deriva(tabledata, server, catalog_id, schema_name,
             # If convertdir is set, put deriva-py program in current directory.
             odir = os.path.dirname(os.path.abspath(tabledata)) if convert_table else tdir
             if (not derivafile) or convert_table:
+                # Create variable substitutions.
+                variables = {**groups, **chaise_tags}
+
                 derivafile = '{}/{}.py'.format(odir, table_name)
                 convert_table_to_deriva(tabledata, server, catalog_id, schema_name, table_name=table_name,
                                         key_columns=key_columns, map_column_names=map_column_names,
                                         outfile=derivafile)
             if create_table:
+                tablescript = load_table_script(table_name, derivafile)
                 # Now create the table.
-                if sys.version_info > (3, 5):
-                    modspec = importlib.util.spec_from_file_location("table_name", derivafile)
-                    tablescript = importlib.util.module_from_spec(modspec)
-                    modspec.loader.exec_module(tablescript)
-                elif sys.version_info > (3, 3):
-                    tablescript = SourceFileLoader("table_name", derivafile)
-                else:
-                    tablescript = imp.load_source("table_name", derivafile)
-
                 tablescript.main(skip_args=True, mode='table')
 
     if validate:
@@ -410,34 +485,9 @@ def upload_table_to_deriva(tabledata, server, catalog_id, schema_name,
 
     if load_data:
         print("Loading table....")
-        credential = get_credential(server)
-        catalog = ErmrestCatalog('https', server, catalog_id, credentials=credential)
-        pb = catalog.getPathBuilder()
-        table_schema = table_schema_from_catalog(server, catalog_id, schema_name, table_name)
-        source_table = Table(tabledata, schema=table_schema.descriptor, post_cast=[date_to_text])
-        target_table = pb.schemas[schema_name].tables[table_name]
+        row_cnt, chunk_size, chunk_cnt = \
+            upload_table_to_deriva(tabledata, server, catalog_id, schema_name, table_name, chunk_size, starting_chunk)
 
-        if table_schema.primary_key == []:
-            row_groups = [source_table.read(keyed=True)]
-            chunk_size = len(row_groups[0])
-        else:
-            row_groups = row_grouper(chunk_size, source_table.iter(keyed=True))
-        chunk_cnt = 1
-        row_cnt = 0
-        for rows in row_groups:
-            if chunk_cnt < starting_chunk:
-                chunk_cnt += 1
-                continue
-            try:
-                target_table.insert(rows, add_system_defaults=True)
-                print('Completed chunk {}'.format(chunk_cnt))
-                chunk_cnt += 1
-                row_cnt += len(rows)
-            except HTTPError as e:
-                print('Failed on chunk {} (chunksize {})'.format(chunk_cnt, chunk_size))
-                print(e)
-                print(e.response.text)
-                raise DerivaCSVError(chunk_size, chunk_cnt, e)
         return row_cnt, chunk_size, chunk_cnt
 
 
@@ -463,14 +513,18 @@ def main():
     parser.add_argument('--create_table', action='store_true',
                         help='Automatically create catalog table based on column type inference [Default:False]')
     parser.add_argument('--skip_upload', action='store_true', help='Load data into catalog [Default:True]')
+    parser.add_argument('--config', default=None, help='python script to set up configuration variables)')
 
     args = parser.parse_args()
 
-    upload_table_to_deriva(args.tabledata, args.server, args.catalog, args.schema,
-                           key_columns=args.key_columns, table_name=args.table,
-                           convert_table=args.convert, derivafile=args.derivafile, map_column_names=args.map_column_names,
-                           create_table=args.create_table, validate=not args.skip_validate, load_data=not args.skip_upload,
-                           chunk_size=args.chunk_size, starting_chunk=args.starting_chunk)
+    if args.config:
+        groups = load_deriva_manage_config(args.config)
+
+    create_validate_upload_csv(args.tabledata, args.server, args.catalog, args.schema,
+                               key_columns=args.key_columns, table_name=args.table,
+                               convert_table=args.convert, derivafile=args.derivafile, map_column_names=args.map_column_names,
+                               create_table=args.create_table, validate=not args.skip_validate,
+                               load_data=not args.skip_upload, chunk_size=args.chunk_size, starting_chunk=args.starting_chunk)
     return
 
 
