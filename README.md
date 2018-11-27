@@ -47,8 +47,9 @@ Main entry points of this module are:
 ## CLIs
 
 The CLIs include:
-- `deriva-dump-catalog`: a command-line tools that will dump the current configuration of a catalog as a set of deriva-py scripts.
+- `deriva-dump-catalog`: a command-line tools that will dump the current configuration of a catalog as a set of deriva-py scripts. The scripts are pure deriva-py and have placeholder variables to set annotations, acls, and acl-bindings.  The scripts are self contained and can be run directly from the command line using the python interpreter. 
 
-- deriva-csv: upload a csv or other table like data with options to create catalog table and validate input
+- deriva-csv: upload a csv or other table like data with options to create a table in the catalog, to validate data and to upload to the catalog.  This command supports "chunked" upload for large files.
 
-The scripts are pure deriva-py and have placeholder variables to set annotations, acls, and acl-bindings.  The scripts are self contained and can be run directly from the command line using the python interpreter.  
+
+ 
