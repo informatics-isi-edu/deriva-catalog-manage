@@ -5,19 +5,12 @@ import os
 import re
 from yapf.yapflib.yapf_api import FormatCode
 import sys
-import pathlib
 from attrdict import AttrDict
 from deriva.core import ErmrestCatalog, get_credential
 from deriva.core.ermrest_config import tag as chaise_tags
 
-if sys.version_info > (3, 5):
-    import importlib.util
-elif sys.version_info > (3, 3):
-    from importlib.machinery import SourceFileLoader
-elif sys.version_info > (2, 7):
-    import imp
-
 groups = {}
+config = None
 
 yapf_style = {
     'based_on_style': 'pep8',
@@ -25,23 +18,33 @@ yapf_style = {
     'split_before_first_argument': False,
     'disable_ending_comma_heuristic': True,
     'DEDENT_CLOSING_BRACKETS': True,
-    'column_limit': 90
+    'column_limit': 100
 }
 
-def load_deriva_manage_config(configfile):
+
+def load_module_from_path(configfile):
+    """
+    Load configuration file from a path.
+    :param configfile:
+    :return:
+    """
+
     modname = os.path.splitext(os.path.basename(configfile))[0]
     print('loading config {} {}'.format(configfile, modname))
-    if sys.version_info > (3, 5):
-        modspec = importlib.util.spec_from_file_location(modname, configfile)
-        config = importlib.util.module_from_spec(modspec)
-        modspec.loader.exec_module(config)
-    elif sys.version_info > (3, 3):
-        config = SourceFileLoader(modname, configfile)
-    else:
-        config = imp.load_source(modname, configfile)
 
-    groups = AttrDict(config.groups)
-    return groups
+    if sys.version_info > (3, 5):
+        import importlib.util
+        modspec = importlib.util.spec_from_file_location(modname, configfile)
+        mod = importlib.util.module_from_spec(modspec)
+        modspec.loader.exec_module(mod)
+    elif sys.version_info > (3, 3):
+        from importlib.machinery import SourceFileLoader
+        mod = SourceFileLoader(modname, configfile)
+    else:
+        import imp
+        mod = imp.load_source(modname, configfile)
+    return mod
+
 
 def substitute_variables(code, variables):
     """
@@ -68,7 +71,7 @@ def variable_to_str(name, value, variables=None):
     Print out a variable assignment on one line if empty, otherwise pretty print.
     :param name: Left hand side of assigment
     :param value: Right hand side of assignment
-    :param variables: Dirctionary of variable names to be substituted
+    :param variables: Dictionary of variable names to be substituted
     :return:
     """
 
@@ -102,6 +105,8 @@ def annotations_to_str(annotations, var_name='annotations', variables=None):
     :param variables:
     :return:
     """
+    if not variables:
+        variables = {}
 
     var_map = {v: k for k, v in variables.items()}
     if annotations == {}:
@@ -147,7 +152,7 @@ schema_def = em.Schema.define(
     )
     
 def main():
-    server = {server}
+    server = {server!r}
     catalog_id = {catalog_id}
     schema_name = '{schema_name}'
     
@@ -190,7 +195,7 @@ import deriva.core.ermrest_model as em
 
 
 def main():
-    server = '{0}'
+    server = {0!r}
     catalog_id = {1}
     mode, replace, server, catalog_id = update_catalog.parse_args(server, catalog_id, is_catalog=True)
     update_catalog.update_catalog(mode, replace, server, catalog_id, annotations, acls)
@@ -388,13 +393,16 @@ def main():
         sys.exit(1)
 
     if configfile:
-        groups = load_deriva_manage_config(configfile)
+        global config
+        config = load_module_from_path(configfile)
+        groups = AttrDict(config.groups)
+
+    variables = {k: v for k, v in groups.items()}
+    variables.update(chaise_tags)
 
     credential = get_credential(server)
     catalog = ErmrestCatalog('https', server, catalog_id, credentials=credential)
     model_root = catalog.getCatalogModel()
-
-    variables = {**groups, **chaise_tags}
 
     print("Dumping catalog def....")
     catalog_string = catalog_to_str(model_root, server, catalog_id, variables=variables)
