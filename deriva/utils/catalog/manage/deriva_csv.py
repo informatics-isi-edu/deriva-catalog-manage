@@ -350,9 +350,11 @@ def convert_table_to_deriva(table_loc, server, catalog_id, schema_name, table_na
     table = Table(table_loc, sample_size=row_cnt)
     table.infer(limit=row_cnt, confidence=confidence)
 
+    column_types = {}
     for c in table.schema.fields:
         column_map[c.name] = cannonical_deriva_name(c.name, map_column_names) if map_column_names else c.name
         c.descriptor['name'] = column_map[c.name]
+        column_types.setdefault(table_schema_ermrest_type_map[c.type + ':' + c.format],[]).append(c.name)
 
     if key_columns:
         if map_column_names:
@@ -373,7 +375,7 @@ def convert_table_to_deriva(table_loc, server, catalog_id, schema_name, table_na
         table_string = table_to_str(server, catalog_id, table.schema, schema_name, table_name, variables)
         table_string = FormatCode(table_string, style_config=yapf_style)[0]
         print(table_string, file=stream)
-    return column_map
+    return column_map, column_types
 
 
 def upload_table_to_deriva(tabledata, server, catalog_id, schema_name,
