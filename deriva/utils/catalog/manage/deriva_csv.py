@@ -11,6 +11,7 @@ from yapf.yapflib.yapf_api import FormatCode
 from decimal import Decimal
 from requests import HTTPError
 from tableschema import Table, Schema, Field, exceptions
+from tableschema.schema import _TypeGuesser
 import goodtables
 from attrdict import AttrDict
 
@@ -84,6 +85,54 @@ class DerivaCSVError(HTTPError):
         self.chunk_size = chunk_size
         self.reason = http_err
 
+class DerivaTable(Table):
+
+    def infer(self):
+        """https://github.com/frictionlessdata/tableschema-py#schema
+        """
+        # Do initial infer to set up headers and schema.
+        Table.infer(self)
+
+        missing_values = ['']
+        rows = self.read(cast=False)
+        headers = self.headers
+
+        # Get descriptor
+        guesser = _TypeGuesser()
+        descriptor = {'fields': []}
+        type_matches = {}
+        for header in headers:
+            descriptor['fields'].append({'name': header})
+        for index, row in enumerate(rows):
+            # Normalize rows with invalid dimensions for sanity
+            row_length = len(row)
+            headers_length = len(headers)
+            if row_length > headers_length:
+                row = row[:len(headers)]
+            if row_length < headers_length:
+                diff = headers_length - row_length
+                fill = [''] * diff
+                row = row + fill
+            # build a column-wise lookup of type matches
+            for index, value in enumerate(row):
+                # We skip over empty elements.  For non-empty, we find the most specific type that we can use for the
+                # element, and then compare with other rows and keep the most general.
+                if value not in missing_values:
+                    rv = list(guesser.cast(value))
+                    best_type = min(i[2] for i in rv)
+                    typeid = list(filter(lambda x: x[2] == best_type, rv))[0]
+                    if type_matches.get(index):
+                        type_matches[index] = typeid if typeid[2] > type_matches[index][2] else type_matches[index]
+                    else:
+                        type_matches[index] = typeid
+        for index, results in type_matches.items():
+            descriptor['fields'][index].update({'type': results[0], 'format': results[1]})
+
+        # Now update the schema to have the inferred values.
+        self.schema.descriptor['fields'] = descriptor['fields']
+        self.schema.commit()
+        return
+
 
 def cannonical_deriva_name(name, map_columns = None):
     """
@@ -105,6 +154,8 @@ def cannonical_deriva_name(name, map_columns = None):
     return mname
 
 
+
+
 def table_schema_from_catalog(server, catalog_id, schema_name, table_name, skip_system_columns=True, outfile=None):
     """
     Create a TableSchema by querying an ERMRest catalog and converting the model format.
@@ -122,6 +173,7 @@ def table_schema_from_catalog(server, catalog_id, schema_name, table_name, skip_
     table = schema.tables[table_name]
     fields = []
     primary_key = None
+    table_schema = None
 
     for col in table.column_definitions:
         if col.name in ['RID', 'RCB', 'RMB', 'RCT', 'RMT'] and skip_system_columns:
@@ -301,18 +353,18 @@ def main(skip_args=False, mode='annotations', replace=False, server={server!r}, 
 
 if __name__ == "__main__":
     main()""".format(server=server, catalog_id=catalog_id, table_name=table_name, schema_name=schema_name,
-                         groups=variable_to_str('groups', groups),
-                         column_annotations=column_annotations_to_str(table_schema),
-                         column_defs=column_defs_to_str(table_schema),
-                         table_annotations=table_annotations_to_str(table_schema),
-                         key_defs=key_defs_to_str(table_schema, schema_name, table_name),
-                         fkey_defs=foreign_key_defs_to_str(table_schema),
-                         table_def=table_def_to_str(True))
+                     groups=variable_to_str('groups', groups),
+                     column_annotations=column_annotations_to_str(table_schema),
+                     column_defs=column_defs_to_str(table_schema),
+                     table_annotations=table_annotations_to_str(table_schema),
+                     key_defs=key_defs_to_str(table_schema, schema_name, table_name),
+                     fkey_defs=foreign_key_defs_to_str(table_schema),
+                     table_def=table_def_to_str(True))
     return s
 
 
 def convert_table_to_deriva(table_loc, server, catalog_id, schema_name, table_name=None, outfile=None,
-                            map_column_names=False, exact_match=False, key_columns=None, variables=None):
+                            map_column_names=False, key_columns=None, variables=None):
     """
     Read in a table, try to figure out the type of its columns and output a deriva-py program that can be used to create
     the table in a catalog.
@@ -337,24 +389,14 @@ def convert_table_to_deriva(table_loc, server, catalog_id, schema_name, table_na
     if not outfile:
         outfile = table_name + '.py'
 
-    # Here is the tricky bit: Inference is based on a sample and then a threshold.  Unfortunately, a missing value will
-    # look like a text field, so if there are many missing values, this can skew the result.  There may also be
-    # issues that arise from the sampling.  To try to balance these, we will get a large number of rows, but then
-    # tolerate some "off" values.
-    confidence = 1 if exact_match else .75
-
-
-    # Figure out how many rows we have so we can make sure we look at the whole file when we do an infer.
-    row_cnt = len(Table(table_loc).read())
-
-    table = Table(table_loc, sample_size=row_cnt)
-    table.infer(limit=row_cnt, confidence=confidence)
+    table = DerivaTable(table_loc)
+    table.infer()
 
     column_types = {}
     for c in table.schema.fields:
         column_map[c.name] = cannonical_deriva_name(c.name, map_column_names) if map_column_names else c.name
         c.descriptor['name'] = column_map[c.name]
-        column_types.setdefault(table_schema_ermrest_type_map[c.type + ':' + c.format],[]).append(c.name)
+        column_types.setdefault(table_schema_ermrest_type_map[c.type + ':' + c.format], []).append(c.name)
 
     if key_columns:
         if map_column_names:
@@ -468,7 +510,7 @@ def validate_csv(table, server, catalog_id, schema_name, table_name=None, valida
         mapped_headers = map(lambda x: cannonical_deriva_name(x, map_column_names), report['tables'][0]['headers'])
         bad_headers = list(filter(lambda x: x[0] != x[1], zip(table_schema.field_names, mapped_headers)))
         if bad_headers:
-            report['headers'] = [ x[1] for x in bad_headers ]
+            report['headers'] = [x[1] for x in bad_headers]
             return report['valid'], report, validation_limit
     report = goodtables.validate(table, row_limit=validation_limit, schema=table_schema.descriptor,
                                  skip_checks=['non-matching-header'])
@@ -524,9 +566,9 @@ def create_validate_upload_csv(tabledata, server, catalog_id, schema_name,
                 tablescript.main(skip_args=True, mode='table')
 
     if validate:
-        report, row_cnt = validate_csv(tabledata, server, catalog_id,
-                                       schema_name, table_name=table_name, map_column_names=map_column_names)
-        if not report['valid']:
+        valid, report, row_cnt = validate_csv(tabledata, server, catalog_id,
+                                              schema_name, table_name=table_name, map_column_names=map_column_names)
+        if not valid:
             for i in report['tables'][0]['errors']:
                 print(i)
             return 0, 1, report
@@ -535,7 +577,8 @@ def create_validate_upload_csv(tabledata, server, catalog_id, schema_name,
         print("Loading table....")
         row_cnt, chunk_size, chunk_cnt = \
             upload_table_to_deriva(tabledata, server, catalog_id, schema_name, table_name=table_name,
-                                   chunk_size=chunk_size, starting_chunk=starting_chunk, map_column_names=map_column_names)
+                                   chunk_size=chunk_size, starting_chunk=starting_chunk,
+                                   map_column_names=map_column_names)
 
         return row_cnt, chunk_size, chunk_cnt
 
@@ -552,14 +595,16 @@ def main():
     parser.add_argument('--table', default=None, help='Name of table to be managed (Default:Filename)')
     parser.add_argument('--key_columns', default=[],
                         help='List of columns to be used as key when creating table schema')
-    parser.add_argument('--convert', action='store_true', help='Generate a deriva-py program to create the table [Default:False]')
+    parser.add_argument('--convert', action='store_true',
+                        help='Generate a deriva-py program to create the table [Default:False]')
     parser.add_argument('--map_column_names', action='store_true',
                         help='Automatically convert column names to cannonical form [Default:True]')
     parser.add_argument('--derivafile', default=None, help='Filename for output deriva-py program')
 
     parser.add_argument('--chunk_size', default=10000, help='Number of rows to use in chunked upload [Default:10000]')
     parser.add_argument('--starting_chunk', default=1, help='Starting chunk number [Default:1]')
-    parser.add_argument('--skip_validate', action='store_true', help='Validate the table before uploading [Default:True]')
+    parser.add_argument('--skip_validate', action='store_true',
+                        help='Validate the table before uploading [Default:True]')
     parser.add_argument('--create_table', action='store_true',
                         help='Automatically create catalog table based on column type inference [Default:False]')
     parser.add_argument('--skip_upload', action='store_true', help='Load data into catalog [Default:True]')
@@ -573,9 +618,11 @@ def main():
 
     create_validate_upload_csv(args.tabledata, args.server, args.catalog, args.schema,
                                key_columns=args.key_columns, table_name=args.table,
-                               convert_table=args.convert, derivafile=args.derivafile, map_column_names=args.map_column_names,
+                               convert_table=args.convert, derivafile=args.derivafile,
+                               map_column_names=args.map_column_names,
                                create_table=args.create_table, validate=not args.skip_validate,
-                               load_data=not args.skip_upload, chunk_size=args.chunk_size, starting_chunk=args.starting_chunk)
+                               load_data=not args.skip_upload,
+                               chunk_size=args.chunk_size, starting_chunk=args.starting_chunk)
     return
 
 
