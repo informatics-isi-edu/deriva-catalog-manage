@@ -16,8 +16,9 @@ from deriva.core import ErmrestCatalog, get_credential
 from deriva.core.ermrest_config import tag as chaise_tags
 
 import deriva.core.ermrest_model as em
-from deriva.utils.catalog.manage.dump_catalog import DerivaConfig, DerivaCatalogToString, load_module_from_path
-from deriva.utils.catalog.manage.loopback_catalog import LoopbackCatalog
+
+from dump_catalog import DerivaConfig, DerivaCatalogToString, load_module_from_path
+from loopback_catalog import LoopbackCatalog
 
 # We should get range info in there....
 table_schema_type_map = {
@@ -97,7 +98,7 @@ class DerivaModel:
     def __init__(self, csvschema):
         self._csvschema = csvschema
         self._catalog = LoopbackCatalog()
-        self.model = em.Model({})
+        self.model = self._catalog.getCatalogModel()
         self.column_map = {}
         self.type_map = {}
 
@@ -160,7 +161,7 @@ class DerivaModel:
 
 class DerivaCSV(Table):
 
-    def __init__(self, source, server, catalog_id, schema_name, table_name=None, map_columns=True, key_columns=None,
+    def __init__(self, source, server, catalog_id, schema_name, table_name=None, column_map=True, key_columns=None,
                  schema=None, strict=False, post_cast=None, storage=None, config=None, **options):
         """
 
@@ -169,7 +170,7 @@ class DerivaCSV(Table):
         :param catalog_id:
         :param schema_name:
         :param table_name:
-        :param map_columns:
+        :param column_map:
         :param key_columns:
         :param schema:
         :param strict:
@@ -188,7 +189,7 @@ class DerivaCSV(Table):
 
         self.source = source
         self.table_name = table_name
-        self._map_columns = map_columns
+        self._column_map = column_map
         self._key_columns = key_columns
         self.schema_name = schema_name
         self._server = server
@@ -196,24 +197,22 @@ class DerivaCSV(Table):
         self.row_count = None
         self.validation_report = None
 
-        # Pull apart column map.  If its just a list, then its a word map, otherwise, its a column_map.
-        if self._map_columns:
-            self._column_map = {}
-            self._word_map = []
-            if isinstance(self._map_columns, list):
+        # Normalize the column map.
+        if self._column_map:
+            if isinstance(self._column_map, list):
                 # We have a word map.
-                self._word_map = self._map_columns
-            elif isinstance(self._map_columns, dict):
-                self._word_map = self._map_columns.get('word_map', [])
-                self._column_map = self._map_columns
+                self._column_map = {i.upper(): i for i in self._column_map}
+            elif isinstance(self._column_map, dict):
+                self._column_map = {k.upper(): v for k, v in self._column_map.items()}
+            else:
+                self._column_map = {}
 
         # If tablename is not specified, use the file name of the data file as the table name.
         if not self.table_name:
             self.table_name = os.path.splitext(os.path.basename(source))[0]
 
         # Make the table name consistent with the naming strategy
-        if self._map_columns:
-            self.table_name = self.map_name(self.table_name)
+        self.table_name = self.map_name(self.table_name)
 
         # Create variable substitutions that will be used in annotations, tags, and such...
         self._variables = {k: v for k, v in groups.items()}
@@ -329,7 +328,7 @@ class DerivaCSV(Table):
 
         # First, just check the headers to make sure they line up under mapping.
         report = goodtables.validate(self.source, schema=table_schema.descriptor, checks=['non-matching-header'])
-        if not report['valid'] and self._map_columns:
+        if not report['valid'] and self._column_map:
             mapped_headers = map(lambda x: self.map_name(x), report['tables'][0]['headers'])
             bad_headers = list(filter(lambda x: x[0] != x[1], zip(table_schema.field_names, mapped_headers)))
             if bad_headers:
@@ -511,7 +510,7 @@ class DerivaCSV(Table):
                 if create:
                     tablescript = load_module_from_path(derivafile)
                     # Now create the table.
-                    tablescript.main(skip_args=True, mode='table')
+                    tablescript.main('table', catalog=LoopbackCatalog())
 
         if validate:
             valid, report = self.validate()
@@ -527,38 +526,30 @@ class DerivaCSV(Table):
 
             return row_cnt, chunk_size, chunk_cnt
 
-    def map_name(self, name, column_map=None, word_map=None):
+    def map_name(self, name, column_map=None):
         """
         A simple function that attempts to map a column name into a name that follows the deriva naming convetions.
         :param name: Column name to be mapped
         :param column_map: map of column names that should be used directly without additional modification
-        :param word_map: list of words with capitolization that should be used exactly if there is a case insensitive
-                          match
         :return: Resulting column name.
         """
 
-        if self._map_columns is False:
-            return
-
-        if word_map is None:
-            word_map = self._word_map
         if column_map is None:
             column_map = self._column_map
 
-        word_dict = {i.upper(): i for i in word_map}
+        if self._column_map is None or self._column_map is False:
+                return name
 
-        # TODO This can be made much more robust.  Right now handled mixed camel and snake case and parenthesis
-        if name in column_map:
-            mname = column_map[name]
-        else:
-            # Split words based on capitol first letter, or existing underscore.  Capitolize the first letter of each
-            # word unless it is in the provided word list.
-            split_words = '[A-Z]+[a-z0-9]*|[a-z0-9]+|\(.*?\)|[+\/\-*@<>%&=]'
-            word_list = re.findall(split_words, name)
-            word_map = map(lambda x: word_dict[x.upper()] if x.upper() in word_dict else x[0].upper() + x[1:],
-                           word_list)
-            mname = '_'.join(list(word_map))
+        name = column_map.get(name.upper(), name)
 
+        # Split words based on capitol first letter, or existing underscore.  Capitolize the first letter of each
+        # word unless it is in the provided word list.
+        split_words = '[A-Z]+[a-z0-9]*|[a-z0-9]+|\(.*?\)|[+\/\-*@<>%&=]'
+        word_list = re.findall(split_words, name)
+        word_list = map(lambda x: column_map.get(x.upper(), x[0].upper() + x[1:]), word_list)
+        mname = '_'.join(list(word_list))
+
+        mname = column_map.get(mname.upper(), mname)
         return mname
 
 
@@ -575,7 +566,7 @@ def main():
                         help='List of columns to be used as key when creating table schema.')
     parser.add_argument('--convert', action='store_true',
                         help='Generate a deriva-py program to create the table [Default:True]')
-    parser.add_argument('--map_columns', default=True,
+    parser.add_argument('--column_map', default=True,
                         help='Convert column names to cannonical form [Default:True]. Can specify mappings')
     parser.add_argument('--derivafile', default=None,
                         help='Filename for deriva-py program. Can be input or output depending on other arguments. [Default: table name]')
@@ -593,7 +584,7 @@ def main():
     print(args)
 
     table = DerivaCSV(args.tabledata, args.server, args.catalog, args.schema, config=args.config,
-                      table_name=args.table, map_columns=args.map_columns)
+                      table_name=args.table, column_map=args.column_map)
 
     table.create_validate_upload_csv(
         convert=args.convert, validate=args.validate, create=args.create_table, upload=args.upload,

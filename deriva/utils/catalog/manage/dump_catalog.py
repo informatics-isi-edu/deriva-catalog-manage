@@ -8,7 +8,7 @@ import sys
 from attrdict import AttrDict
 from deriva.core import ErmrestCatalog, get_credential
 from deriva.core.ermrest_config import tag as chaise_tags
-from deriva.utils.catalog.manage.deriva_file_templates import table_file_template, schema_file_template, catalog_file_template
+from deriva_file_templates import table_file_template, schema_file_template, catalog_file_template
 
 yapf_style = {
     'based_on_style': 'pep8',
@@ -253,7 +253,7 @@ class DerivaCatalogToString:
         return s
 
     def table_to_str(self, schema_name, table_name):
-        schema = self._model.schemas[schema_name]
+        schema = self._model.model.schemas[schema_name]
         table = schema.tables[table_name]
 
         provide_system = True
