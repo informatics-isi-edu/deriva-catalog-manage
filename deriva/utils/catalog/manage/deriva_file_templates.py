@@ -99,7 +99,7 @@ import deriva.core.ermrest_model as em
 
 def main(mode, server, catalog_id, replace=False, catalog=None):
     updater = CatalogUpdater(server, catalog_id, catalog=catalog)
-    updater.update_catalog.update_catalog(mode, annotations, acls, replace=replace)
+    updater.update_catalog(mode, annotations, acls, replace=replace)
 
 
 if __name__ == "__main__":

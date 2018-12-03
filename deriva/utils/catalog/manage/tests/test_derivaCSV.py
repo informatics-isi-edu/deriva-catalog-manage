@@ -41,7 +41,7 @@ class TestDerivaCSV(TestCase):
             results = table.convert_to_deriva(outfile=pythonfile, schemafile=jsonfile)
             self.assertEqual(results, ({'a': 'A', 'b': 'B', 'c': 'C'}, {'text': ['a', 'c'], 'float8': ['b']}))
 
-            dump_catalog.load_module_from_path(pythonfile)
+            m = dump_catalog.load_module_from_path(pythonfile)
 
     def test_create_validate_upload_csv(self):
         path = os.path.dirname(os.path.realpath(__file__)) + '/test1.csv'

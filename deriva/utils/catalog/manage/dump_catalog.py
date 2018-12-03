@@ -39,13 +39,13 @@ def load_module_from_path(configfile):
     """
 
     modname = os.path.splitext(os.path.basename(configfile))[0]
-    print('loading config {} {}'.format(configfile, modname))
-
     if sys.version_info > (3, 5):
+        print('loading....', configfile, os.path.abspath(configfile))
         import importlib.util
         modspec = importlib.util.spec_from_file_location(modname, configfile)
         mod = importlib.util.module_from_spec(modspec)
         modspec.loader.exec_module(mod)
+        print(dir(mod))
     elif sys.version_info > (3, 3):
         from importlib.machinery import SourceFileLoader
         mod = SourceFileLoader(modname, configfile)
@@ -145,7 +145,7 @@ class DerivaCatalogToString:
         return s
 
     def catalog_to_str(self):
-        s = catalog_file_template.format(self._server, self._catalog_id,
+        s = catalog_file_template.format(server=self._server, catalog_id=self._catalog_id,
                                          groups=self.variable_to_str('groups', DerivaConfig.groups, substitute=False),
                                          tag_variables=self.tag_variables_to_str(self._model.annotations),
                                          annotations=self.annotations_to_str(self._model.annotations),

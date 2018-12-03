@@ -1,9 +1,20 @@
 from unittest import TestCase
-
+import tempfile
+import deriva.core.ermrest_model as em
+from loopback_catalog import LoopbackCatalog
+from dump_catalog import DerivaCatalogToString, DerivaConfig, load_module_from_path
 
 class TestDerivaCatalogToString(TestCase):
     def setUp(self):
-        pass
+        self._catalog = LoopbackCatalog()
+        DerivaConfig('config.py')
+        self._variables = {k: v for k, v in DerivaConfig.groups.items()}
+        self._variables.update(DerivaConfig.tags)
+
+        self.stringer = DerivaCatalogToString(self._catalog.getCatalogModel(), 'host.local', 1, variables=self._variables)
+
+
+
     def test_substitute_variables(self):
         pass
 
@@ -20,7 +31,19 @@ class TestDerivaCatalogToString(TestCase):
         pass
 
     def test_catalog_to_str(self):
-        pass
+        catalog_string = self.stringer.catalog_to_str()
+#        with tempfile.NamedTemporaryFile(mode='w', suffix='.py') as f:
+        with open('foo.py', mode='w') as f:
+            print(catalog_string, file=f)
+            m = load_module_from_path(f.name)
+            print(m.__name__, m.__file__)
+
+
+            newcatalog = LoopbackCatalog()
+            m.main('catalog', newcatalog._server, newcatalog._catalog_id, catalog=newcatalog)
+
+        newmodel = DerivaCatalogToString(newcatalog.getCatalogModel(), 'host.local', 1, variables=self._variables)
+        self.assertEqual(newmodel._model, self.stringer._model)
 
     def test_table_annotations_to_str(self):
         pass
