@@ -4,7 +4,7 @@ from attrdict import AttrDict
 from deriva.core import ErmrestCatalog, get_credential, DerivaPathError
 import deriva.core.ermrest_model as em
 from deriva.core.ermrest_config import tag as chaise_tags
-from deriva.utils.catalog.manage.update_catalog import CatalogUpdater
+from deriva.utils.catalog.manage.update_catalog import CatalogUpdater, parse_args
 
 table_name = '{table_name}'
 
@@ -25,20 +25,16 @@ schema_name = '{schema_name}'
 {table_def}
 
 
-def main(mode, replace=False, catalog=None):
-    server = {server!r}
-    catalog_id = {catalog_id}
-    
-    if catalog is None:
-        mode, replace, server, catalog_id = update_catalog.parse_args(server, catalog_id, is_table=True)
-        
+def main(mode, server, catalog_id, replace=False, catalog=None):
     updater = CatalogUpdater(server, catalog_id, catalog=catalog)
     updater.update_table(mode, schema_name, table_def,replace=replace)
 
 
 if __name__ == "__main__":
-    mode, replace, server, catalog_id = update_catalog.parse_args(server, catalog_id, is_catalog=True)
-    main(mode, replace)
+    server = {server!r}
+    catalog_id = {catalog_id}
+    mode, replace, server, catalog_id = parse_args(server, catalog_id, is_catalog=True)
+    main(mode, server, catalog_id, replace)
 """
 
 
@@ -48,7 +44,7 @@ from attrdict import AttrDict
 from deriva.core import ErmrestCatalog, get_credential, DerivaPathError
 import deriva.core.ermrest_model as em
 from deriva.core.ermrest_config import tag as chaise_tags
-from deriva.utils.catalog.manage.update_catalog import CatalogUpdater
+from deriva.utils.catalog.manage.update_catalog import CatalogUpdater, parse_args
 
 schema_name = '{schema_name}'
 
@@ -69,32 +65,28 @@ schema_def = em.Schema.define(
         annotations=annotations,
     )
 
-def main(mode, replace=False, catalog=None):
-    server = {server!r}
-    catalog_id = {catalog_id}
-
-    if catalog is None:
-        mode, replace, server, catalog_id = update_catalog.parse_args(server, catalog_id)
-        
+def main(mode, server, catalog_id, replace=False, catalog=None):
     updater = CatalogUpdater(server, catalog_id, catalog=catalog)
     updater.update_catalog.update_schema(mode, schema_name, schema_def, replace=replace)
 
 
 if __name__ == "__main__":
-    mode, replace, server, catalog_id = update_catalog.parse_args(server, catalog_id, is_catalog=True)
-    main(mode, replace)
+    server = {server!r}
+    catalog_id = {catalog_id}
+    mode, replace, server, catalog_id = parse_args(server, catalog_id, is_catalog=True)
+    main(mode, server, catalog_id, replace)
 """
 
 catalog_file_template = """
 import argparse
 from attrdict import AttrDict
 from deriva.core import ErmrestCatalog, get_credential, DerivaPathError
-from deriva.utils.catalog.manage import update_catalog
+from deriva.utils.catalog.manage.update_catalog import CatalogUpdater, parse_args
 from deriva.core.ermrest_config import tag as chaise_tags
 import deriva.core.ermrest_model as em
 
 
-{catalog_groups}
+{groups}
 
 
 {tag_variables}
@@ -103,17 +95,16 @@ import deriva.core.ermrest_model as em
 {annotations}
 
 
-{catalog_acls}
+{acls}
 
-def main(mode, replace=False, catalog=None):
-    server = {0!r}
-    catalog_id = {1}
-    
+def main(mode, server, catalog_id, replace=False, catalog=None):
     updater = CatalogUpdater(server, catalog_id, catalog=catalog)
     updater.update_catalog.update_catalog(mode, annotations, acls, replace=replace)
 
 
 if __name__ == "__main__":
-    mode, replace, server, catalog_id = update_catalog.parse_args(server, catalog_id, is_catalog=True)
-    main(mode, replace)
+    server = {server!r}
+    catalog_id = {catalog_id}
+    mode, replace, server, catalog_id = parse_args(server, catalog_id, is_catalog=True)
+    main(mode, server, catalog_id, replace)
 """

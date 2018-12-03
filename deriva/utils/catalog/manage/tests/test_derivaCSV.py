@@ -5,12 +5,16 @@ import tempfile
 import deriva_csv
 import dump_catalog
 import deriva.core.ermrest_model as em
+from loopback_catalog import LoopbackCatalog
 
 class TestDerivaCSV(TestCase):
     def setUp(self):
         self.server = 'host.local'
         self.catalog_id = 1
         self.schema = 'TestSchema'
+        self._catalog = LoopbackCatalog()
+        model = self._catalog.getCatalogModel()
+        model.create_schema(self._catalog, em.Schema.define('TestSchema'))
 
     def test_validate(self):
         pass
@@ -23,12 +27,13 @@ class TestDerivaCSV(TestCase):
 
     def test_convert_to_deriva(self):
 
-        path = os.path.dirname(os.path.realpath(__file__))
+        tablefile = os.path.dirname(os.path.realpath(__file__)) + '/test1.csv'
+        configfile = os.path.dirname(os.path.realpath(__file__)) + '/config.py'
         with tempfile.TemporaryDirectory() as dir:
             column_map = True
             fname = dir + '/test1.py'
-            table = deriva_csv.DerivaCSV(path + '/test1.csv', self.server, self.catalog_id, self.schema,
-                                     column_map=column_map)
+            table = deriva_csv.DerivaCSV(tablefile, self.server, self.catalog_id, self.schema,
+                                         config=configfile, column_map=column_map)
             self.assertEqual(table.headers, ['a','b','c'])
 
             pythonfile = '{}/{}.py'.format(dir,'test1')
@@ -39,12 +44,12 @@ class TestDerivaCSV(TestCase):
             dump_catalog.load_module_from_path(pythonfile)
 
     def test_create_validate_upload_csv(self):
-        path = os.path.dirname(os.path.realpath(__file__))
+        path = os.path.dirname(os.path.realpath(__file__)) + '/test1.csv'
         with tempfile.TemporaryDirectory() as dir:
-            table = deriva_csv.DerivaCSV(path + '/test1.csv', self.server, self.catalog_id, self.schema)
+            table = deriva_csv.DerivaCSV(path, self.server, self.catalog_id, self.schema, catalog=self._catalog)
 
-        results = table.create_validate_upload_csv(convert=True, validate=True, create=True, upload=True,
 
+        results = table.create_validate_upload_csv(convert=True, validate=True, create=True, upload=False,
                                    chunk_size=1000, starting_chunk=1)
         pass
 

@@ -2,6 +2,8 @@ from unittest import TestCase
 
 
 class TestDerivaCatalogToString(TestCase):
+    def setUp(self):
+        pass
     def test_substitute_variables(self):
         pass
 

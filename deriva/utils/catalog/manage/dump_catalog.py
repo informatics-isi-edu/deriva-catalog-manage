@@ -59,7 +59,7 @@ class DerivaCatalogToString:
     def __init__(self, model, server, catalog_id, variables=None):
         self._model = model
         self._server = server
-        self._catalog_id = catalog_id,
+        self._catalog_id = catalog_id
         self._variables = variables
         if self._variables is None:
             self._variables = {}
@@ -81,7 +81,7 @@ class DerivaCatalogToString:
             code = re.sub(varsub, repl, code)
         return code
 
-    def variable_to_str(self, name, value):
+    def variable_to_str(self, name, value, substitute=True):
         """
         Print out a variable assignment on one line if empty, otherwise pretty print.
         :param name: Left hand side of assigment
@@ -90,7 +90,8 @@ class DerivaCatalogToString:
         """
 
         s = '{} = {!r}\n'.format(name, value)
-        s = self.substitute_variables(s)
+        if substitute:
+            s = self.substitute_variables(s)
         return s
 
     def tag_variables_to_str(self, annotations):
@@ -134,7 +135,7 @@ class DerivaCatalogToString:
         schema = self._model.schemas[schema_name]
 
         s = schema_file_template.format(server=self._server, catalog_id=self._catalog_id, schema_name=schema_name,
-                                        groups=self.variable_to_str('groups', DerivaConfig.groups),
+                                        groups=self.variable_to_str('groups', DerivaConfig.groups, substitute=False),
                                         annotations=self.variable_to_str('annotations', schema.annotations),
                                         acls=self.variable_to_str('acls', schema.acls),
                                         comments=self.variable_to_str('comment', schema.comment),
@@ -145,10 +146,10 @@ class DerivaCatalogToString:
 
     def catalog_to_str(self):
         s = catalog_file_template.format(self._server, self._catalog_id,
-                                         catalog_groups=self.variable_to_str('groups', DerivaConfig.groups),
+                                         groups=self.variable_to_str('groups', DerivaConfig.groups, substitute=False),
                                          tag_variables=self.tag_variables_to_str(self._model.annotations),
                                          annotations=self.annotations_to_str(self._model.annotations),
-                                         catalog_acls=self.variable_to_str('acls', self._model.acls))
+                                         acls=self.variable_to_str('acls', self._model.acls))
         s = FormatCode(s, style_config=yapf_style)[0]
         return s
 
@@ -259,7 +260,7 @@ class DerivaCatalogToString:
         provide_system = True
         s = table_file_template.format(server=self._server, catalog_id=self._catalog_id,
                                        table_name=table_name, schema_name=schema_name,
-                                       groups=self.variable_to_str('groups', DerivaConfig.groups),
+                                       groups=self.variable_to_str('groups', DerivaConfig.groups, substitute=False),
                                        column_annotations=self.column_annotations_to_str(table),
                                        column_defs=self.column_defs_to_str(table),
                                        table_annotations=self.table_annotations_to_str(table),

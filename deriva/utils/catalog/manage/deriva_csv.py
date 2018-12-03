@@ -162,7 +162,7 @@ class DerivaModel:
 class DerivaCSV(Table):
 
     def __init__(self, source, server, catalog_id, schema_name, table_name=None, column_map=True, key_columns=None,
-                 schema=None, strict=False, post_cast=None, storage=None, config=None, **options):
+                 schema=None, strict=False, post_cast=None, storage=None, config=None, catalog=None, **options):
         """
 
         :param source:
@@ -196,6 +196,11 @@ class DerivaCSV(Table):
         self._catalog_id = catalog_id
         self.row_count = None
         self.validation_report = None
+
+        self._catalog = catalog
+        if self._catalog is None:
+            credential = get_credential(self._server)
+            self._catalog = ErmrestCatalog('https', self._server, self._catalog_id, credentials=credential)
 
         # Normalize the column map.
         if self._column_map:
@@ -348,9 +353,8 @@ class DerivaCSV(Table):
         :param skip_system_columns: Don't include system columns in the schema.
         :return: table schema representation of the model
         """
-        credential = get_credential(self._server)
-        catalog = ErmrestCatalog('https', self._server, self._catalog_id, credentials=credential)
-        model_root = catalog.getCatalogModel()
+
+        model_root = self._catalog.getCatalogModel()
         schema = model_root.schemas[self.schema_name]
         table = schema.tables[self.table_name]
         fields = []
@@ -425,9 +429,8 @@ class DerivaCSV(Table):
             return iter(lambda: list(itertools.islice(iterable, n)), [])
 
         print("Loading table....")
-        credential = get_credential(self._server)
-        catalog = ErmrestCatalog('https', self._server, self._catalog_id, credentials=credential)
-        pb = catalog.getPathBuilder()
+
+        pb = self._catalog.getPathBuilder()
         self.table_schema_from_catalog()
         source_table = Table(self.source, schema=self.schema.descriptor, post_cast=[date_to_text])
         target_table = pb.schemas[self.schema_name].tables[self.table_name]
@@ -484,7 +487,7 @@ class DerivaCSV(Table):
 
     def create_validate_upload_csv(self, convert=True, validate=False, create=False, upload=False,
                                    derivafile=None, schemafile=None,
-                                   chunk_size=1000, starting_chunk=1):
+                                   chunk_size=1000, starting_chunk=1, catalog=None):
         """
 
         :param convert: If true, use table inference to infer types for columns of table and create a deriva-py program
@@ -510,7 +513,7 @@ class DerivaCSV(Table):
                 if create:
                     tablescript = load_module_from_path(derivafile)
                     # Now create the table.
-                    tablescript.main('table', catalog=LoopbackCatalog())
+                    tablescript.main('table', self._server, self._catalog_id, catalog=self._catalog)
 
         if validate:
             valid, report = self.validate()
