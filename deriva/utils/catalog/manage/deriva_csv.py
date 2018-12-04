@@ -7,6 +7,7 @@ import datetime
 import itertools
 import argparse
 import sys
+
 from decimal import Decimal
 from requests import HTTPError
 from tableschema import Table, Schema, exceptions
@@ -15,11 +16,9 @@ import goodtables
 
 from deriva.core import ErmrestCatalog, get_credential
 from deriva.core.ermrest_config import tag as chaise_tags
-
 import deriva.core.ermrest_model as em
-
-from dump_catalog import DerivaConfig, DerivaCatalogToString, load_module_from_path
-from utils import LoopbackCatalog
+from .dump_catalog import DerivaConfig, DerivaCatalogToString, load_module_from_path
+from .utils import LoopbackCatalog
 
 IS_PY2 = (sys.version_info[0] == 2)
 IS_PY3 = (sys.version_info[0] == 3)

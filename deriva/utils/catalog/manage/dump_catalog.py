@@ -1,15 +1,18 @@
 from __future__ import print_function
 
 import argparse
+import importlib
 import os
 import re
-from yapf.yapflib.yapf_api import FormatCode
 import sys
+
+from yapf.yapflib.yapf_api import FormatCode
+
 from attrdict import AttrDict
 from deriva.core import ErmrestCatalog, get_credential
+
 from deriva.core.ermrest_config import tag as chaise_tags
-from deriva_file_templates import table_file_template, schema_file_template, catalog_file_template
-import importlib
+from .deriva_file_templates import table_file_template, schema_file_template, catalog_file_template
 
 from future.standard_library import install_aliases
 install_aliases()
