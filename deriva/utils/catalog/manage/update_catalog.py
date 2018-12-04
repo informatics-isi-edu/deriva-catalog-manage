@@ -30,13 +30,8 @@ class CatalogUpdaterException(Exception):
 
 
 class CatalogUpdater:
-    def __init__(self, server=None, catalog_id=1, catalog=None):
-        self._catalog = catalog
-
-        if self._catalog is None:
-            credential = get_credential(server)
-            self._catalog = ErmrestCatalog('https', server, catalog_id, credentials=credential)
-        self._model = self._catalog.getCatalogModel()
+    def __init__(self, catalog):
+        self._catalog = catalog  # type: ErmrestCatalog
 
     def update_annotations(self, o, annotations, replace=False):
         if replace:
@@ -57,11 +52,12 @@ class CatalogUpdater:
         if mode not in ['annotations', 'acls']:
             raise CatalogUpdaterException(msg="Unknown mode {}".format(mode))
 
+        model = self._catalog.getCatalogModel()
         if mode == 'annotations':
-            self.update_annotations(self._model, annotations, replace=replace)
+            self.update_annotations(model, annotations, replace=replace)
         elif mode == 'acls':
-            self.update_acls(self._model, acls, replace=replace)
-        self._model.apply(self._catalog)
+            self.update_acls(model, acls, replace=replace)
+        model.apply(self._catalog)
 
     def update_schema(self, mode, schema_def, replace=False):
         schema_name = schema_def['schema_name']
@@ -72,28 +68,30 @@ class CatalogUpdater:
         if mode not in ['schema', 'annotations', 'comment', 'acls']:
             raise CatalogUpdaterException(msg="Unknown mode {}".format(mode))
 
+        model = self._catalog.getCatalogModel()
         if mode == 'schema':
             if replace:
-                schema = self._model.schemas[schema_name]
+                schema = model.schemas[schema_name]
                 print('Deleting schema ', schema.name)
                 ok = input('Type YES to confirm:')
                 if ok == 'YES':
-                    schema.delete(self._catalog, self._model)
-            schema = self._model.create_schema(self._catalog, schema_def)
+                    schema.delete(self._catalog, model)
+            schema = model.create_schema(self._catalog, schema_def)
         else:
-            schema = self._model.schemas[schema_name]
+            schema = model.schemas[schema_name]
             if mode == 'annotations':
                 self.update_annotations(schema, annotations, replace=replace)
             elif mode == 'acls':
                 self.update_acls(schema, acls, replace=replace)
             elif mode == 'comment':
                 schema.comment = comment
-            self._model.schemas[schema_name].apply(self._catalog)
+            schema.apply(self._catalog)
+
         return schema
 
     def update_table(self, mode, schema_name, table_def, replace=False):
 
-        schema = self._model.schemas[schema_name]
+        schema = self._catalog.getCatalogModel().schemas[schema_name]
         table_name = table_def['table_name']
         column_defs = table_def['column_definitions']
         table_acls = table_def['acls']
@@ -116,10 +114,10 @@ class CatalogUpdater:
                 ok = input('Type YES to confirm:')
                 if ok == 'YES':
                     table.delete(self._catalog, schema)
-                schema = self._model.schemas[schema_name]
+                schema = self._catalog.getCatalogModel().schemas[schema_name]
             if skip_fkeys:
                 table_def.fkey_defs = []
-            print('Creating table...')
+            print('Creating table...', table_name)
             table = schema.create_table(self._catalog, table_def)
             return table
 
@@ -152,7 +150,7 @@ class CatalogUpdater:
                     print("Skipping: foreign key {} {}: \n{}".format(i['names'], i, e.args))
         if mode == 'keys':
             if replace:
-                print('deleting keys')
+                print('Deleting keys')
                 for k in table.keys:
                     k.delete(self._catalog, table)
             for i in key_defs:

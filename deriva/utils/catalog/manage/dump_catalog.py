@@ -9,6 +9,19 @@ from attrdict import AttrDict
 from deriva.core import ErmrestCatalog, get_credential
 from deriva.core.ermrest_config import tag as chaise_tags
 from deriva_file_templates import table_file_template, schema_file_template, catalog_file_template
+import importlib
+
+from future.standard_library import install_aliases
+install_aliases()
+
+
+IS_PY2 = (sys.version_info[0] == 2)
+IS_PY3 = (sys.version_info[0] == 3)
+
+if IS_PY3:
+    from urllib.parse import urlparse, urlsplit, urlunsplit
+else:
+    from urlparse import urlparse, urlsplit, urlunsplit
 
 yapf_style = {
     'based_on_style': 'pep8',
@@ -21,6 +34,7 @@ yapf_style = {
 
 
 class DerivaConfig:
+    # Load a configuration file and look for a groups dictionary.
     groups = {}
     tags = chaise_tags
     variables = {}
@@ -31,35 +45,43 @@ class DerivaConfig:
             DerivaConfig.groups = AttrDict(configmod.groups)
 
 
-def load_module_from_path(configfile):
+def load_module_from_path(file):
     """
     Load configuration file from a path.
-    :param configfile:
+    :param file:
     :return:
     """
 
-    modname = os.path.splitext(os.path.basename(configfile))[0]
-    if sys.version_info > (3, 5):
-        print('loading....', configfile, os.path.abspath(configfile))
-        import importlib.util
-        modspec = importlib.util.spec_from_file_location(modname, configfile)
-        mod = importlib.util.module_from_spec(modspec)
-        modspec.loader.exec_module(mod)
-        print(dir(mod))
-    elif sys.version_info > (3, 3):
-        from importlib.machinery import SourceFileLoader
-        mod = SourceFileLoader(modname, configfile)
-    else:
-        import imp
-        mod = imp.load_source(modname, configfile)
+    class AddPath():
+        def __init__(self, path):
+            self.path = path
+
+        def __enter__(self):
+            sys.path.insert(0, self.path)
+
+        def __exit__(self, exc_type, exc_value, traceback):
+            try:
+                sys.path.remove(self.path)
+            except ValueError:
+                pass
+
+    dir, file = os.path.split(os.path.abspath(file))
+    modname = os.path.splitext(file)[0]
+    importlib.invalidate_caches()
+
+    with AddPath(dir):
+        try:
+            mod = importlib.reload(sys.modules[modname])
+        except KeyError:
+            mod = importlib.import_module(modname)
     return mod
 
 
 class DerivaCatalogToString:
-    def __init__(self, model, server, catalog_id, variables=None):
-        self._model = model
-        self._server = server
-        self._catalog_id = catalog_id
+    def __init__(self, catalog, provide_system_columns=True, variables=None):
+        self._catalog = catalog
+        self._model = catalog.getCatalogModel()
+        self._provide_system_columns = provide_system_columns
         self._variables = variables
         if self._variables is None:
             self._variables = {}
@@ -133,8 +155,10 @@ class DerivaCatalogToString:
 
     def schema_to_str(self, schema_name):
         schema = self._model.schemas[schema_name]
+        server = urlparse(self._catalog.get_server_uri()).hostname
+        catalog_id = self._catalog.get_server_uri().split('/')[-1]
 
-        s = schema_file_template.format(server=self._server, catalog_id=self._catalog_id, schema_name=schema_name,
+        s = schema_file_template.format(server=server, catalog_id=catalog_id, schema_name=schema_name,
                                         groups=self.variable_to_str('groups', DerivaConfig.groups, substitute=False),
                                         annotations=self.variable_to_str('annotations', schema.annotations),
                                         acls=self.variable_to_str('acls', schema.acls),
@@ -145,7 +169,10 @@ class DerivaCatalogToString:
         return s
 
     def catalog_to_str(self):
-        s = catalog_file_template.format(server=self._server, catalog_id=self._catalog_id,
+        server = urlparse(self._catalog.get_server_uri()).hostname
+        catalog_id = self._catalog.get_server_uri().split('/')[-1]
+
+        s = catalog_file_template.format(server=server, catalog_id=catalog_id,
                                          groups=self.variable_to_str('groups', DerivaConfig.groups, substitute=False),
                                          tag_variables=self.tag_variables_to_str(self._model.annotations),
                                          annotations=self.annotations_to_str(self._model.annotations),
@@ -226,6 +253,8 @@ class DerivaCatalogToString:
 
         s = 'column_defs = ['
         for col in table.column_definitions:
+            if col.name in system_columns and self._provide_system_columns:
+                continue
             s += '''    em.Column.define('{}', em.builtin_types['{}'],'''.\
                 format(col.name, col.type.typename + '[]' if 'is_array' is True else col.type.typename)
             if col.nullok is False:
@@ -240,7 +269,7 @@ class DerivaCatalogToString:
         s += ']'
         return s
 
-    def table_def_to_str(self, provide_system):
+    def table_def_to_str(self):
         s = """table_def = em.Table.define(table_name,
         column_defs=column_defs,
         key_defs=key_defs,
@@ -250,15 +279,17 @@ class DerivaCatalogToString:
         acl_bindings=table_acl_bindings,
         comment=table_comment,
         provide_system = {}
-    )""".format(provide_system)
+    )""".format(self._provide_system_columns)
         return s
 
     def table_to_str(self, schema_name, table_name):
-        schema = self._model.model.schemas[schema_name]
+        schema = self._model.schemas[schema_name]
         table = schema.tables[table_name]
 
-        provide_system = True
-        s = table_file_template.format(server=self._server, catalog_id=self._catalog_id,
+        server = urlparse(self._catalog.get_server_uri()).hostname
+        catalog_id = self._catalog.get_server_uri().split('/')[-1]
+
+        s = table_file_template.format(server=server, catalog_id=catalog_id,
                                        table_name=table_name, schema_name=schema_name,
                                        groups=self.variable_to_str('groups', DerivaConfig.groups, substitute=False),
                                        column_annotations=self.column_annotations_to_str(table),
@@ -266,7 +297,7 @@ class DerivaCatalogToString:
                                        table_annotations=self.table_annotations_to_str(table),
                                        key_defs=self.key_defs_to_str(table),
                                        fkey_defs=self.foreign_key_defs_to_str(table),
-                                       table_def=self.table_def_to_str(provide_system))
+                                       table_def=self.table_def_to_str())
         s = FormatCode(s, style_config=yapf_style)[0]
         return s
 
@@ -300,7 +331,7 @@ def main():
     model_root = catalog.getCatalogModel()
 
     print("Dumping catalog def....")
-    stringer = DerivaCatalogToString(model_root, server, catalog_id, variables=variables)
+    stringer = DerivaCatalogToString(catalog, variables=variables)
 
     catalog_string = stringer.catalog_to_str()
 

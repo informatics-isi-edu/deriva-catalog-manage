@@ -6,6 +6,7 @@ import re
 import datetime
 import itertools
 import argparse
+import sys
 from decimal import Decimal
 from requests import HTTPError
 from tableschema import Table, Schema, exceptions
@@ -18,7 +19,16 @@ from deriva.core.ermrest_config import tag as chaise_tags
 import deriva.core.ermrest_model as em
 
 from dump_catalog import DerivaConfig, DerivaCatalogToString, load_module_from_path
-from loopback_catalog import LoopbackCatalog
+from utils import LoopbackCatalog
+
+IS_PY2 = (sys.version_info[0] == 2)
+IS_PY3 = (sys.version_info[0] == 3)
+
+if IS_PY3:
+    from urllib.parse import urlparse, urlsplit, urlunsplit
+else:
+    from urlparse import urlparse, urlsplit, urlunsplit
+
 
 # We should get range info in there....
 table_schema_type_map = {
@@ -92,22 +102,21 @@ class DerivaCSVError(Exception):
 class DerivaModel:
     """
     Class to represent a CSV schema as a dervia catalog model. This class takes a table schema, performs name
-    mapping of column names and generates a derviva-py model.
+    mapping of column names and generates a deriva-py model.
     """
 
     def __init__(self, csvschema):
         self._csvschema = csvschema
-        self._catalog = LoopbackCatalog()
-        self.model = self._catalog.getCatalogModel()
-        self.column_map = {}
+        self.catalog = LoopbackCatalog()
+        self.model = self.catalog.getCatalogModel()
         self.type_map = {}
+        self.field_name_map = {}
 
         schema_def = em.Schema.define(csvschema.schema_name, comment="Schema from tableschema")
-        schema = self.model.create_schema(self._catalog, schema_def)
+        schema = self.model.create_schema(self.catalog, schema_def)
 
         table_def = em.Table.define(csvschema.table_name)
-        table = schema.create_table(self._catalog, table_def)
-
+        table = schema.create_table(self.catalog, table_def)
         self.__deriva_columns(table, csvschema)
         self.__deriva_keys(table, csvschema)
         return
@@ -124,21 +133,16 @@ class DerivaModel:
             if col.name in system_columns:
                 continue
             mapped_name = csvschema.map_name(col.name)
-            self.column_map[col.name] = mapped_name
+            self.field_name_map[col.name] = mapped_name
             self.type_map.setdefault(table_schema_ermrest_type_map[col.type + ':' + col.format], []).append(col.name)
 
             t = "{}:{}".format(col.type, col.format)
             c = em.Column.define(mapped_name, em.builtin_types[table_schema_ermrest_type_map[t]],
                                  nullok=not col.required, comment=col.descriptor.get('description', ''))
-            table.create_column(self._catalog, c)
+            table.create_column(self.catalog, c)
         return
 
     def __deriva_keys(self, table, csvschema):
-
-        # Create a key definition for the RID column.
-        constraint_name = (csvschema.schema_name, csvschema.map_name('{}_{}_Key)'.format(csvschema.table_name, 'RID')))
-        k = em.Key.define(['RID'], constraint_names=[constraint_name])
-        table.create_key(self._catalog, k)
 
         # Create a key definition for the primary key.
         if len(csvschema.schema.primary_key) > 1:
@@ -146,7 +150,7 @@ class DerivaModel:
                 (csvschema.schema_name,
                  csvschema.map_name('{}_{}_Key)'.format(csvschema.table_name, '_'.join(csvschema.schema.primary_key))))
             k = em.Key.define([csvschema.schema.primary_key], constraint_names=[constraint_name])
-            table.create_key(self._catalog, k)
+            table.create_key(self.catalog, k)
 
         # Create a key definition for any columns that have a unique constraint.
         for col in csvschema.schema.fields:
@@ -155,34 +159,34 @@ class DerivaModel:
                 constraint_name = (csvschema.schema_name,
                                    csvschema.map_name('{}_{}_Key)'.format(csvschema.table_name, mapped_name)))
                 k = em.Key.define([col.name], constraint_names=[constraint_name])
-                table.create_key(self._catalog, k)
+                table.create_key(self.catalog, k)
         return
 
 
 class DerivaCSV(Table):
 
-    def __init__(self, source, server, catalog_id, schema_name, table_name=None, column_map=True, key_columns=None,
-                 schema=None, strict=False, post_cast=None, storage=None, config=None, catalog=None, **options):
+    def __init__(self, source, schema_name, table_name=None, column_map=True, key_columns=None,
+                 schema=None, config=None, **options):
         """
 
-        :param source:
-        :param server:
+        :param source: File containing the table data
+        :param server: Server on which data will be stored
         :param catalog_id:
-        :param schema_name:
-        :param table_name:
-        :param column_map:
-        :param key_columns:
-        :param schema:
-        :param strict:
-        :param post_cast: Passed to tableschema
-        :param storage:  Passed to tableschema
+        :param schema_name: Name of the Deriva Schema in which this table will be located
+        :param table_name: Name of the table.  If not provided, use the source file name
+        :param column_map: a column name mapping dictionary, of the form [n1,n2,n3] or {n1:v, n2:v}.  In the list form
+                           elements are the exact capitolaization of words to be used in a name.  In the dictionary
+                           form, the values are what the name should be replaced with.  All matching is done case
+                           insenstive.  Word substition is only done after column names are split. Other matches are
+                           done both before and after the mapping of the name into snake case.
+        :param key_columns: name of columns to use as keys
+        :param schema: existing tableschema file to use instead of infering types
+        :param config
+        :param catalog: an ErmrestCatalog.  If not provided, one is created using the server and catalog_id.
         :param options: Options passed on to tableschema init function
         """
 
-        if not post_cast:
-            post_cast = []
-        super(DerivaCSV, self).__init__(source, schema=schema, strict=strict, post_cast=post_cast, storage=storage,
-                                        **options)
+        super(DerivaCSV, self).__init__(source, schema=schema,  **options)
 
         DerivaConfig(config)
         groups = DerivaConfig.groups
@@ -192,17 +196,10 @@ class DerivaCSV(Table):
         self._column_map = column_map
         self._key_columns = key_columns
         self.schema_name = schema_name
-        self._server = server
-        self._catalog_id = catalog_id
         self.row_count = None
         self.validation_report = None
 
-        self._catalog = catalog
-        if self._catalog is None:
-            credential = get_credential(self._server)
-            self._catalog = ErmrestCatalog('https', self._server, self._catalog_id, credentials=credential)
-
-        # Normalize the column map.
+        # Normalize the column map so we only have a dictionary.
         if self._column_map:
             if isinstance(self._column_map, list):
                 # We have a word map.
@@ -315,9 +312,10 @@ class DerivaCSV(Table):
         self.schema.commit()
         return
 
-    def validate(self, validation_limit=None):
+    def validate(self, catalog, validation_limit=None):
         """
         For the specified table data, validate the contents of the table against an existing table in a catalog.
+        :parameter catalog
         :param validation_limit: How much of the table to check. Defaults to entire table.
         :return: an error report and the number of rows in the table as a tuple
         """
@@ -329,7 +327,7 @@ class DerivaCSV(Table):
             # Validate the whole file.
             validation_limit = self.row_count
 
-        table_schema = self.table_schema_from_catalog()
+        table_schema = self.table_schema_from_catalog(catalog)
 
         # First, just check the headers to make sure they line up under mapping.
         report = goodtables.validate(self.source, schema=table_schema.descriptor, checks=['non-matching-header'])
@@ -345,16 +343,17 @@ class DerivaCSV(Table):
 
         return report['valid'], report
 
-    def table_schema_from_catalog(self, skip_system_columns=True, outfile=None):
+    def table_schema_from_catalog(self, catalog, skip_system_columns=True, outfile=None):
         """
         Create a TableSchema by querying an ERMRest catalog and converting the model format.
 
+        :param catalog
         :param outfile: if this argument is specified, dump the scheme into the specified file.
         :param skip_system_columns: Don't include system columns in the schema.
         :return: table schema representation of the model
         """
 
-        model_root = self._catalog.getCatalogModel()
+        model_root = catalog.getCatalogModel()
         schema = model_root.schemas[self.schema_name]
         table = schema.tables[self.table_name]
         fields = []
@@ -408,10 +407,11 @@ class DerivaCSV(Table):
 
         return catalog_schema
 
-    def upload_to_deriva(self, chunk_size=1000, starting_chunk=1):
+    def upload_to_deriva(self, catalog, chunk_size=1000, starting_chunk=1):
         """
         Upload the source table to deriva.
 
+        :param catalog
         :param chunk_size: Number of rows to upload at one time.
         :param starting_chunk: What chunk number to start at.  Can be used to continue a failed upload.
         :return:
@@ -428,10 +428,8 @@ class DerivaCSV(Table):
             iterable = iter(iterable)
             return iter(lambda: list(itertools.islice(iterable, n)), [])
 
-        print("Loading table....")
-
-        pb = self._catalog.getPathBuilder()
-        self.table_schema_from_catalog()
+        pb = catalog.getPathBuilder()
+        self.table_schema_from_catalog(catalog)
         source_table = Table(self.source, schema=self.schema.descriptor, post_cast=[date_to_text])
         target_table = pb.schemas[self.schema_name].tables[self.table_name]
 
@@ -468,7 +466,7 @@ class DerivaCSV(Table):
         :return: dictionary that has the column name mapping derived by this routine.
         """
 
-        if not outfile:
+        if outfile is None:
             outfile = self.table_name + '.py'
 
         if schemafile is True:
@@ -478,16 +476,16 @@ class DerivaCSV(Table):
             self.schema.save(self.table_name + '.json')
 
         deriva_model = DerivaModel(self)
-
-        stringer = DerivaCatalogToString(deriva_model, self._server, self._catalog_id, variables=self._variables)
+        stringer = DerivaCatalogToString(deriva_model.catalog, variables=self._variables)
         table_string = stringer.table_to_str(self.schema_name, self.table_name)
+
         with open(outfile, 'w') as stream:
             print(table_string, file=stream)
-        return deriva_model.column_map, deriva_model.type_map
+        return deriva_model.field_name_map, deriva_model.type_map
 
-    def create_validate_upload_csv(self, convert=True, validate=False, create=False, upload=False,
+    def create_validate_upload_csv(self, catalog, convert=True, validate=False, create=False, upload=False,
                                    derivafile=None, schemafile=None,
-                                   chunk_size=1000, starting_chunk=1, catalog=None):
+                                   chunk_size=1000, starting_chunk=1):
         """
 
         :param convert: If true, use table inference to infer types for columns of table and create a deriva-py program
@@ -504,28 +502,28 @@ class DerivaCSV(Table):
 
         if create or convert:
             print('Creating table definition {}:{}'.format(self.schema_name, self.table_name))
-            with tempfile.TemporaryDirectory() as tdir:
-                # If convertdir is set, put deriva-py program in current directory.
-                odir = os.path.dirname(os.path.abspath(self.source)) if convert else tdir
-                if (not derivafile) or convert:
-                    derivafile = '{}/{}.py'.format(odir, self.table_name)
-                    self.convert_to_deriva(outfile=derivafile, schemafile=schemafile)
-                if create:
-                    tablescript = load_module_from_path(derivafile)
-                    # Now create the table.
-                    tablescript.main('table', self._server, self._catalog_id, catalog=self._catalog)
+            tdir = tempfile.mkdtemp()
+            # If convert is set, put deriva-py program in current directory.
+            if derivafile is None:
+                derivafile =  '{}/{}.py'.format(tdir, self.table_name)
+            if convert:
+                self.convert_to_deriva(outfile=derivafile, schemafile=schemafile)
+            if create:
+                tablescript = load_module_from_path(derivafile)
+                # Now create the table.
+                tablescript.main(catalog, 'table')
 
         if validate:
-            valid, report = self.validate()
+            valid, report = self.validate(catalog)
             if not valid:
                 for i in report['tables'][0]['errors']:
                     print(i)
                 return 0, 1, report
 
         if upload:
-            print("Loading table....")
+            print('Loading table data {}:{}'.format(self.schema_name, self.table_name))
             row_cnt, chunk_size, chunk_cnt = \
-                self.upload_to_deriva(chunk_size=chunk_size, starting_chunk=starting_chunk)
+                self.upload_to_deriva(catalog, chunk_size=chunk_size, starting_chunk=starting_chunk)
 
             return row_cnt, chunk_size, chunk_cnt
 
@@ -584,12 +582,14 @@ def main():
     parser.add_argument('--config', default=None, help='python script to set up configuration variables)')
 
     args = parser.parse_args()
-    print(args)
+
+    credential = get_credential(args.server)
+    catalog = ErmrestCatalog('https', args.server, args.catalog_id, credentials=credential)
 
     table = DerivaCSV(args.tabledata, args.server, args.catalog, args.schema, config=args.config,
                       table_name=args.table, column_map=args.column_map)
 
-    table.create_validate_upload_csv(
+    table.create_validate_upload_csv(catalog,
         convert=args.convert, validate=args.validate, create=args.create_table, upload=args.upload,
         derivafile=args.derivafile, schemafile=args.schemafile,
         chunk_size=args.chunk_size, starting_chunk=args.starting_chunk)

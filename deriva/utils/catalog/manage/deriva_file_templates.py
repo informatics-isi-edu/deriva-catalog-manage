@@ -25,8 +25,8 @@ schema_name = '{schema_name}'
 {table_def}
 
 
-def main(mode, server, catalog_id, replace=False, catalog=None):
-    updater = CatalogUpdater(server, catalog_id, catalog=catalog)
+def main(catalog, mode, replace=False):
+    updater = CatalogUpdater(catalog)
     updater.update_table(mode, schema_name, table_def,replace=replace)
 
 
@@ -34,7 +34,9 @@ if __name__ == "__main__":
     server = {server!r}
     catalog_id = {catalog_id}
     mode, replace, server, catalog_id = parse_args(server, catalog_id, is_catalog=True)
-    main(mode, server, catalog_id, replace)
+    credential = get_credential(server)
+    catalog = ErmrestCatalog('https', server, catalog_id, credentials=credential)
+    main(catalog, mode, replace)
 """
 
 
@@ -65,8 +67,8 @@ schema_def = em.Schema.define(
         annotations=annotations,
     )
 
-def main(mode, server, catalog_id, replace=False, catalog=None):
-    updater = CatalogUpdater(server, catalog_id, catalog=catalog)
+def main(catalog, mode, replace=False):
+    updater = CatalogUpdater(catalog)
     updater.update_catalog.update_schema(mode, schema_name, schema_def, replace=replace)
 
 
@@ -74,7 +76,9 @@ if __name__ == "__main__":
     server = {server!r}
     catalog_id = {catalog_id}
     mode, replace, server, catalog_id = parse_args(server, catalog_id, is_catalog=True)
-    main(mode, server, catalog_id, replace)
+    credential = get_credential(server)
+    catalog = ErmrestCatalog('https', server, catalog_id, credentials=credential)
+    main(catalog, mode, replace)
 """
 
 catalog_file_template = """
@@ -97,8 +101,8 @@ import deriva.core.ermrest_model as em
 
 {acls}
 
-def main(mode, server, catalog_id, replace=False, catalog=None):
-    updater = CatalogUpdater(server, catalog_id, catalog=catalog)
+def main(catalog, mode, replace=False):
+    updater = CatalogUpdater(catalog)
     updater.update_catalog(mode, annotations, acls, replace=replace)
 
 
@@ -106,5 +110,7 @@ if __name__ == "__main__":
     server = {server!r}
     catalog_id = {catalog_id}
     mode, replace, server, catalog_id = parse_args(server, catalog_id, is_catalog=True)
-    main(mode, server, catalog_id, replace)
+    credential = get_credential(server)
+    catalog = ErmrestCatalog('https', server, catalog_id, credentials=credential)
+    main(catalog, mode, replace)
 """
