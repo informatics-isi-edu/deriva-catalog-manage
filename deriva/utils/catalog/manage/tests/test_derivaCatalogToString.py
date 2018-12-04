@@ -42,19 +42,15 @@ class TestDerivaCatalogToString(TestCase):
             stringer = DerivaCatalogToString(catalog, variables=self._variables)
             catalog_string = stringer.catalog_to_str()
             tdir = tempfile.mkdtemp()
-            with open('{}/TestCatalog.py'.format(tdir), mode='w') as f:
-                print(catalog_string)
+            modfile = '{}/TestCatalog.py'.format(tdir)
+            with open(modfile, mode='w') as f:
                 print(catalog_string, file=f)
-                m = load_module_from_path(f.name)
-                print(m.__file__)
-                print(m.__dict__)
+            m = load_module_from_path(modfile)
 
-                with TempErmrestCatalog('https', self.server, credentials=self.credentials) as test_catalog:
-                    server = urlparse(test_catalog.get_server_uri()).hostname
-                    catalog_id = catalog.get_server_uri().split('/')[-1]
-                    m.main(test_catalog, 'catalog')
-                    test_model = test_catalog.getCatalogModel()
-                self.assertEqual(test_model, model)
+            with TempErmrestCatalog('https', self.server, credentials=self.credentials) as test_catalog:
+                server = urlparse(test_catalog.get_server_uri()).hostname
+                catalog_id = catalog.get_server_uri().split('/')[-1]
+                m.main(test_catalog, 'annotations')
 
     def test_table_annotations_to_str(self):
         pass
