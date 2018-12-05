@@ -106,26 +106,29 @@ class DerivaModel:
 
     def __init__(self, csvschema):
         self._csvschema = csvschema
-        self.catalog = LoopbackCatalog()
-        self.model = self.catalog.getCatalogModel()
+        self.model = {}
         self.type_map = {}
         self.field_name_map = {}
 
         schema_def = em.Schema.define(csvschema.schema_name, comment="Schema from tableschema")
         schema = self.model.create_schema(self.catalog, schema_def)
 
-        table_def = em.Table.define(csvschema.table_name)
-        table = schema.create_table(self.catalog, table_def)
-        self.__deriva_columns(table, csvschema)
-        self.__deriva_keys(table, csvschema)
+        key_defs = self.__deriva_keys(csvschema)
+        column_defs = self.__deriva_columns(csvschema)
+        table_def = em.Table.define(csvschema.table_name, column_defs=column_defs, key_defs=key_defs)
+        schema_def = em.Schema.define()
+
+        schema = self._model.schemas[schema_name]
+        table = schema.tables[table_name]
+
         return
 
-    def __deriva_columns(self, table, csvschema):
+    def __deriva_columns(self, csvschema):
         """
         Add deriva_py column definitions, one for each field in the schema.
         :return:
         """
-
+        column_defs = []
         system_columns = ['RID', 'RCB', 'RMB', 'RCT', 'RMT']
         for col in csvschema.schema.fields:
             # Don't include system columns in the list of column definitions.
@@ -136,20 +139,18 @@ class DerivaModel:
             self.type_map.setdefault(table_schema_ermrest_type_map[col.type + ':' + col.format], []).append(col.name)
 
             t = "{}:{}".format(col.type, col.format)
-            c = em.Column.define(mapped_name, em.builtin_types[table_schema_ermrest_type_map[t]],
-                                 nullok=not col.required, comment=col.descriptor.get('description', ''))
-            table.create_column(self.catalog, c)
+            column_defs.append(em.Column.define(mapped_name, em.builtin_types[table_schema_ermrest_type_map[t]],
+                                 nullok=not col.required, comment=col.descriptor.get('description', '')))
         return
 
-    def __deriva_keys(self, table, csvschema):
-
+    def __deriva_keys(self, csvschema):
+        keys = []
         # Create a key definition for the primary key.
         if len(csvschema.schema.primary_key) > 1:
             constraint_name = \
                 (csvschema.schema_name,
                  csvschema.map_name('{}_{}_Key)'.format(csvschema.table_name, '_'.join(csvschema.schema.primary_key))))
-            k = em.Key.define([csvschema.schema.primary_key], constraint_names=[constraint_name])
-            table.create_key(self.catalog, k)
+            keys.append(em.Key.define([csvschema.schema.primary_key], constraint_names=[constraint_name]))
 
         # Create a key definition for any columns that have a unique constraint.
         for col in csvschema.schema.fields:
@@ -157,9 +158,8 @@ class DerivaModel:
             if col.constraints.get('unique', False):
                 constraint_name = (csvschema.schema_name,
                                    csvschema.map_name('{}_{}_Key)'.format(csvschema.table_name, mapped_name)))
-                k = em.Key.define([col.name], constraint_names=[constraint_name])
-                table.create_key(self.catalog, k)
-        return
+                keys.append(em.Key.define([col.name], constraint_names=[constraint_name]))
+        return keys
 
 
 class DerivaCSV(Table):

@@ -9,7 +9,7 @@ if "%SPHINXBUILD%" == "" (
 )
 set SOURCEDIR=.
 set BUILDDIR=_build
-set SPHINXPROJ=deriva-py
+set SPHINXPROJ=deriva-catalog-manage
 
 if "%1" == "" goto help
 
