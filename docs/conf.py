@@ -19,7 +19,7 @@ sys.path.insert(0, os.path.abspath('..'))
 
 # -- Project information -----------------------------------------------------
 
-project = 'deriva-py'
+project = 'deriva-catalog-manage'
 copyright = '2018, USC Information Sciences Institute, Informatics Systems Research Division'
 author = 'USC Information Sciences Institute, Informatics Systems Research Division'
 
@@ -154,7 +154,7 @@ latex_elements = {
 # (source start file, target name, title,
 #  author, documentclass [howto, manual, or own class]).
 latex_documents = [
-    (master_doc, 'deriva-py.tex', 'deriva-py Documentation',
+    (master_doc, 'deriva-catalog-manage.tex', 'deriva-catalog-manage Documentation',
      'USC Information Sciences Institute, Informatics Systems Research Division', 'manual'),
 ]
 
@@ -164,7 +164,7 @@ latex_documents = [
 # One entry per manual page. List of tuples
 # (source start file, name, description, authors, manual section).
 man_pages = [
-    (master_doc, 'deriva-py', 'deriva-py Documentation',
+    (master_doc, 'deriva-catalog-manage', 'deriva-catalog-manage Documentation',
      [author], 1)
 ]
 
@@ -175,8 +175,8 @@ man_pages = [
 # (source start file, target name, title, author,
 #  dir menu entry, description, category)
 texinfo_documents = [
-    (master_doc, 'deriva-py', 'deriva-py Documentation',
-     author, 'deriva-py', 'One line description of project.',
+    (master_doc, 'deriva-catalog-manage', 'deriva-catalog-manage Documentation',
+     author, 'deriva-catalog-manage', 'One line description of project.',
      'Miscellaneous'),
 ]
 

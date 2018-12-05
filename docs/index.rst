@@ -23,8 +23,7 @@ Python Command-line Clients and API (deriva-py)
    :maxdepth: 4
    :caption: Command Line Interfaces
 
-   cli/deriva-acl-config
-   cli/deriva-annotation-config
-   cli/deriva-hatrac-cli
-   cli/deriva-download-cli
+   cli/deriva-csv
+   cli/deriva-catalog-dump
+
 

@@ -3,11 +3,11 @@ from unittest import TestCase
 import os
 import sys
 import tempfile
-import deriva_csv
-import dump_catalog
+import deriva.utils.catalog.manage.deriva_csv as deriva_csv
+import deriva.utils.catalog.manage.dump_catalog as dump_catalog
 from deriva.core import get_credential
 import deriva.core.ermrest_model as em
-from utils import LoopbackCatalog, TempErmrestCatalog
+from deriva.utils.catalog.manage.utils import LoopbackCatalog, TempErmrestCatalog
 
 if sys.version_info >= (3, 0):
     from urllib.parse import urlparse
@@ -72,7 +72,7 @@ class TestDerivaCSV(TestCase):
                     m.main(test_catalog, 'table')
 
     def test_create_validate_upload_csv(self):
-        tablefile = os.path.dirname(os.path.realpath(__file__)) + '/test1.csv'
+        tablefile = os.path.dirname(os.path.realpath(__file__)) + '/Experiment.csv'
         configfile = os.path.dirname(os.path.realpath(__file__)) + '/config.py'
         with TempErmrestCatalog('https', self.server, self.credentials) as catalog:
             model = catalog.getCatalogModel()
@@ -82,7 +82,7 @@ class TestDerivaCSV(TestCase):
             row_cnt, chunk_size, chunk_cnt = table.create_validate_upload_csv(catalog, convert=True, validate=True,
                                                                               create=True, upload=True,
                                                                               chunk_size=1000, starting_chunk=1)
-            self.assertEqual(row_cnt, 3)
+            self.assertEqual(row_cnt, 5000)
 
     def test_map_name(self):
         path = os.path.dirname(os.path.realpath(__file__))

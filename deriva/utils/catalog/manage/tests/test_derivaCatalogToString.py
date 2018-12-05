@@ -2,9 +2,9 @@ from unittest import TestCase
 import tempfile
 import sys
 import deriva.core.ermrest_model as em
-from utils import LoopbackCatalog, TempErmrestCatalog
+from deriva.utils.catalog.manage.utils import LoopbackCatalog, TempErmrestCatalog
 from deriva.core import ErmrestCatalog, get_credential
-from dump_catalog import DerivaCatalogToString, DerivaConfig, load_module_from_path
+from deriva.utils.catalog.manage.dump_catalog import DerivaCatalogToString, DerivaConfig, load_module_from_path
 
 if sys.version_info >= (3, 0):
     from urllib.parse import urlparse

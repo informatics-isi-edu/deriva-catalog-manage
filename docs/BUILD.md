@@ -1,10 +1,10 @@
-# Build _deriva-py_ docs using `sphinx`
+# Build _deriva-catlog-manage_ docs using `sphinx`
 In order to build the _deriva-py_ documentation with `sphinx`, the prerequisite software dependencies must first be installed. Python 3 is the _recommended_ version of Python to use when building the documentation.
 
 ### Prerequisites
 1. Install `pandoc` for Jupyter Notebook conversion support. Follow the instructions for your platform [here](http://pandoc.org/installing.html).
 2. If necessary, clone the _deriva-py_ source code from GitHub ([here](https://github.com/informatics-isi-edu/deriva-py)) and `cd` into the source code root directory, `deriva-py`.
-3. Install `deriva-py` in `user` mode via `pip` and include `requirements_dev.txt` via the following command:
+3. Install `deriva-catalog-manage` in `user` mode via `pip` and include `requirements_dev.txt` via the following command:
     ```
     pip3 install --user -r requirements_dev.txt .
     ```

@@ -14,10 +14,6 @@ from deriva.core import ErmrestCatalog, get_credential
 from deriva.core.ermrest_config import tag as chaise_tags
 from .deriva_file_templates import table_file_template, schema_file_template, catalog_file_template
 
-from future.standard_library import install_aliases
-install_aliases()
-
-
 IS_PY2 = (sys.version_info[0] == 2)
 IS_PY3 = (sys.version_info[0] == 3)
 
