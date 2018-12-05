@@ -7,6 +7,7 @@ import datetime
 import itertools
 import argparse
 import sys
+import time
 
 from decimal import Decimal
 from requests import HTTPError
@@ -17,8 +18,8 @@ import goodtables
 from deriva.core import ErmrestCatalog, get_credential
 from deriva.core.ermrest_config import tag as chaise_tags
 import deriva.core.ermrest_model as em
-from .dump_catalog import DerivaConfig, DerivaCatalogToString, load_module_from_path
-from .utils import LoopbackCatalog
+from deriva.utils.catalog.manage.dump_catalog import DerivaConfig, DerivaCatalogToString, load_module_from_path
+from deriva.utils.catalog.manage.utils import LoopbackCatalog
 
 IS_PY2 = (sys.version_info[0] == 2)
 IS_PY3 = (sys.version_info[0] == 3)
@@ -103,24 +104,20 @@ class DerivaModel:
     Class to represent a CSV schema as a dervia catalog model. This class takes a table schema, performs name
     mapping of column names and generates a deriva-py model.
     """
-
     def __init__(self, csvschema):
         self._csvschema = csvschema
         self.model = {}
         self.type_map = {}
         self.field_name_map = {}
 
-        schema_def = em.Schema.define(csvschema.schema_name, comment="Schema from tableschema")
-        schema = self.model.create_schema(self.catalog, schema_def)
-
         key_defs = self.__deriva_keys(csvschema)
         column_defs = self.__deriva_columns(csvschema)
         table_def = em.Table.define(csvschema.table_name, column_defs=column_defs, key_defs=key_defs)
-        schema_def = em.Schema.define()
+        schema_def = em.Schema.define(csvschema.schema_name, comment="Schema from tableschema")
+        schema_def['tables'] = {csvschema.table_name:table_def}
 
-        schema = self._model.schemas[schema_name]
-        table = schema.tables[table_name]
-
+        self.model = em.Model({'schemas': {csvschema.schema_name:schema_def}, 'acls':{}, 'annotations':{}, 'comment':None})
+        self.catalog = LoopbackCatalog(self.model)
         return
 
     def __deriva_columns(self, csvschema):
@@ -130,6 +127,7 @@ class DerivaModel:
         """
         column_defs = []
         system_columns = ['RID', 'RCB', 'RMB', 'RCT', 'RMT']
+
         for col in csvschema.schema.fields:
             # Don't include system columns in the list of column definitions.
             if col.name in system_columns:
@@ -141,7 +139,7 @@ class DerivaModel:
             t = "{}:{}".format(col.type, col.format)
             column_defs.append(em.Column.define(mapped_name, em.builtin_types[table_schema_ermrest_type_map[t]],
                                  nullok=not col.required, comment=col.descriptor.get('description', '')))
-        return
+        return column_defs
 
     def __deriva_keys(self, csvschema):
         keys = []
@@ -248,7 +246,7 @@ class DerivaCSV(Table):
             if all(map(lambda x: x in self.schema.field_names, primary_key)):
                 self.schema.descriptor['primaryKey'] = primary_key
             else:
-                print('Missing key column: ', primary_key)
+                raise DerivaCSVError(msg='Missing key column: '.format(primary_key))
 
         # Capture the key columns.
         for k in self._key_columns:
@@ -265,6 +263,7 @@ class DerivaCSV(Table):
     def infer(self, limit=100, confidence=.75):
         """https://github.com/frictionlessdata/tableschema-py#schema
         """
+
         # Do initial infer to set up headers and schema.
         Table.infer(self)
 
@@ -302,6 +301,7 @@ class DerivaCSV(Table):
                         type_matches[cindex] = typeid if typeid[2] > type_matches[cindex][2] else type_matches[cindex]
                     else:
                         type_matches[cindex] = typeid
+
         self.row_count = rindex
         for index, results in type_matches.items():
             descriptor['fields'][index].update({'type': results[0], 'format': results[1]})
@@ -444,8 +444,10 @@ class DerivaCSV(Table):
                 chunk_cnt += 1
                 continue
             try:
+                start_time = time.time()
                 target_table.insert(rows, add_system_defaults=True)
-                print('Completed chunk {}'.format(chunk_cnt))
+                stop_time = time.time()
+                print('Completed chunk {} in {:.1f} sec.'.format(chunk_cnt, stop_time-start_time))
                 chunk_cnt += 1
                 row_cnt += len(rows)
             except HTTPError as e:
@@ -504,7 +506,7 @@ class DerivaCSV(Table):
             tdir = tempfile.mkdtemp()
             # If convert is set, put deriva-py program in current directory.
             if derivafile is None:
-                derivafile =  '{}/{}.py'.format(tdir, self.table_name)
+                derivafile = '{}/{}.py'.format(tdir, self.table_name)
             if convert:
                 self.convert_to_deriva(outfile=derivafile, schemafile=schemafile)
             if create:

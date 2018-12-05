@@ -56,13 +56,13 @@ class TestDerivaCSV(TestCase):
             model.create_schema(catalog, em.Schema.define(self.schema_name))
             column_map = True
             table = deriva_csv.DerivaCSV(tablefile, self.schema_name, config=configfile, column_map=column_map)
-            self.assertEqual(table.headers, ['a', 'b', 'c'])
+            self.assertEqual(table.headers, ['key','a', 'b', 'c'])
 
             with tempfile.TemporaryDirectory() as tmpdir:
                 pythonfile = '{}/{}.py'.format(tmpdir, 'test1')
-                jsonfile = '{}/{}.py'.format(tmpdir, 'test1')
-                results = table.convert_to_deriva(outfile=pythonfile, schemafile=jsonfile)
-                self.assertEqual(results, ({'a': 'A', 'b': 'B', 'c': 'C'}, {'text': ['a', 'c'], 'float8': ['b']}))
+                results = table.convert_to_deriva(outfile=pythonfile)
+                self.assertEqual(results, ({'key': 'Key', 'a': 'A', 'b': 'B', 'c': 'C'},
+                                           {'boolean': ['c'], 'int4':['key'], 'text':['a'], 'float8':['b']}))
 
                 with TempErmrestCatalog('https', self.server, credentials=self.credentials) as test_catalog:
                     test_catalog.getCatalogModel().create_schema(test_catalog, em.Schema.define(self.schema_name))
@@ -78,11 +78,11 @@ class TestDerivaCSV(TestCase):
             model = catalog.getCatalogModel()
             model.create_schema(catalog, em.Schema.define(self.schema_name))
 
-            table = deriva_csv.DerivaCSV(tablefile, self.schema_name)
+            table = deriva_csv.DerivaCSV(tablefile, self.schema_name, key_columns='Experiment_ID')
             row_cnt, chunk_size, chunk_cnt = table.create_validate_upload_csv(catalog, convert=True, validate=True,
                                                                               create=True, upload=True,
                                                                               chunk_size=1000, starting_chunk=1)
-            self.assertEqual(row_cnt, 5000)
+            self.assertEqual(row_cnt, 5002)
 
     def test_map_name(self):
         path = os.path.dirname(os.path.realpath(__file__))
