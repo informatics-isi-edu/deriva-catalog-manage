@@ -1,0 +1,60 @@
+{
+    "fields": [
+        {
+            "name": "Experiment_ID",
+            "type": "integer",
+            "format": "default"
+        },
+        {
+            "name": "Name",
+            "type": "string",
+            "format": "default"
+        },
+        {
+            "name": "Tube_ID",
+            "type": "string",
+            "format": "default"
+        },
+        {
+            "name": "Trial_ID",
+            "type": "integer",
+            "format": "default"
+        },
+        {
+            "name": "Date",
+            "type": "date",
+            "format": "default"
+        },
+        {
+            "name": "User_List_ID",
+            "type": "integer",
+            "format": "default"
+        },
+        {
+            "name": "Disabled",
+            "type": "string",
+            "format": "default"
+        },
+        {
+            "name": "Protocol_ID",
+            "type": "integer",
+            "format": "default"
+        },
+        {
+            "name": "Blood_Volume",
+            "type": "string",
+            "format": "default"
+        },
+        {
+            "name": "Block_ID",
+            "type": "string",
+            "format": "default"
+        }
+    ],
+    "missingValues": [
+        ""
+    ],
+    "primaryKey": [
+        "Experiment_ID"
+    ]
+}
