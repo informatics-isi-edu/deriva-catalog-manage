@@ -15,7 +15,9 @@ from tableschema import Table, Schema, exceptions
 from tableschema.schema import _TypeGuesser
 import goodtables
 
-from deriva.core import ErmrestCatalog, get_credential
+from sortedcontainers import SortedList
+
+from deriva.core import ErmrestCatalog, get_credential, urlquote
 from deriva.core.ermrest_config import tag as chaise_tags
 import deriva.core.ermrest_model as em
 from deriva.utils.catalog.manage.dump_catalog import DerivaConfig, DerivaCatalogToString, load_module_from_path
@@ -104,7 +106,7 @@ class DerivaModel:
     Class to represent a CSV schema as a dervia catalog model. This class takes a table schema, performs name
     mapping of column names and generates a deriva-py model.
     """
-    def __init__(self, csvschema):
+    def __init__(self, csvschema, batch_id=True):
         self._csvschema = csvschema
         self.model = {}
         self.type_map = {}
@@ -112,11 +114,16 @@ class DerivaModel:
 
         key_defs = self.__deriva_keys(csvschema)
         column_defs = self.__deriva_columns(csvschema)
+
+        if batch_id:
+            column_defs.append(em.Column.define('Batch_Id', em.builtin_types['text'],
+                                                comment='Identifier to keep track of different uploads'))
+
         table_def = em.Table.define(csvschema.table_name, column_defs=column_defs, key_defs=key_defs)
         schema_def = em.Schema.define(csvschema.schema_name, comment="Schema from tableschema")
         schema_def['tables'] = {csvschema.table_name:table_def}
 
-        self.model = em.Model({'schemas': {csvschema.schema_name:schema_def}, 'acls':{}, 'annotations':{}, 'comment':None})
+        self.model = em.Model({'schemas': {csvschema.schema_name: schema_def}, 'acls':{}, 'annotations':{}, 'comment':None})
         self.catalog = LoopbackCatalog(self.model)
         return
 
@@ -126,6 +133,7 @@ class DerivaModel:
         :return:
         """
         column_defs = []
+
         system_columns = ['RID', 'RCB', 'RMB', 'RCT', 'RMT']
 
         for col in csvschema.schema.fields:
@@ -360,7 +368,7 @@ class DerivaCSV(Table):
         table_schema = None
 
         for col in table.column_definitions:
-            if col.name in ['RID', 'RCB', 'RMB', 'RCT', 'RMT'] and skip_system_columns:
+            if col.name in ['RID', 'RCB', 'RMB', 'RCT', 'RMT','Batch_Id'] and skip_system_columns:
                 continue
             field = {
                 "name": col.name,
@@ -406,7 +414,7 @@ class DerivaCSV(Table):
 
         return catalog_schema
 
-    def upload_to_deriva(self, catalog, chunk_size=1000, starting_chunk=1):
+    def upload_to_deriva(self, catalog, batch_id=None):
         """
         Upload the source table to deriva.
 
@@ -422,40 +430,47 @@ class DerivaCSV(Table):
                 row = [str(x) if type(x) is datetime.date or type(x) is Decimal else x for x in row]
                 yield (row_number, headers, row)
 
-        # Helper function to do chunking...
-        def row_grouper(n, iterable):
-            iterable = iter(iterable)
-            return iter(lambda: list(itertools.islice(iterable, n)), [])
-
         pb = catalog.getPathBuilder()
         self.table_schema_from_catalog(catalog)
         source_table = Table(self.source, schema=self.schema.descriptor, post_cast=[date_to_text])
-        target_table = pb.schemas[self.schema_name].tables[self.table_name]
+        target_table = pb.schemas[self.schema_name].tables[self.table_name].alias('target_table')
 
-        if not self.schema.primary_key:
-            row_groups = [source_table.read(keyed=True)]
-            chunk_size = len(row_groups[0])
+        # Read in the source table and sort based on the primary key value.
+        if self.schema.primary_key and len(self.schema.primary_key) == 1:
+            primary_key = self.schema.primary_key[0]
+
+            # determine current position in (partial?) copy
+            # Use the batch_id field to seperate out different uploads.
+            target_table.filter(target_table.Batch_Id == batch_id)
+            e = target_table.entities().fetch(limit=1, sort=[target_table.column_definitions[primary_key].desc])
+
+            chunk_size = 10000
+            row_cnt = 0
+            rows = SortedList(source_table.iter(keyed=True), key=lambda x: x[primary_key])
+            if len(e) == 1:
+                # Part of this table has already been uploaded, so we want to find out how far we got and start from
+                # there
+                row_cnt = rows.index(e[0])
         else:
-            row_groups = row_grouper(chunk_size, source_table.iter(keyed=True))
+            # We don't have a key, or the key is composite, so in this case we just have to hope for the best....
+            rows = source_table.read(keyed=True)
+            row_cnt = 0
+            chunk_size = len(rows)
+
         chunk_cnt = 1
-        row_cnt = 0
-        for rows in row_groups:
-            if chunk_cnt < starting_chunk:
-                chunk_cnt += 1
-                continue
-            try:
+        while True:
+            # Get chunk from rows from rows[last:last+page_size] ....
+            chunk = rows[row_cnt:row_cnt + chunk_size]
+            if chunk:
                 start_time = time.time()
-                target_table.insert(rows, add_system_defaults=True)
+                target_table.insert(chunk, add_system_defaults=True)
                 stop_time = time.time()
-                print('Completed chunk {} in {:.1f} sec.'.format(chunk_cnt, stop_time-start_time))
+                print('Completed chunk {} size {} in {:.1f} sec.'.format(chunk_cnt, chunk_size, stop_time - start_time))
                 chunk_cnt += 1
-                row_cnt += len(rows)
-            except HTTPError as e:
-                print('Failed on chunk {} (chunksize {})'.format(chunk_cnt, chunk_size))
-                print(e)
-                print(e.response.text)
-                raise DerivaUploadError(chunk_size, chunk_cnt, e)
-        return row_cnt, chunk_size, chunk_cnt
+                row_cnt += len(chunk)
+            else:
+                break
+        return row_cnt
 
     def convert_to_deriva(self, outfile=None, schemafile=None):
         """
@@ -485,8 +500,7 @@ class DerivaCSV(Table):
         return deriva_model.field_name_map, deriva_model.type_map
 
     def create_validate_upload_csv(self, catalog, convert=True, validate=False, create=False, upload=False,
-                                   derivafile=None, schemafile=None,
-                                   chunk_size=1000, starting_chunk=1):
+                                   derivafile=None, schemafile=None):
         """
 
         :param convert: If true, use table inference to infer types for columns of table and create a deriva-py program
@@ -523,10 +537,9 @@ class DerivaCSV(Table):
 
         if upload:
             print('Loading table data {}:{}'.format(self.schema_name, self.table_name))
-            row_cnt, chunk_size, chunk_cnt = \
-                self.upload_to_deriva(catalog, chunk_size=chunk_size, starting_chunk=starting_chunk)
+            row_cnt = self.upload_to_deriva(catalog)
 
-            return row_cnt, chunk_size, chunk_cnt
+            return row_cnt
 
     def map_name(self, name, column_map=None):
         """

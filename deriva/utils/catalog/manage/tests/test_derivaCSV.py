@@ -79,9 +79,8 @@ class TestDerivaCSV(TestCase):
             model.create_schema(catalog, em.Schema.define(self.schema_name))
 
             table = deriva_csv.DerivaCSV(tablefile, self.schema_name, key_columns='Experiment_ID')
-            row_cnt, chunk_size, chunk_cnt = table.create_validate_upload_csv(catalog, convert=True, validate=True,
-                                                                              create=True, upload=True,
-                                                                              chunk_size=1000, starting_chunk=1)
+            row_cnt = table.create_validate_upload_csv(catalog, convert=True, validate=True,
+                                                                              create=True, upload=True)
             self.assertEqual(row_cnt, 5002)
 
     def test_map_name(self):

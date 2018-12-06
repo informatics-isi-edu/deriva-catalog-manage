@@ -1,6 +1,11 @@
 {
     "fields": [
         {
+            "name": "key",
+            "type": "integer",
+            "format": "default"
+        },
+        {
             "name": "a",
             "type": "string",
             "format": "default"
