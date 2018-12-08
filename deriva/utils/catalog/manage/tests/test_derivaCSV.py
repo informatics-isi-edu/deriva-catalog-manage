@@ -4,7 +4,7 @@ import os
 import csv
 import sys
 import tempfile
-import deriva.utils.catalog.manage.deriva_csv as deriva_csv
+from deriva.utils.catalog.manage.deriva_csv import DerivaCSV
 import deriva.utils.catalog.manage.dump_catalog as dump_catalog
 from deriva.core import get_credential
 import deriva.core.ermrest_model as em
@@ -22,108 +22,88 @@ class TestDerivaCSV(TestCase):
         self.credentials = get_credential(self.server)
         self.catalog_id = None
         self.schema_name = 'TestSchema'
+        self.table_name = 'TestTable'
 
-    def test_validate(self):
-        pass
+        self.configfile = os.path.dirname(os.path.realpath(__file__)) + '/config.py'
+        self.catalog = TempErmrestCatalog('https', self.server, credentials=self.credentials)
+        model = self.catalog.getCatalogModel()
+        model.create_schema(self.catalog, em.Schema.define(self.schema_name))
 
-    def test_table_schema_from_catalog(self):
-        tablefile = os.path.dirname(os.path.realpath(__file__)) + '/test1.csv'
-        configfile = os.path.dirname(os.path.realpath(__file__)) + '/config.py'
+        self.table_size = 100
+        self.column_count = 20
+        self.test_dir = tempfile.mkdtemp()
 
-        with TempErmrestCatalog('https', self.server, self.credentials) as catalog:
-            model = catalog.getCatalogModel()
+        (row, self.headers) = generate_test_csv(self.column_count)
 
-            # Set up a table with the right schema.
-            model.create_schema(catalog, em.Schema.define(self.schema_name))
-            src_table = deriva_csv.DerivaCSV(tablefile, self.schema_name, column_map=False)
-            src_table.create_validate_upload_csv(catalog, convert=True, validate=True, create=True)
+        self.tablefile = '{}/{}.csv'.format(self.test_dir, self.table_name)
+        with open(self.tablefile,'w') as f:
+            tablewriter = csv.writer(f)
+            for i, j in zip(range(self.table_size), row):
+                tablewriter.writerow(j)
 
-            table = deriva_csv.DerivaCSV(tablefile, self.schema_name, column_map=False)
-            tableschema = table.table_schema_from_catalog(catalog)
+        self.table = DerivaCSV(self.tablefile, self.schema_name, key_columns='id', column_map=True)
 
-            self.assertEqual([i['name'] for i in src_table.schema.descriptor['fields']],
-                             [i['name'] for i in tableschema.descriptor['fields']])
-            self.assertEqual([i['type'] for i in src_table.schema.descriptor['fields']],
-                             [i['type'] for i in tableschema.descriptor['fields']])
-
-    def test_upload_to_deriva(self):
-        table_size = 100
-        (row, headers) = generate_test_csv(20)
-        f = tempfile.NamedTemporaryFile(mode='w', suffix='.csv', newline='', delete=False)
-        tablefile = f.name
-        tablewriter = csv.writer(f)
-        for i, j in zip(range(20), row):
-            tablewriter.writerow(j)
-        f.close()
-
-        configfile = os.path.dirname(os.path.realpath(__file__)) + '/config.py'
-        with TempErmrestCatalog('https', self.server, self.credentials) as catalog:
-            model = catalog.getCatalogModel()
-            model.create_schema(catalog, em.Schema.define(self.schema_name))
-
-            table = deriva_csv.DerivaCSV(tablefile, self.schema_name, key_columns='id')
-            row_cnt = table.create_validate_upload_csv(catalog, convert=True, validate=True,
-                                                       create=True, upload=True, chunk_size=20)
-            self.assertEqual(row_cnt, table_size)
-
-    def test_convert_to_deriva(self):
-        tablefile = os.path.dirname(os.path.realpath(__file__)) + '/test1.csv'
-        configfile = os.path.dirname(os.path.realpath(__file__)) + '/config.py'
-        with TempErmrestCatalog('https', self.server, self.credentials) as catalog:
-            model = catalog.getCatalogModel()
-            model.create_schema(catalog, em.Schema.define(self.schema_name))
-            column_map = True
-            table = deriva_csv.DerivaCSV(tablefile, self.schema_name, config=configfile, column_map=column_map)
-            self.assertEqual(table.headers, ['key', 'a', 'b', 'c'])
-
-            with tempfile.TemporaryDirectory() as tmpdir:
-                pythonfile = '{}/{}.py'.format(tmpdir, 'test1')
-                results = table.convert_to_deriva(outfile=pythonfile)
-                self.assertEqual(results, ({'key': 'Key', 'a': 'A', 'b': 'B', 'c': 'C'},
-                                           {'boolean': ['c'], 'int4': ['key'], 'text': ['a'], 'float8': ['b']}))
-
-                with TempErmrestCatalog('https', self.server, credentials=self.credentials) as test_catalog:
-                    test_catalog.getCatalogModel().create_schema(test_catalog, em.Schema.define(self.schema_name))
-                    server = urlparse(test_catalog.get_server_uri()).hostname
-                    catalog_id = test_catalog.get_server_uri().split('/')[-1]
-                    m = dump_catalog.load_module_from_path(pythonfile)
-                    m.main(test_catalog, 'table')
-
-    def test_create_validate_upload_csv(self):
-        tablefile = os.path.dirname(os.path.realpath(__file__)) + '/Experiment.csv'
-        configfile = os.path.dirname(os.path.realpath(__file__)) + '/config.py'
-        with TempErmrestCatalog('https', self.server, self.credentials) as catalog:
-            model = catalog.getCatalogModel()
-            model.create_schema(catalog, em.Schema.define(self.schema_name))
-
-            table = deriva_csv.DerivaCSV(tablefile, self.schema_name, key_columns='Experiment_ID')
-            row_cnt = table.create_validate_upload_csv(catalog, convert=True, validate=True,
-                                                       create=True, upload=True, chunk_size=1000)
-            self.assertEqual(row_cnt, 5002)
+    def _create_test_table(self):
+        pyfile = '{}/{}.py'.format(self.test_dir, self.table_name)
+        try:
+            self.table.convert_to_deriva(outfile=pyfile)
+            tablescript = dump_catalog.load_module_from_path(pyfile)
+            tablescript.main(self.catalog, 'table')
+        except ValueError as e:
+            print(e)
 
     def test_map_name(self):
         path = os.path.dirname(os.path.realpath(__file__))
 
         column_map = None
-        table = deriva_csv.DerivaCSV(path + '/test1.csv', self.schema_name, column_map=column_map)
+        table = DerivaCSV(path + '/test1.csv', self.schema_name, column_map=column_map)
         self.assertEqual(table.map_name('foo bar'), 'foo bar')
 
         column_map = False
-        table = deriva_csv.DerivaCSV(path + '/test1.csv', self.schema_name, column_map=column_map)
+        table = DerivaCSV(path + '/test1.csv', self.schema_name, column_map=column_map)
         self.assertEqual(table.map_name('foo bar'), 'foo bar')
 
         column_map = True
-        table = deriva_csv.DerivaCSV(path + '/test1.csv', self.schema_name, column_map=column_map)
+        table = DerivaCSV(path + '/test1.csv', self.schema_name, column_map=column_map)
         self.assertEqual(table.map_name('foo bar'), 'Foo_Bar')
 
         column_map = ['DNA', 'RNA']
-        table = deriva_csv.DerivaCSV(path + '/test1.csv', self.schema_name, column_map=column_map)
+        table = DerivaCSV(path + '/test1.csv', self.schema_name, column_map=column_map)
         self.assertEqual(table.map_name('foo bar'), 'Foo_Bar')
 
         column_map = {'(%)': '(Percent)', 'RnA': 'RNA', 'dna': 'DNA',
                       'the hun': 'Attila_The_Hun', 'the_clown': 'Bozo_The_Clown'}
-        table = deriva_csv.DerivaCSV(path + '/test1.csv', self.schema_name, column_map=column_map)
+        table = DerivaCSV(path + '/test1.csv', self.schema_name, column_map=column_map)
         self.assertEqual(table.map_name('Change in value (%)'), 'Change_In_Value_(Percent)')
         self.assertEqual(table.map_name('amountDna'), 'Amount_DNA')
         self.assertEqual(table.map_name('the hun'), 'Attila_The_Hun')
         self.assertEqual(table.map_name('the clown'), 'Bozo_The_Clown')
+
+    def test_convert_to_deriva(self):
+        self._create_test_table()
+        tname = self.table.map_name(self.table_name)
+
+        self.assertEqual(tname, self.catalog.getCatalogModel().schemas[self.schema_name].tables[tname].name)
+
+    def test_table_schema_from_catalog(self):
+
+            self._create_test_table()
+
+            tableschema = self.table.table_schema_from_catalog(self.catalog)
+
+            self.assertEqual([i['name'] for i in self.table.schema.descriptor['fields']],
+                             [i['name'] for i in tableschema.descriptor['fields']])
+            self.assertEqual([i['type'] for i in self.table.schema.descriptor['fields']],
+                             [i['type'] for i in tableschema.descriptor['fields']])
+
+    def test_validate(self):
+        self._create_test_table()
+        self.table.validate(self.catalog)
+
+    def test_upload_to_deriva(self):
+        self._create_test_table()
+        row_count = self.table.upload_to_deriva(self.catalog, chunk_size=10)
+        self.assertEqual(row_count, self.table_size)
+
+    def test_create_validate_upload_csv(self):
+        pass

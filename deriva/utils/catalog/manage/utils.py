@@ -1,16 +1,19 @@
 import random
 import datetime
 import string
+from contextlib import contextmanager
+
+from deriva.core.ermrest_catalog import ErmrestCatalog
 import deriva.core.ermrest_model as em
 from deriva.core.deriva_server import DerivaServer
 
 
 class LoopbackCatalog:
-
     class LoopbackResult:
         """
         Class to simulate interactions with a catalog server.
         """
+
         def __init__(self, uri, json=None):
             self._val = json
 
@@ -48,21 +51,23 @@ class LoopbackCatalog:
         pass
 
 
-class TempErmrestCatalog:
-    def __init__(self, scheme, server, credentials=None, caching=True, session_config=None):
-        self.server = server
-        self._derivaserver = DerivaServer(scheme, server, credentials, caching, session_config)
+@contextmanager
+def temp_ermrest_catalog(scheme, server, **kwargs):
+    catalog = TempErmrestCatalog(scheme, server, **kwargs)
+    yield catalog
+    catalog.delete_ermrest_catalog(really=True)
 
-    def __enter__(self):
-        self._catalog = self._derivaserver.create_ermrest_catalog()
-        self.catalog_id = self._catalog.get_server_uri().split('/')[-1]
-        return self._catalog
 
-    def __exit__(self, exc_type, exc_value, traceback):
-        try:
-            self._catalog.delete_ermrest_catalog(really=True)
-        except Exception:
-            raise
+class TempErmrestCatalog(ErmrestCatalog):
+    def __init__(self, scheme, server, **kwargs):
+        derivaserver = DerivaServer(scheme, server, **kwargs)
+        catalog = derivaserver.create_ermrest_catalog()
+        self.catalog_id = catalog.get_server_uri().split('/')[-1]
+        super(TempErmrestCatalog, self).__init__(scheme, server, self.catalog_id, **kwargs)
+        return
+
+    def __del__(self):
+        self.delete_ermrest_catalog(really=True)
 
 
 table_schema_ermrest_type_map = {
@@ -87,35 +92,33 @@ table_schema_ermrest_type_map = {
 }
 
 
-def generate_test_csv(columncnt, header=True):
+def generate_test_csv(columncnt):
     type_list = ['int4', 'boolean', 'float8', 'date', 'text']
-    column_types = [ type_list[i%len(type_list)] for i in range(columncnt)]
+    column_types = [type_list[i % len(type_list)] for i in range(columncnt)]
     column_headings = ['id'] + ['field {}'.format(i) for i in range(len(column_types))]
 
     missing_value = .2
 
     base = datetime.datetime.today()
     date_list = [base - datetime.timedelta(days=x) for x in range(0, 100)]
-    def col_value(c):
-        base = datetime.datetime.today()
-        date_list = [base - datetime.timedelta(days=x) for x in range(0, 100)]
 
-        if random.random() < missing_value:
-             v = ''
-        else:
+    def col_value(c):
+        v = ''
+
+        if random.random() > missing_value:
             if c == 'boolean':
-             v = random.choice(['true','false'])
+                v = random.choice(['true', 'false'])
             elif c == 'int4':
-                v = random.randrange(-1000,1000)
+                v = random.randrange(-1000, 1000)
             elif c == 'float8':
-                v = random.uniform(-1000,1000)
+                v = random.uniform(-1000, 1000)
             elif c == 'text':
-                v = ''.join(random.sample(string.ascii_letters + string.digits,5))
+                v = ''.join(random.sample(string.ascii_letters + string.digits, 5))
             elif c == 'date':
                 v = str(random.choice(date_list))
         return v
 
-    def row_generator(header):
+    def row_generator(header=True):
         row_count = 1
         while True:
             if header is True:
@@ -127,4 +130,4 @@ def generate_test_csv(columncnt, header=True):
                 row.extend([col_value(i) for i in column_types])
             yield row
 
-    return row_generator(header), [{'name':i[0], 'type':i[1]} for i in zip(column_headings, column_types)]
+    return row_generator(), [{'name': i[0], 'type': i[1]} for i in zip(column_headings, column_types)]

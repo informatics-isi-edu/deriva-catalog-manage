@@ -14,6 +14,7 @@ from requests import HTTPError
 from tableschema import Table, Schema, exceptions
 from tableschema.schema import _TypeGuesser
 import goodtables
+import tabulator
 
 from sortedcontainers import SortedList
 
@@ -30,7 +31,6 @@ if IS_PY3:
     from urllib.parse import urlparse, urlsplit, urlunsplit
 else:
     from urlparse import urlparse, urlsplit, urlunsplit
-
 
 # We should get range info in there....
 table_schema_type_map = {
@@ -106,6 +106,7 @@ class DerivaModel:
     Class to represent a CSV schema as a dervia catalog model. This class takes a table schema, performs name
     mapping of column names and generates a deriva-py model.
     """
+
     def __init__(self, csvschema, batch_id=True):
         self._csvschema = csvschema
         self.model = {}
@@ -121,9 +122,10 @@ class DerivaModel:
 
         table_def = em.Table.define(csvschema.table_name, column_defs=column_defs, key_defs=key_defs)
         schema_def = em.Schema.define(csvschema.schema_name, comment="Schema from tableschema")
-        schema_def['tables'] = {csvschema.table_name:table_def}
+        schema_def['tables'] = {csvschema.table_name: table_def}
 
-        self.model = em.Model({'schemas': {csvschema.schema_name: schema_def}, 'acls':{}, 'annotations':{}, 'comment':None})
+        self.model = em.Model(
+            {'schemas': {csvschema.schema_name: schema_def}, 'acls': {}, 'annotations': {}, 'comment': None})
         self.catalog = LoopbackCatalog(self.model)
         return
 
@@ -146,7 +148,7 @@ class DerivaModel:
 
             t = "{}:{}".format(col.type, col.format)
             column_defs.append(em.Column.define(mapped_name, em.builtin_types[table_schema_ermrest_type_map[t]],
-                                 nullok=not col.required, comment=col.descriptor.get('description', '')))
+                                                nullok=not col.required, comment=col.descriptor.get('description', '')))
         return column_defs
 
     def __deriva_keys(self, csvschema):
@@ -184,7 +186,7 @@ class DerivaCSV(Table):
         :param options: Options passed on to tableschema init function
         """
 
-        super(DerivaCSV, self).__init__(source, schema=schema,  **options)
+        super(DerivaCSV, self).__init__(source, schema=schema, **options)
 
         DerivaConfig(config)
         groups = DerivaConfig.groups
@@ -196,7 +198,6 @@ class DerivaCSV(Table):
         self.schema_name = schema_name
         self.row_count = None
         self.validation_report = None
-        self.mapped_schema = None
 
         # Normalize the column map so we only have a dictionary.
         if self._column_map:
@@ -242,7 +243,7 @@ class DerivaCSV(Table):
         fields and set the constraints to be consistant with a key.
         :return:
         """
-      # Set the primary key value.  Use primary_key if there is one in the schema.  Otherwise, use the first
+        # Set the primary key value.  Use primary_key if there is one in the schema.  Otherwise, use the first
         # key in the key_columns list.
         if self.schema.primary_key:
             primary_key = self.schema.primary_key if isinstance(self.schema.primary_key, list) else \
@@ -260,7 +261,6 @@ class DerivaCSV(Table):
             else:
                 raise DerivaCSVError(msg='Missing key column: '.format(primary_key))
 
-
         # Capture the key columns.
         for k in self._key_columns:
             # All columns good?
@@ -269,7 +269,7 @@ class DerivaCSV(Table):
                     # Tableschema is such that you have to update the contraint in the descriptor file, so we
                     # find the correct field entry and then update it.
                     idx = self.schema.field_names.index(k[0])
-                    self.schema.descriptor['fields'][idx].update({'constraints':{'required': True, 'unique': True}})
+                    self.schema.descriptor['fields'][idx].update({'constraints': {'required': True, 'unique': True}})
             else:
                 raise DerivaCSVError('Cannot handle composite keys on table')
         self.schema.commit(strict=True)
@@ -345,12 +345,7 @@ class DerivaCSV(Table):
             # Validate the whole file.
             validation_limit = self.row_count
 
-        table_schema = self.table_schema_from_catalog(catalog)
-
-        self.mapped_schema = table_schema
-        print('table headers', table_schema.headers)
-        print('schema headers', self.schema.headers)
-        print('mapped: ', [self.map_name(i) for i in self.schema.headers])
+        table_schema = self.table_schema_from_catalog(catalog, self.schema_name, self.table_name)
 
         # First, just check the headers to make sure they line up under mapping.
         report = goodtables.validate(self.source, schema=table_schema.descriptor, checks=['non-matching-header'])
@@ -372,6 +367,8 @@ class DerivaCSV(Table):
         Create a TableSchema by querying an ERMRest catalog and converting the model format.
 
         :param catalog
+        :param schemaname
+        :param tablename
         :param outfile: if this argument is specified, dump the scheme into the specified file.
         :param skip_system_columns: Don't include system columns in the schema.
         :return: table schema representation of the model
@@ -379,7 +376,7 @@ class DerivaCSV(Table):
 
         model_root = catalog.getCatalogModel()
         schema = model_root.schemas[self.schema_name]
-        table = schema.tables[self.table_name]
+        table = schema.tables[self.map_name(self.table_name)]
         fields = []
         primary_key = None
         table_schema = None
@@ -387,7 +384,7 @@ class DerivaCSV(Table):
         key_columns = [i.unique_columns for i in table.keys]
 
         for col in table.column_definitions:
-            if col.name in ['RID', 'RCB', 'RMB', 'RCT', 'RMT','Batch_Id'] and skip_system_columns:
+            if col.name in ['RID', 'RCB', 'RMB', 'RCT', 'RMT', 'Batch_Id'] and skip_system_columns:
                 continue
             field = {
                 "name": col.name,
@@ -425,8 +422,8 @@ class DerivaCSV(Table):
             if primary_key:
                 catalog_schema.descriptor['primaryKey'] = primary_key
             catalog_schema.commit(strict=True)
-            if outfile:
-                table_schema.save(outfile)
+            if outfile is not None:
+                catalog_schema.save(outfile)
         except exceptions.ValidationError as exception:
             print('error.....')
             print(exception.errors)
@@ -439,6 +436,7 @@ class DerivaCSV(Table):
         Upload the source table to deriva.
 
         :param catalog
+        :param batch_id
         :param chunk_size: Number of rows to upload at one time.
         :param starting_chunk: What chunk number to start at.  Can be used to continue a failed upload.
         :return:
@@ -450,19 +448,18 @@ class DerivaCSV(Table):
                 row = [str(x) if type(x) is datetime.date or type(x) is Decimal else x for x in row]
                 yield (row_number, headers, row)
 
-        # Generate the table schema for the version of the table in the catalog and make sure that the table lines up.
-        self.validate(catalog, validation_limit=1)
-
         pb = catalog.getPathBuilder()
-        self.table_schema_from_catalog(catalog)
-        source_table = Table(self.source, schema=self.mapped_schema.descriptor, post_cast=[date_to_text])
+        catalog_schema = self.table_schema_from_catalog(catalog)
+        #source_table = Table(self.source, schema=catalog_schema.descriptor, post_cast=[date_to_text])
+
         target_table = pb.schemas[self.schema_name].tables[self.table_name].alias('target_table')
 
-        print(source_table.headers)
+        # Do initial infer to set up headers and schema.
+        #Table.infer(self)
 
         # Read in the source table and sort based on the primary key value.
-        if self.mapped_schema.primary_key and len(self.mapped_schema.primary_key) == 1:
-            primary_key = self.mapped_schema.primary_key[0]
+        if catalog_schema.primary_key and len(catalog_schema.primary_key) == 1:
+            primary_key = catalog_schema.primary_key[0]
 
             # determine current position in (partial?) copy
             # Use the batch_id field to seperate out different uploads.
@@ -474,15 +471,21 @@ class DerivaCSV(Table):
             key_column_index = self.schema.primary_key[0]
 
             print('key_column_index', key_column_index)
-            rows = SortedList(source_table.iter(cast=False, keyed=True), key=lambda x: x[key_column_index])
+            with tabulator.Stream(self.source, headers=1) as stream:
+                stream.headers  # [header1, header2, ..]
+                rows = SortedList(stream.iter(keyed=True), key=lambda x: x[key_column_index])
+
             if len(e) == 1:
                 # Part of this table has already been uploaded, so we want to find out how far we got and start from
                 # there
                 row_cnt = rows.index(e[0])
         else:
             # We don't have a key, or the key is composite, so in this case we just have to hope for the best....
-            rows = source_table.read(cast=False, keyed=True)
-            row_cnt = 0
+            rows = []
+            with tabulator.Stream(self.source, headers=1) as stream:
+                stream.headers  # [header1, header2, ..]
+                rows.append(stream.iter(keyed=True))
+                row_cnt = 0
             chunk_size = len(rows)
 
         chunk_cnt = 1
@@ -584,7 +587,7 @@ class DerivaCSV(Table):
             column_map = self._column_map
 
         if self._column_map is None or self._column_map is False:
-                return name
+            return name
 
         name = column_map.get(name.upper(), name)
 
@@ -635,9 +638,10 @@ def main():
                       table_name=args.table, column_map=args.column_map)
 
     table.create_validate_upload_csv(catalog,
-        convert=args.convert, validate=args.validate, create=args.create_table, upload=args.upload,
-        derivafile=args.derivafile, schemafile=args.schemafile,
-        chunk_size=args.chunk_size, starting_chunk=args.starting_chunk)
+                                     convert=args.convert, validate=args.validate, create=args.create_table,
+                                     upload=args.upload,
+                                     derivafile=args.derivafile, schemafile=args.schemafile,
+                                     chunk_size=args.chunk_size, starting_chunk=args.starting_chunk)
     return
 
 
