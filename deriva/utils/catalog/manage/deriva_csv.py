@@ -442,47 +442,60 @@ class DerivaCSV(Table):
         :return:
         """
 
-        # Convert date time to string so we can push it out in JSON....
-        def date_to_text(erows):
-            for row_number, headers, row in erows:
-                row = [str(x) if type(x) is datetime.date or type(x) is Decimal else x for x in row]
-                yield (row_number, headers, row)
-
         pb = catalog.getPathBuilder()
-        catalog_schema = self.table_schema_from_catalog(catalog)
-        #source_table = Table(self.source, schema=catalog_schema.descriptor, post_cast=[date_to_text])
-
         target_table = pb.schemas[self.schema_name].tables[self.table_name].alias('target_table')
+        catalog_schema = self.table_schema_from_catalog(catalog)
 
-        # Do initial infer to set up headers and schema.
-        #Table.infer(self)
+        # Sanity check columns.
+        for i in map(lambda x: self.map_name(x), self.headers):
+                 if i not in catalog_schema.headers:
+                    raise DerivaCSVError(msg="Incompatible column: " + i)
+
+        field_types = [ i.type for i in catalog_schema.fields]
+
+        def to_json(extended_rows):
+            for row_number, headers, row in extended_rows:
+                for i, (v, t) in enumerate(zip(row, field_types)):
+                    if t in ['boolean', 'integer', 'number'] and v == '':
+                        row[i] = None
+                    else:
+                        if t == 'boolean':
+                            row[i] = True if row[i] == 'true' else False
+                        if t == 'integer':
+                            row[i] = int(v)
+                        if t == 'number':
+                            row[i] = float(v)
+                yield (row_number, headers, row)
 
         # Read in the source table and sort based on the primary key value.
         if catalog_schema.primary_key and len(catalog_schema.primary_key) == 1:
             primary_key = catalog_schema.primary_key[0]
 
+            # Get the name of the primary key column in the catalog.
+            key_column_index = [i for i in self.schema.field_names].index(self.schema.primary_key[0])
+            key_column_index = catalog_schema.headers[key_column_index]
+
+            with tabulator.Stream(self.source, headers=catalog_schema.headers, post_parse=[to_json],
+                                  skip_rows=[1]) as stream:
+                rows = SortedList(stream.iter(keyed=True), key=lambda x: x[key_column_index])
+
             # determine current position in (partial?) copy
             # Use the batch_id field to seperate out different uploads.
             target_table.filter(target_table.Batch_Id == batch_id)
-            e = target_table.entities().fetch(limit=1, sort=[target_table.column_definitions[primary_key].desc])
-
-            row_cnt = 0
-            key_column_index = [i for i in self.schema.field_names].index(self.schema.primary_key[0])
-            key_column_index = self.schema.primary_key[0]
-
-            print('key_column_index', key_column_index)
-            with tabulator.Stream(self.source, headers=1) as stream:
-                stream.headers  # [header1, header2, ..]
-                rows = SortedList(stream.iter(keyed=True), key=lambda x: x[key_column_index])
-
+            e = list(target_table.entities().fetch(limit=1, sort=[target_table.column_definitions[primary_key].desc]))
             if len(e) == 1:
                 # Part of this table has already been uploaded, so we want to find out how far we got and start from
                 # there
-                row_cnt = rows.index(e[0])
+                print('e', e, e[0][key_column_index])
+                row_cnt = e[0][key_column_index]
+                print('Resuming upload at row count ', row_cnt+1)
+            else:
+                row_cnt = 0
         else:
             # We don't have a key, or the key is composite, so in this case we just have to hope for the best....
             rows = []
-            with tabulator.Stream(self.source, headers=1) as stream:
+            with tabulator.Stream(self.source, headers=catalog_schema.headers, post_parse=[to_json],
+                                  skip_rows=[1]) as stream:
                 stream.headers  # [header1, header2, ..]
                 rows.append(stream.iter(keyed=True))
                 row_cnt = 0
@@ -494,8 +507,6 @@ class DerivaCSV(Table):
             chunk = rows[row_cnt:row_cnt + chunk_size]
             print('chunk', row_cnt, row_cnt + chunk_size)
             if chunk != []:
-                for i in chunk:
-                    print(i)
                 start_time = time.time()
                 target_table.insert(chunk, add_system_defaults=True)
                 stop_time = time.time()
