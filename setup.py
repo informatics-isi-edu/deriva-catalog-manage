@@ -27,22 +27,31 @@ setup(
         ]
     },
     requires=[
-        'os',
-        'sys',
-        're',
-        'attrdict',
-        'tempfile',
-        'importlib.util',
-        'itertools',
-        'logging',
         'argparse',
+        'attrdict',
+        'contextlib',
         'datetime',
-        'pprint',
-        'requests',
-        'yapf',
+        'datetime',
+        'decimal',
+        'importlib',
+        'itertools',
+        'os',
+        'random',
+        're',
+        'request',
+        'string',
+        'sys',
+        'tempfile',
+        'time',
+        'deriva',
         'tableschema',
         'goodtables',
-        'deriva'],
+        'sortedcontainers',
+        'tabulator',
+        'urllib',
+        'urlparse',
+        'yapf'
+    ],
     install_requires=[
         'pprint',
         'requests',
@@ -68,4 +77,3 @@ setup(
         'Programming Language :: Python :: 3.6',
     ]
 )
-

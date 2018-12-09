@@ -2,7 +2,7 @@ from unittest import TestCase
 import tempfile
 import sys
 import deriva.core.ermrest_model as em
-from deriva.utils.catalog.manage.utils import LoopbackCatalog, TempErmrestCatalog
+from deriva.utils.catalog.manage.utils import LoopbackCatalog, temp_ermrest_catalog
 from deriva.core import ErmrestCatalog, get_credential
 from deriva.utils.catalog.manage.dump_catalog import DerivaCatalogToString, DerivaConfig, load_module_from_path
 
@@ -36,7 +36,7 @@ class TestDerivaCatalogToString(TestCase):
         pass
 
     def test_catalog_to_str(self):
-        with TempErmrestCatalog('https',self.server, credentials=self.credentials) as catalog:
+        with temp_ermrest_catalog('https',self.server, credentials=self.credentials) as catalog:
             model = catalog.getCatalogModel()
             model.create_schema(catalog, em.Schema.define('TestSCchema'))
             stringer = DerivaCatalogToString(catalog, variables=self._variables)
@@ -47,7 +47,7 @@ class TestDerivaCatalogToString(TestCase):
                 print(catalog_string, file=f)
             m = load_module_from_path(modfile)
 
-            with TempErmrestCatalog('https', self.server, credentials=self.credentials) as test_catalog:
+            with temp_ermrest_catalog('https', self.server, credentials=self.credentials) as test_catalog:
                 server = urlparse(test_catalog.get_server_uri()).hostname
                 catalog_id = catalog.get_server_uri().split('/')[-1]
                 m.main(test_catalog, 'annotations')

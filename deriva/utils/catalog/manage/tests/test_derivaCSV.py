@@ -43,6 +43,9 @@ class TestDerivaCSV(TestCase):
 
         self.table = DerivaCSV(self.tablefile, self.schema_name, key_columns='id', column_map=True)
 
+    def tearDown(self):
+        self.catalog.delete_ermrest_catalog(really=True)
+
     def _create_test_table(self):
         pyfile = '{}/{}.py'.format(self.test_dir, self.table_name)
         try:
@@ -91,7 +94,7 @@ class TestDerivaCSV(TestCase):
 
             tableschema = self.table.table_schema_from_catalog(self.catalog)
 
-            self.assertEqual([i['name'] for i in self.table.schema.descriptor['fields']],
+            self.assertEqual([self.table.map_name(i['name']) for i in self.table.schema.descriptor['fields']],
                              [i['name'] for i in tableschema.descriptor['fields']])
             self.assertEqual([i['type'] for i in self.table.schema.descriptor['fields']],
                              [i['type'] for i in tableschema.descriptor['fields']])

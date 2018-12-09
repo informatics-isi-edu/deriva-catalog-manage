@@ -60,15 +60,15 @@ def temp_ermrest_catalog(scheme, server, **kwargs):
 
 class TempErmrestCatalog(ErmrestCatalog):
     def __init__(self, scheme, server, **kwargs):
-        derivaserver = DerivaServer(scheme, server, **kwargs)
-        catalog = derivaserver.create_ermrest_catalog()
-        self.catalog_id = catalog.get_server_uri().split('/')[-1]
-        super(TempErmrestCatalog, self).__init__(scheme, server, self.catalog_id, **kwargs)
+        catalog_id =create_new_catalog(scheme, server, **kwargs)
+        super(TempErmrestCatalog, self).__init__(scheme, server, catalog_id, **kwargs)
         return
 
-    def __del__(self):
-        self.delete_ermrest_catalog(really=True)
-
+def create_new_catalog(scheme, server, **kwargs):
+    derivaserver = DerivaServer(scheme, server, **kwargs)
+    catalog = derivaserver.create_ermrest_catalog()
+    catalog_id = catalog.get_server_uri().split('/')[-1]
+    return catalog_id
 
 table_schema_ermrest_type_map = {
     'string:default': 'text',
