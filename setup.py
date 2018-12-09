@@ -29,7 +29,6 @@ setup(
     requires=[
         'argparse',
         'attrdict',
-        'contextlib',
         'datetime',
         'datetime',
         'decimal',
@@ -46,14 +45,12 @@ setup(
         'deriva',
         'tableschema',
         'goodtables',
-        'sortedcontainers',
         'tabulator',
         'urllib',
         'urlparse',
         'yapf'
     ],
     install_requires=[
-        'pprint',
         'requests',
         'yapf',
         'tableschema',

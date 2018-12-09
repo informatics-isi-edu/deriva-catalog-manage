@@ -1,7 +1,6 @@
 import random
 import datetime
 import string
-from contextlib import contextmanager
 
 from deriva.core.ermrest_catalog import ErmrestCatalog
 import deriva.core.ermrest_model as em
@@ -51,18 +50,19 @@ class LoopbackCatalog:
         pass
 
 
-@contextmanager
-def temp_ermrest_catalog(scheme, server, **kwargs):
-    catalog = TempErmrestCatalog(scheme, server, **kwargs)
-    yield catalog
-    catalog.delete_ermrest_catalog(really=True)
-
-
 class TempErmrestCatalog(ErmrestCatalog):
+    """
+    Create a new catalog.  Can be used as as context so that catalog is automatically deleted.
+    """
     def __init__(self, scheme, server, **kwargs):
-        catalog_id =create_new_catalog(scheme, server, **kwargs)
+        catalog_id = create_new_catalog(scheme, server, **kwargs)
         super(TempErmrestCatalog, self).__init__(scheme, server, catalog_id, **kwargs)
         return
+
+    def __enter__(self):
+        return self
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.delete_ermrest_catalog(really=True)
 
 def create_new_catalog(scheme, server, **kwargs):
     derivaserver = DerivaServer(scheme, server, **kwargs)
@@ -93,11 +93,16 @@ table_schema_ermrest_type_map = {
 
 
 def generate_test_csv(columncnt):
+    """
+    Generate a test CSV file for testing derivaCSV routines.  First row returned will be a header.
+    :param columncnt: Number of columns to be used in the CSV.
+    :return: generator function and a map of the column names and types.
+    """
     type_list = ['int4', 'boolean', 'float8', 'date', 'text']
     column_types = [type_list[i % len(type_list)] for i in range(columncnt)]
     column_headings = ['id'] + ['field {}'.format(i) for i in range(len(column_types))]
 
-    missing_value = .2
+    missing_value = .2  # What fraction of values should be empty.
 
     base = datetime.datetime.today()
     date_list = [base - datetime.timedelta(days=x) for x in range(0, 100)]

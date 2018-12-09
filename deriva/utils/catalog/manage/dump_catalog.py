@@ -18,9 +18,9 @@ IS_PY2 = (sys.version_info[0] == 2)
 IS_PY3 = (sys.version_info[0] == 3)
 
 if IS_PY3:
-    from urllib.parse import urlparse, urlsplit, urlunsplit
+    from urllib.parse import urlparse
 else:
-    from urlparse import urlparse, urlsplit, urlunsplit
+    from urlparse import urlparse
 
 yapf_style = {
     'based_on_style': 'pep8',
@@ -51,7 +51,7 @@ def load_module_from_path(file):
     :return:
     """
 
-    class AddPath():
+    class AddPath:
         def __init__(self, path):
             self.path = path
 
@@ -64,14 +64,15 @@ def load_module_from_path(file):
             except ValueError:
                 pass
 
-    dir, file = os.path.split(os.path.abspath(file))
+    moddir, file = os.path.split(os.path.abspath(file))
     modname = os.path.splitext(file)[0]
     importlib.invalidate_caches()
 
-    with AddPath(dir):
+    with AddPath(moddir):
         try:
             mod = importlib.reload(sys.modules[modname])
         except KeyError:
+            print(sys.path)
             mod = importlib.import_module(modname)
     return mod
 
@@ -89,7 +90,7 @@ class DerivaCatalogToString:
         """
         Factor out code and replace with a variable name.
         :param code:
-        :return:
+        :return: new code
         """
         for k, v in self._variables.items():
             varsub = r"(['\"])+{}\1".format(v)
@@ -107,6 +108,7 @@ class DerivaCatalogToString:
         Print out a variable assignment on one line if empty, otherwise pretty print.
         :param name: Left hand side of assigment
         :param value: Right hand side of assignment
+        :param substitute:
         :return:
         """
 
