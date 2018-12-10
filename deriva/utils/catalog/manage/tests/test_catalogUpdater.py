@@ -1,7 +1,7 @@
 from unittest import TestCase
 
 from deriva.utils.catalog.manage.update_catalog import CatalogUpdater
-from deriva.utils.catalog.manage.utils import LoopbackCatalog, temp_ermrest_catalog
+from deriva.utils.catalog.manage.utils import LoopbackCatalog, TempErmrestCatalog
 from deriva.core import get_credential
 import deriva.core.ermrest_model as em
 
@@ -12,7 +12,7 @@ class TestCatalogUpdater(TestCase):
         self.credentials = get_credential(self.server)
 
     def test_update_catalog(self):
-        with temp_ermrest_catalog('https', self.server, credentials=self.credentials) as catalog:
+        with TempErmrestCatalog('https', self.server, credentials=self.credentials) as catalog:
             updater = CatalogUpdater(catalog)
 
             # Check if basic setting works....
@@ -43,7 +43,7 @@ class TestCatalogUpdater(TestCase):
             self.assertEqual(catalog.getCatalogModel().annotations, updated_annotations)
 
     def test_update_schema(self):
-        with temp_ermrest_catalog('https', self.server, credentials=self.credentials) as catalog:
+        with TempErmrestCatalog('https', self.server, credentials=self.credentials) as catalog:
             updater = CatalogUpdater(catalog)
 
             # Create empty schema.
@@ -96,7 +96,7 @@ class TestCatalogUpdater(TestCase):
             self.assertEqual(catalog.getCatalogModel().schemas[schema_name].annotations, updated_annotations)
 
     def test_update_table(self):
-        with temp_ermrest_catalog('https', self.server, credentials=self.credentials) as catalog:
+        with TempErmrestCatalog('https', self.server, credentials=self.credentials) as catalog:
             updater = CatalogUpdater(catalog)
 
             schema_name = 'TestSchema'

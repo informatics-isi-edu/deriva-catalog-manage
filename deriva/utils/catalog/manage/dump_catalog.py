@@ -72,7 +72,6 @@ def load_module_from_path(file):
         try:
             mod = importlib.reload(sys.modules[modname])
         except KeyError:
-            print(sys.path)
             mod = importlib.import_module(modname)
     return mod
 

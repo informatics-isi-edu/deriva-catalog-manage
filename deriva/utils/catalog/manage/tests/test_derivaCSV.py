@@ -29,7 +29,7 @@ class TestDerivaCSV(TestCase):
         model = self.catalog.getCatalogModel()
         model.create_schema(self.catalog, em.Schema.define(self.schema_name))
 
-        self.table_size = 100
+        self.table_size = 1000
         self.column_count = 20
         self.test_dir = tempfile.mkdtemp()
 
@@ -105,8 +105,74 @@ class TestDerivaCSV(TestCase):
 
     def test_upload_to_deriva(self):
         self._create_test_table()
-        row_count = self.table.upload_to_deriva(self.catalog, chunk_size=10)
+        row_count, _ = self.table.upload_to_deriva(self.catalog)
         self.assertEqual(row_count, self.table_size)
+
+    def test_upload_to_deriva_partial(self):
+        self._create_test_table()
+
+        # get part of table:
+        pfile_name = '{}/{}_partial.csv'.format(self.test_dir, self.table_name)
+
+        with open(self.tablefile, 'r') as wholefile:
+            with open(pfile_name, 'w', newline='') as partfile:
+                tablereader = csv.reader(wholefile)
+                tablewriter = csv.writer(partfile)
+                for i in range(self.table_size//2):
+                    tablewriter.writerow(next(tablereader))
+
+        partial_table = DerivaCSV(pfile_name, self.schema_name, table_name=self.table_name, key_columns='id', column_map=True)
+        partial_row_count, _ = partial_table.upload_to_deriva(self.catalog)
+        self.assertEqual(partial_row_count, self.table_size//2-1)
+
+        row_count, _ = self.table.upload_to_deriva(self.catalog)
+
+        self.assertEqual(row_count, self.table_size-(self.table_size//2-1))
+
+        pb = self.catalog.getPathBuilder()
+        target_table = pb.schemas[self.schema_name].tables[self.table.map_name(self.table_name)].alias('target_table')
+        self.assertEqual(len(list(target_table.entities())), self.table_size)
+
+    def test_upload_to_deriva_upload_id(self):
+        self.table = DerivaCSV(self.tablefile, self.schema_name, column_map=True)
+        self._create_test_table()
+        row_count, upload_id = self.table.upload_to_deriva(self.catalog)
+        self.assertEqual(row_count, self.table_size)
+
+    def test_upload_to_deriva_partial_id(self):
+        # get part of table:
+        pfile_name = '{}/{}_partial.csv'.format(self.test_dir, self.table_name)
+
+        with open(self.tablefile, 'r') as wholefile:
+            with open(pfile_name, 'w', newline='') as partfile:
+                tablereader = csv.reader(wholefile)
+                tablewriter = csv.writer(partfile)
+                for i in range(self.table_size//2):
+                    tablewriter.writerow(next(tablereader))
+
+        self.table = DerivaCSV(self.tablefile, self.schema_name, column_map=True)
+        partial_table = DerivaCSV(pfile_name, self.schema_name, table_name=self.table_name, column_map=True)
+        self._create_test_table()
+
+        # Upload first half...
+        partial_row_count, partial_upload_id = partial_table.upload_to_deriva(self.catalog)
+        self.assertEqual(partial_row_count, self.table_size//2-1)
+
+        # Upload second half....
+        row_count, upload_id_1 = self.table.upload_to_deriva(self.catalog, upload_id=partial_upload_id)
+        self.assertEqual(row_count, self.table_size-(self.table_size//2-1))
+
+        # Check to see if whole table is there.
+        pb = self.catalog.getPathBuilder()
+        target_table = pb.schemas[self.schema_name].tables[self.table.map_name(self.table_name)].alias('target_table')
+        self.assertEqual(len(list(target_table.entities())), self.table_size)
+
+        # Upload table again, using new upload_id.
+        row_count, upload_id_1 = self.table.upload_to_deriva(self.catalog)
+        self.assertEqual(row_count, self.table_size)
+
+        target_table = pb.schemas[self.schema_name].tables[self.table.map_name(self.table_name)].alias('target_table')
+        self.assertEqual(len(list(target_table.entities())), 2*self.table_size)
 
     def test_create_validate_upload_csv(self):
         pass
