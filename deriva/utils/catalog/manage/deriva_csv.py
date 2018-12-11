@@ -666,7 +666,7 @@ def main():
     args = parser.parse_args()
 
     credential = get_credential(args.server)
-    catalog = ErmrestCatalog('https', args.server, args.catalog_id, credentials=credential)
+    catalog = ErmrestCatalog('https', args.server, args.catalog, credentials=credential)
 
     table = DerivaCSV(args.tabledata, args.server, args.catalog, args.schema, config=args.config,
                       table_name=args.table, column_map=args.column_map)
