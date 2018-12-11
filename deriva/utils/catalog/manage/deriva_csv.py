@@ -7,6 +7,7 @@ import argparse
 import sys
 import time
 import json
+import ast
 
 from requests import HTTPError
 from tableschema import Table, Schema, exceptions
@@ -642,13 +643,8 @@ class DerivaCSV(Table):
 
 
 def main(argv=None):
-    class TrueOrFilename(argparse.Action):
-        def __call__(self, parser, namespace, values, option_string=None):
-            if values is None:
-                setattr(namespace, self.dest, True)
-            else:
-                setattr(namespace, self.dest, values)
-
+    def python_value(s):
+        return ast.literal_eval(s)
     # Argument parser
     parser = argparse.ArgumentParser(description="Load CSV and other table formats into deriva catalog")
 
@@ -664,12 +660,19 @@ def main(argv=None):
     parser.add_argument('--upload_id', default=None, help='Restart the upload')
     parser.add_argument('--convert', action='store_true',
                         help='Generate a deriva-py program to create the table [Default:True]')
-    parser.add_argument('--column_map', default=True,
-                        help='Convert column names to cannonical form [Default:True]. Can specify mappings')
+    parser.add_argument('--column_map', default=True, type=python_value,
+                        help='Convert column names to cannonical form [Default:True]. A value can be provided to '
+                             'customize the column mapping.  If the value is of the form [n1,n2,n3] '
+                             'a column name is split into words, and if there is a case insenitive match on any of the '
+                             'members of the list, that exact capitalization is used.  Alternatively, a dictionary '
+                             'can be provided.  In this form, the key value is used to make a case insensitive match '
+                             'and the value is used.  Matches are checked prior to splitting a column into words, after'
+                             'the split is done, and after the words are joined back into the complete column name.'
+                    )
     parser.add_argument('--derivafile', default=None,
                         help='Filename for deriva-py program. Can be input or output depending on other arguments. '
                              '[Default: table name]')
-    parser.add_argument('--schemafile', action=TrueOrFilename, nargs='?', default=None,
+    parser.add_argument('--schemafile', nargs='?', const=True, default=None,
                         help='If this argument is used without and arguement, then a schema file is output.'
                              'If an argument is provided, then that schema file is used for the table.')
     parser.add_argument('--chunk_size', default=10000, help='Number of rows to use in chunked upload [Default:10000]')
@@ -681,6 +684,7 @@ def main(argv=None):
     parser.add_argument('--config', default=None, help='python script to set up configuration variables)')
 
     args = parser.parse_args()
+    print(args.column_map, type(args.column_map))
 
     if not (args.convert or args.create_table or args.validate or args.upload):
         args.convert = True
