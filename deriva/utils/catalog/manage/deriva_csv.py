@@ -6,6 +6,7 @@ import re
 import argparse
 import sys
 import time
+import json
 
 from requests import HTTPError
 from tableschema import Table, Schema, exceptions
@@ -21,7 +22,6 @@ from deriva.utils.catalog.manage.utils import LoopbackCatalog
 
 IS_PY2 = (sys.version_info[0] == 2)
 IS_PY3 = (sys.version_info[0] == 3)
-
 
 # We should get range info in there....
 table_schema_type_map = {
@@ -109,14 +109,14 @@ class DerivaModel:
         # Add extra columns and constrains necessary to use for Upload_Id/Row_Number primary key.
         if self._csvschema.row_number_as_key:
             column_defs = [em.Column.define('Upload_Id', em.builtin_types['int4'],
-                                                comment='Identifier to keep track of different uploads'),
-                            em.Column.define('Row_Number', em.builtin_types['int4'], nullok=False,
-                                                comment='Row number in upload file')]
+                                            comment='Identifier to keep track of different uploads'),
+                           em.Column.define('Row_Number', em.builtin_types['int4'], nullok=False,
+                                            comment='Row number in upload file')]
             constraint_name = (csvschema.schema_name,
                                csvschema.map_name('{}_Upload_Id_Row_Number_Key)'.format(csvschema.table_name)))
             key_defs = [em.Key.define(['Upload_Id', 'Row_Number'], constraint_names=[constraint_name])]
         else:
-            column_defs,key_defs = [],[]
+            column_defs, key_defs = [], []
 
         column_defs.extend(self.__deriva_columns(csvschema))
         key_defs.extend(self.__deriva_keys(csvschema))
@@ -465,7 +465,7 @@ class DerivaCSV(Table):
                 # Add system columns to deal with row number as primary key.
                 if self.row_number_as_key:
                     # Need to correct row number to take header into account...
-                    row = [upload_id, row_number-1] + row
+                    row = [upload_id, row_number - 1] + row
                 for i, (v, t) in enumerate(zip(row, field_types)):
                     if t in ['boolean', 'integer', 'number'] and v == '':
                         row[i] = None
@@ -531,15 +531,15 @@ class DerivaCSV(Table):
         Read in a table, try to figure out the type of its columns and output a deriva-py program that can be used
         to create the table in a catalog.
 
-        :param outfile: Where to put the deriva_py program.
-        :param schemafile: If true, dump tableschema output. If a file name, use this as the schema definition.
+        :param outfile: Where to put the deriva_py program. If None, put in same directory as the input file with
+                        the same name as the table.
+        :param schemafile: If true, dump tableschema output.
         :return: dictionary that has the column name mapping derived by this routine.
         """
-        print(outfile)
-        print(schemafile)
+
         if outfile is None:
             outfile = self.table_name + '.py'
-            print(outfile)
+        print(outfile)
         outname = os.path.splitext(os.path.abspath(outfile))[0]
 
         # If not provided the name of a schema file, then infer the schema and save to a file if True.
@@ -553,9 +553,9 @@ class DerivaCSV(Table):
         table_string = stringer.table_to_str(self.schema_name, self.table_name)
 
         if schemafile is True:
-            with open(outname + '_schema_map.py', 'w') as mapfile:
-                mapfile.write(deriva_model.field_name_map)
-                mapfile.write(deriva_model.type_map)
+            with open(outname + '_schema_map.json', 'w') as mapfile:
+                json.dump({'field_name_map': deriva_model.field_name_map,
+                           'type_map': deriva_model.type_map}, mapfile, indent=4)
 
         with open(outfile, 'w') as stream:
             print(table_string, file=stream)
@@ -572,7 +572,8 @@ class DerivaCSV(Table):
         :param create: If true, create a table in the catalog.
                If derivafile argument is not specified, then infer table definition
         :param validate: Run table validation on input before trying to upload
-        :param upload:
+        :param upload: If true, upload file to deriva catalog.
+        :param upload_id: ID of upload to continue.
         :param chunk_size: Number of rows to upload at one time.
         :return:
         """
@@ -640,9 +641,8 @@ class DerivaCSV(Table):
         return mname
 
 
-def main():
-
-    class TrueOrFile(argparse.Action):
+def main(argv=None):
+    class TrueOrFilename(argparse.Action):
         def __call__(self, parser, namespace, values, option_string=None):
             if values is None:
                 setattr(namespace, self.dest, True)
@@ -660,8 +660,8 @@ def main():
     parser.add_argument('--key_columns', default=[],
                         help='List of columns to be used as key when creating table schema.')
     parser.add_argument('--row_number_as_key', action='store_true', help='Use the row number in the CSV as a unique key'
-                                                                        'in conjunction with the upload_id')
-    parser.add_argument('--upload_id', default=None,help='Restart the upload')
+                                                                         'in conjunction with the upload_id')
+    parser.add_argument('--upload_id', default=None, help='Restart the upload')
     parser.add_argument('--convert', action='store_true',
                         help='Generate a deriva-py program to create the table [Default:True]')
     parser.add_argument('--column_map', default=True,
@@ -669,7 +669,7 @@ def main():
     parser.add_argument('--derivafile', default=None,
                         help='Filename for deriva-py program. Can be input or output depending on other arguments. '
                              '[Default: table name]')
-    parser.add_argument('--schemafile', action=TrueOrFile, nargs='?', default=None,
+    parser.add_argument('--schemafile', action=TrueOrFilename, nargs='?', default=None,
                         help='If this argument is used without and arguement, then a schema file is output.'
                              'If an argument is provided, then that schema file is used for the table.')
     parser.add_argument('--chunk_size', default=10000, help='Number of rows to use in chunked upload [Default:10000]')
@@ -684,7 +684,8 @@ def main():
 
     if not (args.convert or args.create_table or args.validate or args.upload):
         args.convert = True
-        args.derivafile = True
+        if args.derivafile is None:
+            args.derivafile = None
 
     credential = get_credential(args.server)
     catalog = ErmrestCatalog('https', args.server, args.catalog, credentials=credential)
