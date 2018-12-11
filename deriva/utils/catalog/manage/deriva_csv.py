@@ -191,7 +191,8 @@ class DerivaCSV(Table):
         :param catalog: an ErmrestCatalog.  If not provided, one is created using the server and catalog_id.
         :param options: Options passed on to tableschema init function
         """
-
+        if schema is True:
+            schema = None
         super(DerivaCSV, self).__init__(source, schema=schema, **options)
 
         DerivaConfig(config)
@@ -531,29 +532,37 @@ class DerivaCSV(Table):
         to create the table in a catalog.
 
         :param outfile: Where to put the deriva_py program.
-        :param schemafile: dump tableschema output
+        :param schemafile: If true, dump tableschema output. If a file name, use this as the schema definition.
         :return: dictionary that has the column name mapping derived by this routine.
         """
-
+        print(outfile)
+        print(schemafile)
         if outfile is None:
             outfile = self.table_name + '.py'
+            print(outfile)
+        outname = os.path.splitext(os.path.abspath(outfile))[0]
 
-        if schemafile is True:
-            schemafile = self.table_name + '.json'
-        if not schemafile:
+        # If not provided the name of a schema file, then infer the schema and save to a file if True.
+        if schemafile is True or schemafile is None or schemafile is False:
             self.infer()
-            self.schema.save(self.table_name + '.json')
+        if schemafile is True:
+            self.schema.save(outname + '.json')
 
         deriva_model = DerivaModel(self)
         stringer = DerivaCatalogToString(deriva_model.catalog, variables=self._variables)
         table_string = stringer.table_to_str(self.schema_name, self.table_name)
+
+        if schemafile is True:
+            with open(outname + '_schema_map.py', 'w') as mapfile:
+                mapfile.write(deriva_model.field_name_map)
+                mapfile.write(deriva_model.type_map)
 
         with open(outfile, 'w') as stream:
             print(table_string, file=stream)
         return deriva_model.field_name_map, deriva_model.type_map
 
     def create_validate_upload_csv(self, catalog, convert=True, validate=False, create=False, upload=False,
-                                   derivafile=None, schemafile=None, chunk_size=10000):
+                                   upload_id=None, derivafile=None, schemafile=None, chunk_size=10000):
         """
 
         :param catalog: Ermrest catalog to be used for operations.
@@ -567,17 +576,15 @@ class DerivaCSV(Table):
         :param chunk_size: Number of rows to upload at one time.
         :return:
         """
-
-        # If you are going to create a table, you either must have a definition file, or you need to generate one.
-        if create and not (convert or derivafile is not None):
-            convert = True
-
         tdir = tempfile.mkdtemp()
 
-        if convert:  # Generate deriva-py file to create table if convert option is specified.
-            # Use file name if provided, otherwise, use temp file.
+        # If you are going to create a table, you either must have a definition file, or you need to generate one.
+        if create and not convert:
             if derivafile is None:
                 derivafile = '{}/{}.py'.format(tdir, self.table_name)
+                convert = True
+
+        if convert:  # Generate deriva-py file to create table if convert option is specified.
             print('Converting table spec to deriva-py....')
             sys.stdout.flush()
             self.convert_to_deriva(outfile=derivafile, schemafile=schemafile)
@@ -602,7 +609,7 @@ class DerivaCSV(Table):
         if upload:
             print('Loading table data {}:{}'.format(self.schema_name, self.table_name))
             sys.stdout.flush()
-            row_cnt = self.upload_to_deriva(catalog, chunk_size=chunk_size)
+            row_cnt = self.upload_to_deriva(catalog, chunk_size=chunk_size, upload_id=upload_id)
 
             return row_cnt
 
@@ -634,6 +641,14 @@ class DerivaCSV(Table):
 
 
 def main():
+
+    class TrueOrFile(argparse.Action):
+        def __call__(self, parser, namespace, values, option_string=None):
+            if values is None:
+                setattr(namespace, self.dest, True)
+            else:
+                setattr(namespace, self.dest, values)
+
     # Argument parser
     parser = argparse.ArgumentParser(description="Load CSV and other table formats into deriva catalog")
 
@@ -644,7 +659,7 @@ def main():
     parser.add_argument('--table', default=None, help='Name of table to be managed (Default:tabledata filename)')
     parser.add_argument('--key_columns', default=[],
                         help='List of columns to be used as key when creating table schema.')
-    parser.add_argument('--rownumber_is_key', action='store_true', help='Use the row number in the CSV as a unique key'
+    parser.add_argument('--row_number_as_key', action='store_true', help='Use the row number in the CSV as a unique key'
                                                                         'in conjunction with the upload_id')
     parser.add_argument('--upload_id', default=None,help='Restart the upload')
     parser.add_argument('--convert', action='store_true',
@@ -654,7 +669,9 @@ def main():
     parser.add_argument('--derivafile', default=None,
                         help='Filename for deriva-py program. Can be input or output depending on other arguments. '
                              '[Default: table name]')
-    parser.add_argument('--schemafile', default=None, help='File which contains table schema to be used')
+    parser.add_argument('--schemafile', action=TrueOrFile, nargs='?', default=None,
+                        help='If this argument is used without and arguement, then a schema file is output.'
+                             'If an argument is provided, then that schema file is used for the table.')
     parser.add_argument('--chunk_size', default=10000, help='Number of rows to use in chunked upload [Default:10000]')
     parser.add_argument('--validate', action='store_true',
                         help='Validate the table before uploading [Default:False]')
@@ -665,11 +682,17 @@ def main():
 
     args = parser.parse_args()
 
+    if not (args.convert or args.create_table or args.validate or args.upload):
+        args.convert = True
+        args.derivafile = True
+
     credential = get_credential(args.server)
     catalog = ErmrestCatalog('https', args.server, args.catalog, credentials=credential)
 
-    table = DerivaCSV(args.tabledata, args.server, args.catalog, args.schema, config=args.config,
-                      table_name=args.table, column_map=args.column_map)
+    table = DerivaCSV(args.tabledata, args.schema,
+                      table_name=args.table, column_map=args.column_map,
+                      key_columns=args.key_columns, row_number_as_key=args.row_number_as_key,
+                      schema=args.schemafile, config=args.config)
 
     table.create_validate_upload_csv(catalog,
                                      convert=args.convert, validate=args.validate, create=args.create_table,
