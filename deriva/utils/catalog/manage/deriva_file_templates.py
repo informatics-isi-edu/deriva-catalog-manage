@@ -33,7 +33,7 @@ def main(catalog, mode, replace=False):
 if __name__ == "__main__":
     server = {server!r}
     catalog_id = {catalog_id}
-    mode, replace, server, catalog_id = parse_args(server, catalog_id, is_catalog=True)
+    mode, replace, server, catalog_id = parse_args(server, catalog_id, is_table=True)
     credential = get_credential(server)
     catalog = ErmrestCatalog('https', server, catalog_id, credentials=credential)
     main(catalog, mode, replace)
