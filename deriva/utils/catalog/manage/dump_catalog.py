@@ -12,7 +12,7 @@ from attrdict import AttrDict
 from deriva.core import ErmrestCatalog, get_credential
 
 from deriva.core.ermrest_config import tag as chaise_tags
-from .deriva_file_templates import table_file_template, schema_file_template, catalog_file_template
+from deriva.utils.catalog.manage.deriva_file_templates import table_file_template, schema_file_template, catalog_file_template
 
 IS_PY2 = (sys.version_info[0] == 2)
 IS_PY3 = (sys.version_info[0] == 3)
@@ -308,12 +308,15 @@ def main():
     parser.add_argument('--catalog', default=1, help='ID number of desired catalog')
     parser.add_argument('--dir', default="catalog-configs", help='output directory name)')
     parser.add_argument('--config', default=None, help='python script to set up configuration variables)')
+    parser.add_argument('--table', default=None, help='Only dump out the spec for the specified table.  Format is '
+                                                      'schema_name:table_name')
     args = parser.parse_args()
 
     dumpdir = args.dir
     server = args.server
     catalog_id = args.catalog
     configfile = args.config
+    table = args.table
 
     try:
         os.makedirs(dumpdir, exist_ok=True)
@@ -330,29 +333,41 @@ def main():
     catalog = ErmrestCatalog('https', server, catalog_id, credentials=credential)
     model_root = catalog.getCatalogModel()
 
-    print("Dumping catalog def....")
+
+
     stringer = DerivaCatalogToString(catalog, variables=variables)
 
-    catalog_string = stringer.catalog_to_str()
+    if table is not None:
+        if ':' not in table:
+            print('Table name must be in form of schema:table')
+            exit(1)
+        print("Dumping out table def....")
+        [schema_name, table_name] = table.split(":")
+        table_string = stringer.table_to_str(schema_name, table_name)
+        with open(table_name + '.py', 'w') as f:
+            print(table_string, file=f)
+    else:
+        print("Dumping catalog def....")
+        catalog_string = stringer.catalog_to_str()
 
-    with open('{}/{}_{}.py'.format(dumpdir, server, catalog_id), 'w') as f:
-        print(catalog_string, file=f)
+        with open('{}/{}_{}.py'.format(dumpdir, server, catalog_id), 'w') as f:
+            print(catalog_string, file=f)
 
-    for schema_name in model_root.schemas:
-        print("Dumping schema def for {}....".format(schema_name))
-        schema_string = stringer.schema_to_str(schema_name)
+        for schema_name in model_root.schemas:
+            print("Dumping schema def for {}....".format(schema_name))
+            schema_string = stringer.schema_to_str(schema_name)
 
-        with open('{}/{}.schema.py'.format(dumpdir, schema_name), 'w') as f:
-            print(schema_string, file=f)
+            with open('{}/{}.schema.py'.format(dumpdir, schema_name), 'w') as f:
+                print(schema_string, file=f)
 
-    for schema_name, schema in model_root.schemas.items():
-        for i in schema.tables:
-            print('Dumping {}:{}'.format(schema_name, i))
-            table_string = stringer.table_to_str(schema_name, i)
-            filename = '{}/{}/{}.py'.format(dumpdir, schema_name, i)
-            os.makedirs(os.path.dirname(filename), exist_ok=True)
-            with open(filename, 'w') as f:
-                print(table_string, file=f)
+        for schema_name, schema in model_root.schemas.items():
+            for i in schema.tables:
+                print('Dumping {}:{}'.format(schema_name, i))
+                table_string = stringer.table_to_str(schema_name, i)
+                filename = '{}/{}/{}.py'.format(dumpdir, schema_name, i)
+                os.makedirs(os.path.dirname(filename), exist_ok=True)
+                with open(filename, 'w') as f:
+                    print(table_string, file=f)
 
 
 if __name__ == "__main__":
