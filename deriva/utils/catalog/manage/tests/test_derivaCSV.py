@@ -36,7 +36,7 @@ class TestDerivaCSV(TestCase):
         (row, self.headers) = generate_test_csv(self.column_count)
 
         self.tablefile = '{}/{}.csv'.format(self.test_dir, self.table_name)
-        with open(self.tablefile,'w', newline='') as f:
+        with open(self.tablefile, 'w', newline='') as f:
             tablewriter = csv.writer(f)
             for i, j in zip(range(self.table_size+1), row):
                 tablewriter.writerow(j)

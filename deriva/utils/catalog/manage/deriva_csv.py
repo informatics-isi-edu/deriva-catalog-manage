@@ -270,7 +270,7 @@ class DerivaCSV(Table):
             if all(map(lambda x: x in self.schema.field_names, primary_key)):
                 self.schema.descriptor['primaryKey'] = primary_key
             else:
-                raise DerivaCSVError(msg='Missing key column: '.format(primary_key))
+                raise DerivaCSVError(msg='Missing key column: {}'.format(primary_key))
 
         # Capture the key columns.
         for k in self._key_columns:
@@ -551,7 +551,7 @@ class DerivaCSV(Table):
                 # there
                 max_value = e[0][key_column_index]
                 # Now convert this to an location in the table
-                row_index = next(i for i, v in enumerate(rows) if v[key_column_index] == max_value) +1
+                row_index = next(i for i, v in enumerate(rows) if v[key_column_index] == max_value) + 1
                 print('Resuming upload at row count ', row_index)
         else:
             # We don't have a key, or the key is composite, so in this case we just have to hope for the best....
@@ -755,4 +755,9 @@ def main(argv=None):
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except DerivaCSVError as e:
+        print(e.msg)
+        exit(1)
+
