@@ -5,6 +5,7 @@ import importlib
 import os
 import re
 import sys
+import time
 
 from yapf.yapflib.yapf_api import FormatCode
 
@@ -12,7 +13,8 @@ from attrdict import AttrDict
 from deriva.core import ErmrestCatalog, get_credential
 
 from deriva.core.ermrest_config import tag as chaise_tags
-from deriva.utils.catalog.manage.deriva_file_templates import table_file_template, schema_file_template, catalog_file_template
+from deriva.utils.catalog.manage.deriva_file_templates import table_file_template, schema_file_template, \
+    catalog_file_template
 
 IS_PY2 = (sys.version_info[0] == 2)
 IS_PY3 = (sys.version_info[0] == 3)
@@ -42,6 +44,14 @@ class DerivaConfig:
         if configfile:
             configmod = load_module_from_path(configfile)
             DerivaConfig.groups = AttrDict(configmod.groups)
+            DerivaConfig.variables = []
+            for i in dir(configmod):
+                if '__' not in i:
+                    DerivaConfig.variables.append(i)
+                    val = getattr(configmod, i)
+                    if type(val) is dict:
+                        val = AttrDict(val)
+                    setattr(DerivaConfig, i, val)
 
 
 def load_module_from_path(file):
@@ -123,12 +133,12 @@ class DerivaCatalogToString:
         :param annotations:
         :return:
         """
-        s = ''
+        s = []
         for t, v in chaise_tags.items():
             if v in annotations:
-                s += self.variable_to_str(t, annotations[v])
-                s += '\n'
-        return s
+                s.append(self.variable_to_str(t, annotations[v]))
+                s.append('\n')
+        return ''.join(s)
 
     def annotations_to_str(self, annotations, var_name='annotations'):
         """
@@ -153,13 +163,19 @@ class DerivaCatalogToString:
             s += '}\n'
         return s
 
+    def config_to_str(self, config):
+        s = ''
+        for i in config.variables:
+            s += self.variable_to_str(i, getattr(config, i), substitute=False)
+        return s
+
     def schema_to_str(self, schema_name):
         schema = self._model.schemas[schema_name]
         server = urlparse(self._catalog.get_server_uri()).hostname
         catalog_id = self._catalog.get_server_uri().split('/')[-1]
 
         s = schema_file_template.format(server=server, catalog_id=catalog_id, schema_name=schema_name,
-                                        groups=self.variable_to_str('groups', DerivaConfig.groups, substitute=False),
+                                        groups=self.config_to_str(DerivaConfig),
                                         annotations=self.variable_to_str('annotations', schema.annotations),
                                         acls=self.variable_to_str('acls', schema.acls),
                                         comments=self.variable_to_str('comment', schema.comment),
@@ -173,7 +189,7 @@ class DerivaCatalogToString:
         catalog_id = self._catalog.get_server_uri().split('/')[-1]
 
         s = catalog_file_template.format(server=server, catalog_id=catalog_id,
-                                         groups=self.variable_to_str('groups', DerivaConfig.groups, substitute=False),
+                                         groups=self.config_to_str(DerivaConfig),
                                          tag_variables=self.tag_variables_to_str(self._model.annotations),
                                          annotations=self.annotations_to_str(self._model.annotations),
                                          acls=self.variable_to_str('acls', self._model.acls))
@@ -181,11 +197,11 @@ class DerivaCatalogToString:
         return s
 
     def table_annotations_to_str(self, table):
-        s = self.tag_variables_to_str(table.annotations)
-        s += self.annotations_to_str(table.annotations, var_name='table_annotations')
-        s += self.variable_to_str('table_comment', table.comment)
-        s += self.variable_to_str('table_acls', table.acls)
-        s += self.variable_to_str('table_acl_bindings', table.acl_bindings)
+        s = ''.join([self.tag_variables_to_str(table.annotations),
+                         self.annotations_to_str(table.annotations, var_name='table_annotations'),
+                         self.variable_to_str('table_comment', table.comment),
+                         self.variable_to_str('table_acls', table.acls),
+                         self.variable_to_str('table_acl_bindings', table.acl_bindings)])
         return s
 
     def column_annotations_to_str(self, table):
@@ -238,7 +254,7 @@ class DerivaCatalogToString:
         for key in table.keys:
             s += """    em.Key.define({},
                        constraint_names={},\n""".format(key.unique_columns, key.names)
-            for i in ['annotations',  'comment']:
+            for i in ['annotations', 'comment']:
                 a = getattr(key, i)
                 if not (a == {} or a is None or a == ''):
                     v = "'" + a + "'" if i == 'comment' else a
@@ -251,23 +267,23 @@ class DerivaCatalogToString:
     def column_defs_to_str(self, table):
         system_columns = ['RID', 'RCB', 'RMB', 'RCT', 'RMT']
 
-        s = 'column_defs = ['
+        s = ['column_defs = [']
         for col in table.column_definitions:
             if col.name in system_columns and self._provide_system_columns:
                 continue
-            s += '''    em.Column.define('{}', em.builtin_types['{}'],'''.\
-                format(col.name, col.type.typename + '[]' if 'is_array' is True else col.type.typename)
+            s.append('''    em.Column.define('{}', em.builtin_types['{}'],'''. \
+                format(col.name, col.type.typename + '[]' if 'is_array' is True else col.type.typename))
             if col.nullok is False:
-                s += "nullok=False,"
+                s.append("nullok=False,")
             if col.default and col.name not in system_columns:
-                s += "default={!r},".format(col.default)
+                s.append("default={!r},".format(col.default))
             for i in ['annotations', 'acls', 'acl_bindings', 'comment']:
                 colvar = getattr(col, i)
                 if colvar:  # if we have a value for this field....
-                    s += "{}=column_{}['{}'],".format(i, i, col.name)
-            s += '),\n'
-        s += ']'
-        return s
+                    s.append("{}=column_{}['{}'],".format(i, i, col.name))
+            s.append('),\n')
+        s.append(']')
+        return ''.join(s)
 
     def table_def_to_str(self):
         s = """table_def = em.Table.define(table_name,
@@ -291,7 +307,7 @@ class DerivaCatalogToString:
 
         s = table_file_template.format(server=server, catalog_id=catalog_id,
                                        table_name=table_name, schema_name=schema_name,
-                                       groups=self.variable_to_str('groups', DerivaConfig.groups, substitute=False),
+                                       groups=self.config_to_str(DerivaConfig),
                                        column_annotations=self.column_annotations_to_str(table),
                                        column_defs=self.column_defs_to_str(table),
                                        table_annotations=self.table_annotations_to_str(table),
@@ -332,8 +348,6 @@ def main():
     credential = get_credential(server)
     catalog = ErmrestCatalog('https', server, catalog_id, credentials=credential)
     model_root = catalog.getCatalogModel()
-
-
 
     stringer = DerivaCatalogToString(catalog, variables=variables)
 

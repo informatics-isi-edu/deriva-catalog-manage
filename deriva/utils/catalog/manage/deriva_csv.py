@@ -8,14 +8,16 @@ import sys
 import time
 import json
 import ast
+import dateutil
+import datetime
 
 from requests import HTTPError
 from tableschema import Table, Schema, exceptions
-from tableschema.schema import _TypeGuesser
 import goodtables
 import tabulator
 
 from deriva.core import ErmrestCatalog, get_credential
+from deriva.core import urlparse
 from deriva.core.ermrest_config import tag as chaise_tags
 import deriva.core.ermrest_model as em
 from deriva.utils.catalog.manage.dump_catalog import DerivaConfig, DerivaCatalogToString, load_module_from_path
@@ -284,42 +286,88 @@ class DerivaCSV(Table):
         self.schema.commit(strict=True)
         return
 
-    def infer(self, limit=1000, confidence=.75):
-        """https://github.com/frictionlessdata/tableschema-py#schema
-        """
+    def __get_type(self, val, prev_type):
+        # Skip over empty cells or if you have already gotten to string type.
+        if val == '' or prev_type is str:
+            next_type = prev_type
+        # Deal with booleans so you don't confuse with strings.
+        if val.upper() == 'TRUE':
+            val = True
+        elif val.upper() == 'FALSE':
+            val = False
 
+        # Now see if you can turn into python numeric type...
+        try:
+            v = ast.literal_eval(val)
+        except SyntaxError:
+            v = val
+        except ValueError:
+            v = val
+        val_type = type(v)
+
+        if val_type is str:
+            try:
+                dateutil.parser.parse(v, ignoretz=True)
+                val_type = datetime.datetime
+            except ValueError:
+               pass
+
+        if val_type is str:
+            url_result = urlparse(v)
+            if url_result.scheme != '' and url_result.netloc != '':
+                val_type = type(url_result)
+
+        next_type = val_type
+
+        # Do promotion/demotion.
+        if prev_type is not None:
+            if val_type == float and prev_type == int:
+                next_type = float
+            elif val_type != prev_type:
+                next_type = str
+
+        return next_type
+
+    def infer(self, limit=1000, confidence=.75):
+        """
+        Infer the current type by looking at the values in the table
+         """
         # Do initial infer to set up headers and schema.
         Table.infer(self)
 
-        missing_values = ['']
         rows = self.read(cast=False)
         headers = self.headers
 
         # Get descriptor
-        guesser = _TypeGuesser()
         descriptor = {'fields': []}
         type_matches = {}
         for header in headers:
             descriptor['fields'].append({'name': header})
 
+        row_start_time = time.time()
         rindex = 0
         for rindex, row in enumerate(rows[:limit]):
             # build a column-wise lookup of type matches
             for cindex, value in enumerate(row):
-                # We skip over empty elements.  For non-empty, we find the most specific type that we can use for the
-                # element, and then compare with other rows and keep the most general.
-                if value not in missing_values:
-                    rv = list(guesser.cast(value))
-                    best_type = min(i[2] for i in rv)
-                    typeid = list(filter(lambda x: x[2] == best_type, rv))[0]
-                    if type_matches.get(cindex):
-                        type_matches[cindex] = typeid if typeid[2] > type_matches[cindex][2] else type_matches[cindex]
-                    else:
-                        type_matches[cindex] = typeid
-
+                typeid = self.__get_type(value, type_matches.get(cindex, None))
+                type_matches[cindex] = typeid
         self.row_count = rindex
+        url_type = type(urlparse('foo'))
         for index, results in type_matches.items():
-            descriptor['fields'][index].update({'type': results[0], 'format': results[1]})
+            type_format = 'default'
+            if results is int:
+                type_name = 'integer'
+            elif results is float:
+                type_name = 'number'
+            elif results is str:
+                type_name = 'string'
+            elif results is datetime:
+                type_name = 'date'
+            elif results is url_type:
+                type_name = 'string'
+                type_format = 'uri'
+
+            descriptor['fields'][index].update({'type': type_name, 'format': type_format})
 
         # Now update the schema to have the inferred values.
         self.schema.descriptor['fields'] = descriptor['fields']
@@ -468,7 +516,7 @@ class DerivaCSV(Table):
                     # Need to correct row number to take header into account...
                     row = [upload_id, row_number - 1] + row
                 for i, (v, t) in enumerate(zip(row, field_types)):
-                    if t in ['boolean', 'integer', 'number'] and v == '':
+                    if t in ['boolean', 'integer', 'number', 'date'] and v == '':
                         row[i] = None
                     else:
                         if t == 'boolean':
@@ -489,22 +537,22 @@ class DerivaCSV(Table):
             # Get the name of the primary key column in the catalog by getting the field number and then looking it up.
             if self.row_number_as_key:
                 target_table.filter(target_table.Upload_Id == upload_id)
-                primary_key = 'Row_Number'
                 key_column_index = 'Row_Number'
             else:
-                primary_key = catalog_schema.primary_key[0]
                 key_column_index = [i for i in self.schema.field_names].index(self.schema.primary_key[0])
                 key_column_index = catalog_schema.headers[key_column_index]
                 rows.sort(key=lambda x: x[key_column_index])
-
             # determine current position in (partial?) copy
             # Use the upload_id field to seperate out different uploads.
-            e = list(target_table.entities().fetch(limit=1, sort=[target_table.column_definitions[primary_key].desc]))
+            e = list(target_table.entities().fetch(limit=1,
+                                                   sort=[target_table.column_definitions[key_column_index].desc]))
             if len(e) == 1:
                 # Part of this table has already been uploaded, so we want to find out how far we got and start from
                 # there
-                row_index = e[0][key_column_index]
-                print('Resuming upload at row count ', row_index + 1)
+                max_value = e[0][key_column_index]
+                # Now convert this to an location in the table
+                row_index = next(i for i, v in enumerate(rows) if v[key_column_index] == max_value) +1
+                print('Resuming upload at row count ', row_index)
         else:
             # We don't have a key, or the key is composite, so in this case we just have to hope for the best....
             chunk_size = len(rows)
@@ -516,7 +564,7 @@ class DerivaCSV(Table):
             chunk = rows[row_index:row_index + chunk_size]
             if not chunk == []:
                 start_time = time.time()
-                target_table.insert(chunk, add_system_defaults=True)
+                e = target_table.insert(chunk, add_system_defaults=True)
                 stop_time = time.time()
                 print('Completed chunk {} size {} in {:.1f} sec.'.format(chunk_cnt, chunk_size, stop_time - start_time))
                 sys.stdout.flush()
@@ -540,7 +588,7 @@ class DerivaCSV(Table):
 
         if outfile is None:
             outfile = self.table_name + '.py'
-        print(outfile)
+
         outname = os.path.splitext(os.path.abspath(outfile))[0]
 
         # If not provided the name of a schema file, then infer the schema and save to a file if True.
@@ -684,7 +732,6 @@ def main(argv=None):
     parser.add_argument('--config', default=None, help='python script to set up configuration variables)')
 
     args = parser.parse_args()
-    print(args.column_map, type(args.column_map))
 
     if not (args.convert or args.create_table or args.validate or args.upload):
         args.convert = True

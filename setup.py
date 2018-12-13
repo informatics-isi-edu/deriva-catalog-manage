@@ -31,6 +31,7 @@ setup(
         'attrdict',
         'datetime',
         'datetime',
+        'dateutil',
         'decimal',
         'importlib',
         'itertools',
