@@ -167,6 +167,7 @@ class DerivaCatalogToString:
         s = ''
         for i in config.variables:
             s += self.variable_to_str(i, getattr(config, i), substitute=False)
+            s += '\n\n'
         return s
 
     def schema_to_str(self, schema_name):
@@ -175,7 +176,7 @@ class DerivaCatalogToString:
         catalog_id = self._catalog.get_server_uri().split('/')[-1]
 
         s = schema_file_template.format(server=server, catalog_id=catalog_id, schema_name=schema_name,
-                                        groups=self.config_to_str(DerivaConfig),
+                                        variables=self.config_to_str(DerivaConfig),
                                         annotations=self.variable_to_str('annotations', schema.annotations),
                                         acls=self.variable_to_str('acls', schema.acls),
                                         comments=self.variable_to_str('comment', schema.comment),
@@ -189,7 +190,7 @@ class DerivaCatalogToString:
         catalog_id = self._catalog.get_server_uri().split('/')[-1]
 
         s = catalog_file_template.format(server=server, catalog_id=catalog_id,
-                                         groups=self.config_to_str(DerivaConfig),
+                                         variables=self.config_to_str(DerivaConfig),
                                          tag_variables=self.tag_variables_to_str(self._model.annotations),
                                          annotations=self.annotations_to_str(self._model.annotations),
                                          acls=self.variable_to_str('acls', self._model.acls))
@@ -307,7 +308,7 @@ class DerivaCatalogToString:
 
         s = table_file_template.format(server=server, catalog_id=catalog_id,
                                        table_name=table_name, schema_name=schema_name,
-                                       groups=self.config_to_str(DerivaConfig),
+                                       variables=self.config_to_str(DerivaConfig),
                                        column_annotations=self.column_annotations_to_str(table),
                                        column_defs=self.column_defs_to_str(table),
                                        table_annotations=self.table_annotations_to_str(table),
