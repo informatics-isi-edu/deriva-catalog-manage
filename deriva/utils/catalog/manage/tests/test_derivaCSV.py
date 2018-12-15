@@ -1,19 +1,72 @@
 from unittest import TestCase
-
+import datetime
 import os
 import csv
 import sys
+import string
 import tempfile
+import random
+import warnings
+
+from tableschema import exceptions
 from deriva.utils.catalog.manage.deriva_csv import DerivaCSV
 import deriva.utils.catalog.manage.dump_catalog as dump_catalog
 from deriva.core import get_credential
 import deriva.core.ermrest_model as em
-from deriva.utils.catalog.manage.utils import generate_test_csv, TempErmrestCatalog
+from deriva.utils.catalog.manage.utils import TempErmrestCatalog
+
+warnings.filterwarnings("ignore", category=DeprecationWarning)
 
 if sys.version_info >= (3, 0):
     from urllib.parse import urlparse
 if sys.version_info < (3, 0) and sys.version_info >= (2, 5):
     from urlparse import urlparse
+
+
+def generate_test_csv(columncnt):
+    """
+    Generate a test CSV file for testing derivaCSV routines.  First row returned will be a header.
+    :param columncnt: Number of columns to be used in the CSV.
+    :return: generator function and a map of the column names and types.
+    """
+    type_list = ['int4', 'boolean', 'float8', 'date', 'text']
+    column_types = ['int4'] + [type_list[i % len(type_list)] for i in range(columncnt)]
+    column_headings = ['id'] + ['field {}'.format(i) for i in range(len(column_types))]
+
+    missing_value = .2  # What fraction of values should be empty.
+
+    base = datetime.datetime.today()
+    date_list = [base - datetime.timedelta(days=x) for x in range(0, 100)]
+
+    def col_value(c):
+        v = ''
+
+        if random.random() > missing_value:
+            if c == 'boolean':
+                v = random.choice(['true', 'false'])
+            elif c == 'int4':
+                v = random.randrange(-1000, 1000)
+            elif c == 'float8':
+                v = random.uniform(-1000, 1000)
+            elif c == 'text':
+                v = ''.join(random.sample(string.ascii_letters + string.digits, 5))
+            elif c == 'date':
+                v = str(random.choice(date_list))
+        return v
+
+    def row_generator(header=True):
+        row_count = 1
+        while True:
+            if header is True:
+                row = column_headings
+                header = False
+            else:
+                row = [row_count]
+                row_count += 1
+                row.extend([col_value(i) for i in column_types])
+            yield row
+
+    return row_generator(), [{'name': i[0], 'type': i[1]} for i in zip(column_headings, column_types)]
 
 
 class TestDerivaCSV(TestCase):
@@ -38,10 +91,8 @@ class TestDerivaCSV(TestCase):
         self.tablefile = '{}/{}.csv'.format(self.test_dir, self.table_name)
         with open(self.tablefile, 'w', newline='') as f:
             tablewriter = csv.writer(f)
-            for i, j in zip(range(self.table_size+1), row):
+            for i, j in zip(range(self.table_size + 1), row):
                 tablewriter.writerow(j)
-
-        self.table = DerivaCSV(self.tablefile, self.schema_name, key_columns='id', column_map=True)
 
     def tearDown(self):
         self.catalog.delete_ermrest_catalog(really=True)
@@ -83,32 +134,36 @@ class TestDerivaCSV(TestCase):
         self.assertEqual(table.map_name('the clown'), 'Bozo_The_Clown')
 
     def test_convert_to_deriva(self):
+        self.table = DerivaCSV(self.tablefile, self.schema_name, key_columns='id', column_map=True)
         self._create_test_table()
         tname = self.table.map_name(self.table_name)
 
         self.assertEqual(tname, self.catalog.getCatalogModel().schemas[self.schema_name].tables[tname].name)
 
     def test_table_schema_from_catalog(self):
+        self.table = DerivaCSV(self.tablefile, self.schema_name, key_columns='id', column_map=True)
+        self._create_test_table()
 
-            self._create_test_table()
+        tableschema = self.table.table_schema_from_catalog(self.catalog)
 
-            tableschema = self.table.table_schema_from_catalog(self.catalog)
-
-            self.assertEqual([self.table.map_name(i['name']) for i in self.table.schema.descriptor['fields']],
-                             [i['name'] for i in tableschema.descriptor['fields']])
-            self.assertEqual([i['type'] for i in self.table.schema.descriptor['fields']],
-                             [i['type'] for i in tableschema.descriptor['fields']])
+        self.assertEqual([self.table.map_name(i['name']) for i in self.table.schema.descriptor['fields']],
+                         [i['name'] for i in tableschema.descriptor['fields']])
+        self.assertEqual([i['type'] for i in self.table.schema.descriptor['fields']],
+                         [i['type'] for i in tableschema.descriptor['fields']])
 
     def test_validate(self):
+        self.table = DerivaCSV(self.tablefile, self.schema_name, key_columns='id', column_map=True)
         self._create_test_table()
         self.table.validate(self.catalog)
 
     def test_upload_to_deriva(self):
+        self.table = DerivaCSV(self.tablefile, self.schema_name, key_columns='id', column_map=True)
         self._create_test_table()
         row_count, _ = self.table.upload_to_deriva(self.catalog)
         self.assertEqual(row_count, self.table_size)
 
     def test_upload_to_deriva_partial(self):
+        self.table = DerivaCSV(self.tablefile, self.schema_name, key_columns='id', column_map=True)
         self._create_test_table()
 
         # get part of table:
@@ -118,26 +173,49 @@ class TestDerivaCSV(TestCase):
             with open(pfile_name, 'w', newline='') as partfile:
                 tablereader = csv.reader(wholefile)
                 tablewriter = csv.writer(partfile)
-                for i in range(self.table_size//2):
+                for i in range(self.table_size // 2):
                     tablewriter.writerow(next(tablereader))
 
-        partial_table = DerivaCSV(pfile_name, self.schema_name, table_name=self.table_name, key_columns='id', column_map=True)
+        partial_table = DerivaCSV(pfile_name, self.schema_name, table_name=self.table_name, key_columns='id',
+                                  column_map=True)
         partial_row_count, _ = partial_table.upload_to_deriva(self.catalog)
-        self.assertEqual(partial_row_count, self.table_size//2-1)
+        self.assertEqual(partial_row_count, self.table_size // 2 - 1)
 
         row_count, _ = self.table.upload_to_deriva(self.catalog)
 
-        self.assertEqual(row_count, self.table_size-(self.table_size//2-1))
+        self.assertEqual(row_count, self.table_size - (self.table_size // 2 - 1))
 
         pb = self.catalog.getPathBuilder()
         target_table = pb.schemas[self.schema_name].tables[self.table.map_name(self.table_name)].alias('target_table')
         self.assertEqual(len(list(target_table.entities())), self.table_size)
 
     def test_upload_to_deriva_upload_id(self):
-        self.table = DerivaCSV(self.tablefile, self.schema_name, column_map=True)
+        self.table = DerivaCSV(self.tablefile, self.schema_name, column_map=True, row_number_as_key=True)
         self._create_test_table()
         row_count, upload_id = self.table.upload_to_deriva(self.catalog)
+        print(row_count, upload_id)
         self.assertEqual(row_count, self.table_size)
+
+    def test_upload_to_deriva_validate(self):
+        self.table = DerivaCSV(self.tablefile, self.schema_name, column_map=True, key_columns='id')
+        self._create_test_table()
+        valid, report = self.table.validate(self.catalog)
+        if not valid:
+            for i in report['tables'][0]['errors']:
+                print(i)
+        self.assertEqual(valid, True)
+
+    def test_upload_to_deriva_validate_id(self):
+        self.table = DerivaCSV(self.tablefile, self.schema_name, column_map=True, row_number_as_key=True)
+        self._create_test_table()
+        try:
+            valid, report = self.table.validate(self.catalog)
+        except exceptions.ValidationError as err:
+            print(err.errors)
+        if not valid:
+            for i in report['tables'][0]['errors']:
+                print(i)
+        self.assertEqual(valid, True)
 
     def test_upload_to_deriva_partial_id(self):
         # get part of table:
@@ -147,7 +225,7 @@ class TestDerivaCSV(TestCase):
             with open(pfile_name, 'w', newline='') as partfile:
                 tablereader = csv.reader(wholefile)
                 tablewriter = csv.writer(partfile)
-                for i in range(self.table_size//2):
+                for i in range(self.table_size // 2):
                     tablewriter.writerow(next(tablereader))
 
         self.table = DerivaCSV(self.tablefile, self.schema_name, column_map=True)
@@ -156,11 +234,11 @@ class TestDerivaCSV(TestCase):
 
         # Upload first half...
         partial_row_count, partial_upload_id = partial_table.upload_to_deriva(self.catalog)
-        self.assertEqual(partial_row_count, self.table_size//2-1)
+        self.assertEqual(partial_row_count, self.table_size // 2 - 1)
 
         # Upload second half....
         row_count, upload_id_1 = self.table.upload_to_deriva(self.catalog, upload_id=partial_upload_id)
-        self.assertEqual(row_count, self.table_size-(self.table_size//2-1))
+        self.assertEqual(row_count, self.table_size - (self.table_size // 2 - 1))
 
         # Check to see if whole table is there.
         pb = self.catalog.getPathBuilder()
@@ -172,7 +250,5 @@ class TestDerivaCSV(TestCase):
         self.assertEqual(row_count, self.table_size)
 
         target_table = pb.schemas[self.schema_name].tables[self.table.map_name(self.table_name)].alias('target_table')
-        self.assertEqual(len(list(target_table.entities())), 2*self.table_size)
+        self.assertEqual(len(list(target_table.entities())), 2 * self.table_size)
 
-    def test_create_validate_upload_csv(self):
-        pass
