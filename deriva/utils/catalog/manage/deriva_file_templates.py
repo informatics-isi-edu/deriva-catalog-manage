@@ -10,7 +10,7 @@ table_name = '{table_name}'
 
 schema_name = '{schema_name}'
 
-{groups}
+{variables}
 
 {column_annotations}
 
@@ -52,7 +52,7 @@ schema_name = '{schema_name}'
 
 {table_names}
 
-{groups}
+{variables}
 
 {annotations}
 
@@ -90,7 +90,7 @@ from deriva.core.ermrest_config import tag as chaise_tags
 import deriva.core.ermrest_model as em
 
 
-{groups}
+{variables}
 
 
 {tag_variables}

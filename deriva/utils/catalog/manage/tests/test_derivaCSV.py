@@ -138,7 +138,33 @@ class TestDerivaCSV(TestCase):
         self._create_test_table()
         tname = self.table.map_name(self.table_name)
 
-        self.assertEqual(tname, self.catalog.getCatalogModel().schemas[self.schema_name].tables[tname].name)
+    def test_compound_key(self):
+        key_columns = [['id', 'field 1', 'field 2'], 'field 3', ['field 4', 'field 5']]
+        self.table = DerivaCSV(self.tablefile, self.schema_name, key_columns=key_columns, column_map=True)
+        self.assertEqual(self.table.schema.primary_key,['id', 'field 1', 'field 2'])
+
+        for h in self.table.headers:
+            f = self.table.schema.get_field(h)
+            self.assertEqual((h in ['id', 'field 1', 'field 2', 'field 3', 'field 4', 'field 5'] and f.required) or
+                                not f.required, True, msg='Missing required in field {}'.format(h))
+            self.assertEqual((h == 'field 3' and f.descriptor.get('unique', False)) or not \
+                            f.descriptor.get('unique', False), True)
+
+        self._create_test_table()
+
+        model = self.catalog.getCatalogModel()
+        target_table = model.schemas[self.schema_name].tables[self.table.map_name(self.table_name)]
+
+        catalog_keys = [ sorted(i.unique_columns) for i in target_table.keys]
+        print('catalog keys', catalog_keys)
+        for k in self.table._key_columns:
+            for col in k:
+                self.assertEqual(target_table.column_definitions[self.table.map_name(col)].nullok, False,
+                                 msg='nullok not set for {}'.format(col))
+            n = [self.table.map_name(i) for i in k]
+            n.sort()
+            self.assertEqual(n in catalog_keys,True, msg = 'Key missing {}'.format(k))
+        return
 
     def test_table_schema_from_catalog(self):
         self.table = DerivaCSV(self.tablefile, self.schema_name, key_columns='id', column_map=True)

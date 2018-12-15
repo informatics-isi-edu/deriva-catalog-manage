@@ -156,13 +156,12 @@ class DerivaModel:
 
     def __deriva_keys(self, csvschema):
         keys = []
-        # Create a key definition for any columns that have a unique constraint.
-        for col in csvschema.schema.fields:
-            mapped_name = csvschema.map_name(col.name)
-            if col.constraints.get('unique', False):
-                constraint_name = (csvschema.schema_name,
-                                   csvschema.map_name('{}_{}_Key)'.format(csvschema.table_name, mapped_name)))
-                keys.append(em.Key.define([mapped_name], constraint_names=[constraint_name]))
+        for cols in csvschema._key_columns:
+            mapped_cols = [csvschema.map_name(i) for i in cols]
+            mapped_name = csvschema.map_name('{}_{})'.format(csvschema.table_name, '_'.join(cols)))
+            constraint_name = (csvschema.schema_name,'{}_key)'.format(mapped_name))
+            keys.append(em.Key.define(mapped_cols, constraint_names=[constraint_name]))
+
         return keys
 
 
@@ -239,7 +238,8 @@ class DerivaCSV(Table):
             self._key_columns = []
         elif not isinstance(self._key_columns, list):
             self._key_columns = [[self._key_columns]]
-
+        else:
+            self._key_columns = [i if type(i) is list else [i] for i in self._key_columns]
         self.__set_key_constraints()
 
         return
@@ -253,9 +253,9 @@ class DerivaCSV(Table):
         # Set the primary key value.  Use primary_key if there is one in the schema.  Otherwise, use the first
         # key in the key_columns list.
         if self.schema.primary_key != []:
-            primary_key = self.schema.primary_key if isinstance(self.schema.primary_key, list) else \
-                [self.schema.primary_key]
-            self._key_columns.append(self.schema.primary_key)
+            primary_key = self.schema.primary_key
+            if primary_key not in self._key_columns:
+                self._key_columns.append(self.schema.primary_key)
         elif self._key_columns:
             primary_key = self._key_columns[0]
         else:
@@ -267,17 +267,20 @@ class DerivaCSV(Table):
                 self.schema.descriptor['primaryKey'] = primary_key
             else:
                 raise DerivaCSVError(msg='Missing key column: {}'.format(primary_key))
+
         # Capture the key columns.
         for k in self._key_columns:
             # All columns good?
             if all(map(lambda x: x in self.schema.field_names, k)):
-                if len(k) == 1:
-                    # Tableschema is such that you have to update the contraint in the descriptor file, so we
-                    # find the correct field entry and then update it.
-                    idx = self.schema.field_names.index(k[0])
-                    self.schema.descriptor['fields'][idx].update({'constraints': {'required': True, 'unique': True}})
+                for col in k:
+                    idx = self.schema.field_names.index(col)
+                    if len(k) == 1:
+                        self.schema.descriptor['fields'][idx].update(
+                            {'constraints': {'required': True, 'unique': True}})
+                    else:
+                        self.schema.descriptor['fields'][idx].update({'constraints': {'required': True}})
             else:
-                raise DerivaCSVError('Cannot handle composite keys on table')
+                raise DerivaCSVError('Missing key column {}'.format(k))
         self.schema.commit(strict=True)
         return
 
