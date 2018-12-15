@@ -162,6 +162,16 @@ class TestDerivaCSV(TestCase):
         row_count, _ = self.table.upload_to_deriva(self.catalog)
         self.assertEqual(row_count, self.table_size)
 
+        pb = self.catalog.getPathBuilder()
+        target_table = pb.schemas[self.schema_name].tables[self.table.map_name(self.table_name)].alias('target_table')
+        e = target_table.entities()
+        edict = {i['Id']: i for i in e}
+        source = self.table.read(keyed=True)
+        i = 0
+        for k, v in source[i].items():
+            id = source[i]['id']
+            print(k, edict[id][self.table.map_name(k)], v)
+
     def test_upload_to_deriva_partial(self):
         self.table = DerivaCSV(self.tablefile, self.schema_name, key_columns='id', column_map=True)
         self._create_test_table()
@@ -228,8 +238,10 @@ class TestDerivaCSV(TestCase):
                 for i in range(self.table_size // 2):
                     tablewriter.writerow(next(tablereader))
 
-        self.table = DerivaCSV(self.tablefile, self.schema_name, column_map=True)
-        partial_table = DerivaCSV(pfile_name, self.schema_name, table_name=self.table_name, column_map=True)
+        self.table = DerivaCSV(self.tablefile, self.schema_name, table_name=self.table_name,
+                               row_number_as_key=True, column_map=True)
+        partial_table = DerivaCSV(pfile_name, self.schema_name, table_name=self.table_name,
+                                  row_number_as_key=True, column_map=True)
         self._create_test_table()
 
         # Upload first half...

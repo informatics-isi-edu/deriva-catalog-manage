@@ -532,6 +532,8 @@ class DerivaCSV(Table):
                             row[idx] = int(v)
                         if t == 'number':
                             row[idx] = float(v)
+                        if 'date' in t and v == '':
+                            row[idx] = None
                 yield (row_number, headers, row)
 
         with tabulator.Stream(self.source, headers=catalog_schema.headers, post_parse=[to_json],
