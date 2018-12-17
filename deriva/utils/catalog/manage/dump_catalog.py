@@ -15,6 +15,7 @@ from deriva.core import ErmrestCatalog, get_credential
 from deriva.core.ermrest_config import tag as chaise_tags
 from deriva.utils.catalog.manage.deriva_file_templates import table_file_template, schema_file_template, \
     catalog_file_template
+from deriva.utils.catalog.manage.graph_catalog import DerivaCatalogToGraph
 
 IS_PY2 = (sys.version_info[0] == 2)
 IS_PY3 = (sys.version_info[0] == 3)
@@ -327,6 +328,10 @@ def main():
     parser.add_argument('--config', default=None, help='python script to set up configuration variables)')
     parser.add_argument('--table', default=None, help='Only dump out the spec for the specified table.  Format is '
                                                       'schema_name:table_name')
+    parser.add_argument('--schema', default=None, help='Only dump out the spec for the specified schema.')
+    parser.add_argument('--graph', action='store_true', help='Dump graph of catalog')
+    parser.add_argument('--graphformat', choices=['pdf', 'dot','png','svg'],
+                        default='pdf', help='Format to use for graph dump')
     args = parser.parse_args()
 
     dumpdir = args.dir
@@ -350,25 +355,42 @@ def main():
     catalog = ErmrestCatalog('https', server, catalog_id, credentials=credential)
     model_root = catalog.getCatalogModel()
 
-    stringer = DerivaCatalogToString(catalog, variables=variables)
 
     if table is not None:
         if ':' not in table:
-            print('Table name must be in form of schema:table')
-            exit(1)
+            if args.schema is not None:
+                schema_name = args.schema
+                table_name = table
+            else:
+                print('Table name must be in form of schema:table')
+                exit(1)
+        else:
+            [schema_name, table_name] = table.split(":")
         print("Dumping out table def....")
-        [schema_name, table_name] = table.split(":")
+        stringer = DerivaCatalogToString(catalog, variables=variables)
         table_string = stringer.table_to_str(schema_name, table_name)
         with open(table_name + '.py', 'w') as f:
             print(table_string, file=f)
+    elif args.graph:
+        graph = DerivaCatalogToGraph(catalog)
+        if args.schema is not None:
+            graphfile = '{}/{}_{}.py'.format(dumpdir, args.schema_name)
+            graph.schema_to_graph(args.schema)
+        else:
+            graphfile = '{}/{}_{}'.format(dumpdir, server, catalog_id)
+            graph.catalog_to_graph()
+        graph.save(filename=graphfile, format=args.graphformat)
     else:
         print("Dumping catalog def....")
+        stringer = DerivaCatalogToString(catalog, variables=variables)
         catalog_string = stringer.catalog_to_str()
 
         with open('{}/{}_{}.py'.format(dumpdir, server, catalog_id), 'w') as f:
             print(catalog_string, file=f)
 
         for schema_name in model_root.schemas:
+            if args.schema is not None and schema_name != args.schema:
+                continue
             print("Dumping schema def for {}....".format(schema_name))
             schema_string = stringer.schema_to_str(schema_name)
 
