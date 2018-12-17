@@ -374,7 +374,7 @@ def main():
     elif args.graph:
         graph = DerivaCatalogToGraph(catalog)
         if args.schema is not None:
-            graphfile = '{}/{}_{}.py'.format(dumpdir, args.schema_name)
+            graphfile = '{}_{}.py'.format(args.schema_name)
             graph.schema_to_graph(args.schema)
         else:
             graphfile = '{}/{}_{}'.format(dumpdir, server, catalog_id)
