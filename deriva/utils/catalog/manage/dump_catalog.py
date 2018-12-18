@@ -1,6 +1,7 @@
 from __future__ import print_function
 
 import argparse
+import ast
 import importlib
 import os
 import re
@@ -321,6 +322,13 @@ class DerivaCatalogToString:
 
 
 def main():
+    def python_value(s):
+        try:
+            val = ast.literal_eval(s)
+        except ValueError:
+            val = s
+        return val
+
     parser = argparse.ArgumentParser(description='Dump definition for catalog {}:{}')
     parser.add_argument('server', help='Catalog server name')
     parser.add_argument('--catalog', default=1, help='ID number of desired catalog')
@@ -328,7 +336,9 @@ def main():
     parser.add_argument('--config', default=None, help='python script to set up configuration variables)')
     parser.add_argument('--table', default=None, help='Only dump out the spec for the specified table.  Format is '
                                                       'schema_name:table_name')
-    parser.add_argument('--schema', default=None, help='Only dump out the spec for the specified schema.')
+    parser.add_argument('--schemas', type=python_value, default=None, help='Only dump out the spec for the specified '
+                                                                          'schemas (value or list).')
+    parser.add_argument('--skipschemas', type=python_value, default=None, help='List of schema so skip over')
     parser.add_argument('--graph', action='store_true', help='Dump graph of catalog')
     parser.add_argument('--graphformat', choices=['pdf', 'dot','png','svg'],
                         default='pdf', help='Format to use for graph dump')
@@ -339,6 +349,12 @@ def main():
     catalog_id = args.catalog
     configfile = args.config
     table = args.table
+
+    schemas = args.schemas
+    schemas = [schemas] if schemas is not None and type(schemas) is str else schemas
+
+    skip_schemas = args.skipschemas
+    skip_schemas = [skip_schemas] if skip_schemas is not None and type(skip_schemas) is str else skip_schemas
 
     try:
         os.makedirs(dumpdir, exist_ok=True)
@@ -355,11 +371,16 @@ def main():
     catalog = ErmrestCatalog('https', server, catalog_id, credentials=credential)
     model_root = catalog.getCatalogModel()
 
+    print('Catalog has {} schema and {} tables'.format(len(model_root.schemas),
+                                                       sum([len(v.tables) for k, v in model_root.schemas.items()])))
+    for k,s in model_root.schemas.items():
+        print('    {} has {} tables'.format(k, len(s.tables)))
+
 
     if table is not None:
         if ':' not in table:
-            if args.schema is not None:
-                schema_name = args.schema
+            if args.schema is not None and len(schemas) == 1:
+                schema_name = schemas[0]
                 table_name = table
             else:
                 print('Table name must be in form of schema:table')
@@ -373,12 +394,8 @@ def main():
             print(table_string, file=f)
     elif args.graph:
         graph = DerivaCatalogToGraph(catalog)
-        if args.schema is not None:
-            graphfile = '{}_{}.py'.format(args.schema_name)
-            graph.schema_to_graph(args.schema)
-        else:
-            graphfile = '{}/{}_{}'.format(dumpdir, server, catalog_id)
-            graph.catalog_to_graph()
+        graphfile = '{}_{}'.format(server, catalog_id)
+        graph.catalog_to_graph(skip_schemas=skip_schemas, schemas=schemas, skip_terms=True, skip_assocation_tables=True)
         graph.save(filename=graphfile, format=args.graphformat)
     else:
         print("Dumping catalog def....")
@@ -389,7 +406,7 @@ def main():
             print(catalog_string, file=f)
 
         for schema_name in model_root.schemas:
-            if args.schema is not None and schema_name != args.schema:
+            if skip_schemas is not None and schema_name in skip_schemas:
                 continue
             print("Dumping schema def for {}....".format(schema_name))
             schema_string = stringer.schema_to_str(schema_name)

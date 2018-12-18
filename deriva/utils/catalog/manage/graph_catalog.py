@@ -53,6 +53,11 @@ class DerivaCatalogToGraph:
         return True
 
     def linked_tables(self, table):
+        """
+        Assuming the table is an pure binary association table, return the two table endpoints
+        :param table: ermrest table object for a table that is a pure binary association table.
+        :return: list of 2-tuples that are the schema and table for the two tables in the M:N relationship
+        """
         fk0 = (table.foreign_keys[0].referenced_columns[0]['schema_name'],
                table.foreign_keys[0].referenced_columns[0]['table_name'])
         fk1 = (table.foreign_keys[1].referenced_columns[0]['schema_name'],
@@ -60,6 +65,11 @@ class DerivaCatalogToGraph:
         return [fk0, fk1]
 
     def is_term_table(self, table):
+        """
+        Test to see if a table is a deriva vocabulary table.
+        :param table:
+        :return: True or False.
+        """
         try:
             result = table.column_definitions['id'] and \
                      table.column_definitions['uri'] and \
@@ -68,17 +78,38 @@ class DerivaCatalogToGraph:
             result = False
         return result
 
-    def catalog_to_graph(self, skip_terms=False, skip_assocation_tables=False):
-        for schema in self.model.schemas:
-            if schema == '_acl_admin':
-                continue
-            if schema == 'public':
-                continue
-            self.schema_to_graph(schema, skip_terms=skip_terms, skip_assocation_tables=skip_assocation_tables)
+    def catalog_to_graph(self, skip_schemas=None, schemas=None, skip_terms=False, skip_assocation_tables=False):
+        """
+        Convert a catalog to a DOT based graph.
+        :param skip_schemas: List of schemas that should not be included in the grap
+        :param schemas:  List of schemas that should be included.  Use whole catalog if None.
+        :param skip_terms: Do not include term tables in the graph
+        :param skip_assocation_tables: Collapse association tables so that only edges between endpoints are used
+        :return:
+        """
+        skip_schemas = ['_acl_admin', 'public'] + ([] if skip_schemas is None else skip_schemas)
+        schemas = self.model.schemas if schemas is None else schemas
 
-    def schema_to_graph(self, schema_name, skip_terms=False, skip_assocation_tables=False):
+        for schema in schemas:
+            if schema in skip_schemas:
+                print('Skipping schema {}'.format(schema))
+                continue
+            self.schema_to_graph(schema, skip_terms=skip_terms, skip_schemas=skip_schemas,
+                                 skip_assocation_tables=skip_assocation_tables)
+
+    def schema_to_graph(self, schema_name, skip_schemas=None, skip_terms=False, skip_assocation_tables=False):
+        """
+        Create a graph for the specified schema.
+        :param schema_name: Name of the schema in the model to be used.
+        :param skip_schemas:
+        :param skip_terms:
+        :param skip_assocation_tables:
+        :return:
+        """
         schema = self.model.schemas[schema_name]
-        with self.graph.subgraph(name='non_cluster_' + schema_name, node_attr={'shape': 'box'}) as schema_graph:
+
+        # Put nodes for each schema in a seperate subgraph.
+        with self.graph.subgraph(name=schema_name, node_attr={'shape': 'box'}) as schema_graph:
             for table_name in schema.tables:
                 node_name = '{}_{}'.format(schema_name, table_name)
 
@@ -86,17 +117,31 @@ class DerivaCatalogToGraph:
                     if not skip_terms:
                         schema_graph.node(node_name, label='{}:{}'.format(schema_name, table_name), shape='ellipse')
                 else:
-                    # Skip over providing node if this is a association table and option is set.
+                    # Skip over current table if it is a association table and option is set.
                     if not (self.is_pure_binary(schema.tables[table_name]) and skip_assocation_tables):
                         schema_graph.node(node_name, label='{}:{}'.format(schema_name, table_name), shape='box')
                     else:
                         print('Skipping node', node_name)
-            for table_name in schema.tables:
-                self.foreign_key_defs_to_graph(schema.tables[table_name],
-                                               skip_terms=skip_terms, skip_association_tables=skip_assocation_tables)
+
+        # We have all the nodes out now, so run over and add edges.
+        for table_name in schema.tables:
+            self.foreign_key_defs_to_graph(schema.tables[table_name],
+                                           skip_terms=skip_terms,
+                                           skip_schemas=skip_schemas,
+                                           skip_association_tables=skip_assocation_tables)
         return
 
-    def foreign_key_defs_to_graph(self, table, skip_terms=False, skip_association_tables=False):
+    def foreign_key_defs_to_graph(self, table, skip_terms=False, skip_association_tables=False, skip_schemas=False):
+        """
+        Add edges for each foreign key relationship in the specified table.
+        :param table:
+        :param skip_terms:
+        :param skip_association_tables:
+        :param skip_schemas:
+        :return:
+        """
+
+        # If table is an association table, put in a edge between the two endpoints in the relation.
         if self.is_pure_binary(table) and skip_association_tables:
             [t1, t2] = self.linked_tables(table)
             t1_name = '{}_{}'.format(*t1)
@@ -107,10 +152,15 @@ class DerivaCatalogToGraph:
                 target_schema = fkey.referenced_columns[0]['schema_name']
                 target_table = fkey.referenced_columns[0]['table_name']
                 table_name = '{}_{}'.format(target_schema, target_table)
-                if (table_name == 'public_ermrest_client') or ('_acl_admin' in table_name):
+
+                # If the target is a schema we are skipping, do not add an edge.
+                if skip_schemas is not None and (target_schema in skip_schemas or table.sname in skip_schemas):
                     continue
+                # If the target is a term table, and we are not including terms, do not add an edge.
                 if self.is_term_table(self.model.schemas[target_schema].tables[target_table]) and skip_terms:
                     continue
+
+                # Add an edge from the current node to the target table.
                 self.graph.edge('{}_{}'.format(table.sname, table.name), table_name)
         return
 
