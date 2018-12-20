@@ -252,7 +252,7 @@ class DerivaCSV(Table):
         """
         # Set the primary key value.  Use primary_key if there is one in the schema.  Otherwise, use the first
         # key in the key_columns list.
-        if self.schema.primary_key != []:
+        if self.schema.primary_key:
             primary_key = self.schema.primary_key
             if primary_key not in self._key_columns:
                 self._key_columns.append(self.schema.primary_key)
@@ -454,14 +454,14 @@ class DerivaCSV(Table):
 
             if not col.nullok:
                 field['constraints']['required'] = True
-
-            # See if there is a primary key value aside from the RID column
-            if field['constraints'].get('unique', False) and field['constraints'].get('required', False):
-                primary_key = [col.name]
             fields.append(field)
 
-        if self.row_number_as_key:
-            primary_key = ['Upload_Id', 'Row_Number']
+        # Now look for a key column that is not the RID
+        for i in table.keys:
+            if i.unique_columns == ['RID']:
+                continue
+            primary_key = i.unique_columns
+            break
 
         try:
             descriptor = {'fields': fields, 'missingValues': ['', 'N/A', 'NULL']}
@@ -538,26 +538,28 @@ class DerivaCSV(Table):
         row_index = 0
 
         # Read in the source table and sort based on the primary key value.
-        if (catalog_schema.primary_key and len(catalog_schema.primary_key) == 1) or self.row_number_as_key:
-            # Get the name of the primary key column in the catalog by getting the field number and then looking it up.
+        if catalog_schema.primary_key:
+            #  Sort the rows based on the primary key.
+            rows.sort(key=lambda x: [x[i] for i in catalog_schema.primary_key])
+
+            # determine current position in (partial?) copy
+            # Key can be compound, so we meed to create the column sorting descriptor.
             if self.row_number_as_key:
                 target_table.filter(target_table.Upload_Id == upload_id)
-                key_column_index = 'Row_Number'
-            else:
-                key_column_index = [i for i in self.schema.field_names].index(self.schema.primary_key[0])
-                key_column_index = catalog_schema.headers[key_column_index]
-                rows.sort(key=lambda x: x[key_column_index])
-            # determine current position in (partial?) copy
-            # Use the upload_id field to seperate out different uploads.
-            e = list(target_table.entities().fetch(limit=1,
-                                                   sort=[target_table.column_definitions[key_column_index].desc]))
+
+            sort = [target_table.column_definitions[i].desc for i in catalog_schema.primary_key]
+            e = list(target_table.entities().fetch(limit=1, sort=sort))
             if len(e) == 1:
                 # Part of this table has already been uploaded, so we want to find out how far we got and start from
                 # there
-                max_value = e[0][key_column_index]
+                max_value = [e[0][i] for i in catalog_schema.primary_key]
                 # Now convert this to an location in the table
-                row_index = next(i for i, v in enumerate(rows) if v[key_column_index] == max_value) + 1
-                print('Resuming upload at row count ', row_index)
+                row_index = next(i for i, v in enumerate(rows)
+                                 if [v[i] for i in catalog_schema.primary_key] == max_value) + 1
+                if row_index == len(rows):
+                    print('Previous upload completed')
+                else:
+                    print('Resuming upload at row count ', row_index)
         else:
             # We don't have a key, or the key is composite, so in this case we just have to hope for the best....
             chunk_size = len(rows)
@@ -577,6 +579,7 @@ class DerivaCSV(Table):
                 row_count += len(chunk)
             else:
                 break
+
         return row_count, upload_id
 
     def convert_to_deriva(self, outfile=None, schemafile=None):
@@ -734,7 +737,8 @@ def main():
     parser.add_argument('--schemafile', nargs='?', const=True, default=None,
                         help='If this argument is used without and arguement, then a schema file is output.'
                              'If an argument is provided, then that schema file is used for the table.')
-    parser.add_argument('--chunksize', default=10000, help='Number of rows to use in chunked upload [Default:10000]')
+    parser.add_argument('--chunksize', default=10000, type=int,
+                        help='Number of rows to use in chunked upload [Default:10000]')
     parser.add_argument('--validate', action='store_true',
                         help='Validate the table before uploading [Default:False]')
     parser.add_argument('--create', dest='create_table', action='store_true',
@@ -770,6 +774,9 @@ if __name__ == "__main__":
         main()
     except DerivaCSVError as err:
         print(err.msg)
+        exit(1)
+    except HTTPError as err:
+        print(err)
         exit(1)
     except ValueError as err:
         print(err)

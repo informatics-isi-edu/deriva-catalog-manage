@@ -156,7 +156,6 @@ class TestDerivaCSV(TestCase):
         target_table = model.schemas[self.schema_name].tables[self.table.map_name(self.table_name)]
 
         catalog_keys = [ sorted(i.unique_columns) for i in target_table.keys]
-        print('catalog keys', catalog_keys)
 
         # Check to make sure that each kiy is set for no nulls...
         for k in self.table._key_columns:
@@ -182,6 +181,19 @@ class TestDerivaCSV(TestCase):
                          [i['name'] for i in tableschema.descriptor['fields']])
         self.assertEqual([i['type'] for i in self.table.schema.descriptor['fields']],
                          [i['type'] for i in tableschema.descriptor['fields']])
+
+    def test_table_schema_from_catalog_compound(self):
+        self.table = DerivaCSV(self.tablefile, self.schema_name, key_columns=[['id','field 1']], column_map=True)
+        self._create_test_table()
+
+        tableschema = self.table.table_schema_from_catalog(self.catalog)
+
+        self.assertEqual([self.table.map_name(i['name']) for i in self.table.schema.descriptor['fields']],
+                         [i['name'] for i in tableschema.descriptor['fields']])
+        self.assertEqual([i['type'] for i in self.table.schema.descriptor['fields']],
+                         [i['type'] for i in tableschema.descriptor['fields']])
+        print(tableschema.primary_key)
+        self.assertEqual(tableschema.primary_key, ['Id', 'Field_1'])
 
     def test_validate(self):
         self.table = DerivaCSV(self.tablefile, self.schema_name, key_columns='id', column_map=True)
