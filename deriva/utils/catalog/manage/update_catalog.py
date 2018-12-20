@@ -137,7 +137,10 @@ class CatalogUpdater:
                     print('Creating column {}'.format(i['name']))
                     table.create_column(self._catalog, i)
                 except HTTPError as e:
-                    print("Skipping: column key {} {}: \n{}".format(i['names'], i, e.args))
+                    if 'already exists' in e.args:
+                        print("Skipping existing column {}".format(i['names']))
+                    else:
+                        print("Skipping: column key {} {}: \n{}".format(i['names'], i, e.args))
         if mode == 'fkeys':
             if replace:
                 print('deleting foreign_keys')
@@ -148,7 +151,11 @@ class CatalogUpdater:
                     table.create_fkey(self._catalog, i)
                     print('Created foreign key {} {}'.format(i['names'], i))
                 except HTTPError as e:
-                    print("Skipping: foreign key {} {}: \n{}".format(i['names'], i, e.args))
+                    if 'already exists' in e.args:
+                        print("Skipping existing foreign key {}".format(i['names']))
+                    else:
+                        print("Skipping: foreign key {} {}: \n{}".format(i['names'], i, e.args))
+
         if mode == 'keys':
             if replace:
                 print('Deleting keys')

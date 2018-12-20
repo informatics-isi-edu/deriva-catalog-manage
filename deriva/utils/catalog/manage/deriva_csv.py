@@ -717,8 +717,10 @@ def main():
     parser.add_argument('schema', help='Name of the schema to be used for table')
     parser.add_argument('--catalog', default=1, help='ID number of desired catalog (Default:1)')
     parser.add_argument('--table', default=None, help='Name of table to be managed (Default:tabledata filename)')
-    parser.add_argument('--key_columns', default=[],
-                        help='List of columns to be used as key when creating table schema.')
+    parser.add_argument('--key_columns', type=python_value, default=[],
+                        help='List of columns to be used as key when creating table schema. Can be either:'
+                             '1) just the name of the column to be used as a key or a list of the columns to be '
+                             'used as keys. Compound keys can be expressed by using list of columns.')
     parser.add_argument('--row_number_as_key', action='store_true', help='Use the row number in the CSV as a unique key'
                                                                          'in conjunction with the upload_id')
     parser.add_argument('--upload_id', default=None, help='Restart the upload')
@@ -742,7 +744,7 @@ def main():
     parser.add_argument('--chunk_size', default=10000, help='Number of rows to use in chunked upload [Default:10000]')
     parser.add_argument('--validate', action='store_true',
                         help='Validate the table before uploading [Default:False]')
-    parser.add_argument('--create_table', action='store_true',
+    parser.add_argument('--create', dest='create_table', action='store_true',
                         help='Automatically create catalog table based on column type inference [Default:False]')
     parser.add_argument('--upload', action='store_true', help='Load data into catalog [Default:False]')
     parser.add_argument('--config', default=None, help='python script to set up configuration variables)')
@@ -757,6 +759,7 @@ def main():
     credential = get_credential(args.server)
     catalog = ErmrestCatalog('https', args.server, args.catalog, credentials=credential)
 
+    print('key_columns', args.key_columns)
     table = DerivaCSV(args.tabledata, args.schema,
                       table_name=args.table, column_map=args.column_map,
                       key_columns=args.key_columns, row_number_as_key=args.row_number_as_key,
