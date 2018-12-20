@@ -157,6 +157,8 @@ class TestDerivaCSV(TestCase):
 
         catalog_keys = [ sorted(i.unique_columns) for i in target_table.keys]
         print('catalog keys', catalog_keys)
+
+        # Check to make sure that each kiy is set for no nulls...
         for k in self.table._key_columns:
             for col in k:
                 self.assertEqual(target_table.column_definitions[self.table.map_name(col)].nullok, False,
@@ -164,6 +166,10 @@ class TestDerivaCSV(TestCase):
             n = [self.table.map_name(i) for i in k]
             n.sort()
             self.assertEqual(n in catalog_keys,True, msg = 'Key missing {}'.format(k))
+        # Now check to make sure the key constraints made it....
+        for k in target_table.keys:
+            print(k.unique_columns)
+
         return
 
     def test_table_schema_from_catalog(self):

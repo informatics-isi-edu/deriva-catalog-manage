@@ -759,7 +759,6 @@ def main():
     credential = get_credential(args.server)
     catalog = ErmrestCatalog('https', args.server, args.catalog, credentials=credential)
 
-    print('key_columns', args.key_columns)
     table = DerivaCSV(args.tabledata, args.schema,
                       table_name=args.table, column_map=args.column_map,
                       key_columns=args.key_columns, row_number_as_key=args.row_number_as_key,
