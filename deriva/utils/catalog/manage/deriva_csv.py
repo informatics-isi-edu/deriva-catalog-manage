@@ -204,7 +204,7 @@ class DerivaCSV(Table):
         self.row_count = None
         self.validation_report = None
         self.row_number_as_key = row_number_as_key if self._key_columns is None else False
-
+        print('row number as key', row_number_as_key, self.row_number_as_key)
         # Normalize the column map so we only have a dictionary.
         if self._column_map:
             if isinstance(self._column_map, list):
@@ -328,11 +328,11 @@ class DerivaCSV(Table):
 
         return next_type
 
-    def infer(self, limit=1000, confidence=.75):
+    def infer(self, limit=None, confidence=.75):
         """
         Infer the current type by looking at the values in the table
          """
-        # Do initial infer to set up headers and schema.
+        # Do initial infer tqo set up headers and schema.
         Table.infer(self)
 
         rows = self.read(cast=False)
@@ -344,7 +344,9 @@ class DerivaCSV(Table):
             fields.append({'name': header})
 
         rindex = 0
-        for rindex, row in enumerate(rows[:limit]):
+        for rindex, row in enumerate(rows):
+            if limit is not None and rindex == limit:
+                break
             # build a column-wise lookup of type matches
             for cindex, value in enumerate(row):
                 typeid = self.__get_type(value, type_matches.get(cindex, None))
@@ -713,7 +715,7 @@ def main():
     parser.add_argument('schema', help='Name of the schema to be used for table')
     parser.add_argument('--catalog', default=1, help='ID number of desired catalog (Default:1)')
     parser.add_argument('--table', default=None, help='Name of table to be managed (Default:tabledata filename)')
-    parser.add_argument('--key_columns', type=python_value, default=[],
+    parser.add_argument('--key_columns', type=python_value, default=None,
                         help='List of columns to be used as key when creating table schema. Can be either:'
                              '1) just the name of the column to be used as a key or a list of the columns to be '
                              'used as keys. Compound keys can be expressed by using list of columns.')
