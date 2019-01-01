@@ -79,25 +79,3 @@ def create_new_catalog(scheme, server, **kwargs):
     catalog = derivaserver.create_ermrest_catalog()
     catalog_id = catalog.get_server_uri().split('/')[-1]
     return catalog_id
-
-
-table_schema_ermrest_type_map = {
-    'string:default': 'text',
-    'string:email': 'text',
-    'string:uri': 'ermrest_uri',
-    'string:binary': 'text',
-    'string:uuid': 'text',
-    'number:default': 'float8',
-    'integer:default': 'int4',
-    'boolean:default': 'boolean',
-    'object:default': 'json',
-    'array:default': 'json[]',
-    'date:default': 'date',
-    'date:any': 'date',
-    'time:default': 'timestampz',
-    'time:any': 'timestampz',
-    'datetime:default': 'date',
-    'datetime:any': 'date',
-    'year:default': 'date',
-    'yearmonth:default': 'date'
-}

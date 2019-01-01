@@ -43,7 +43,6 @@ table_schema_type_map = {
     'timestamptz': ('datetime', 'default'),
     'timestamp[]': ('any', 'default'),
     'jsonb[]': ('array', 'default'),
-    'float4[]': ('any', 'default'),
     'int4[]': ('integer', 'default'),
     'int8[]': ('integer', "default"),
     'float8[]': ('number', 'default'),
@@ -204,7 +203,7 @@ class DerivaCSV(Table):
         self.row_count = None
         self.validation_report = None
         self.row_number_as_key = row_number_as_key if self._key_columns is None else False
-        print('row number as key', row_number_as_key, self.row_number_as_key)
+
         # Normalize the column map so we only have a dictionary.
         if self._column_map:
             if isinstance(self._column_map, list):
