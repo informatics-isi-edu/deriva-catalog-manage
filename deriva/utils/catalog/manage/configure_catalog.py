@@ -1,7 +1,9 @@
 from attrdict import AttrDict
+import argparse
 
 import deriva.core.ermrest_model as em
 from deriva.core.ermrest_config import tag as chaise_tags
+from deriva.core import ErmrestCatalog, get_credential
 
 from config import groups
 
@@ -21,13 +23,14 @@ self_service_policy = {
 }
 
 
-def configure_ermrest_client(catalog):
+def configure_ermrest_client(catalog, model):
     """
     Set up ermrest_client table so that it has readable names and uses the full name of the user as the row name.
     :param catalog: Ermrest catalog
     :return:
     """
-    ermrest_client = catalog.getCatalogModel().schemas['public'].tables['ermrest_client']
+
+    ermrest_client = model.schemas['public'].tables['ermrest_client']
 
     column_annotations = {
         'RCT': {chaise_tags.display: {'name': 'Creation Time'}},
@@ -56,7 +59,7 @@ def configure_ermrest_client(catalog):
 
 def configure_baseline_catalog(catalog, set_policy=True):
     """
-    Set catalog into standard configuration which includes:
+    Put catalog into standard configuration which includes:
     1) Setting default display mode to be to turn underscores to spaces.
     2) Set access control assuming admin, curator, writer, and reader groups.
     3) Configure ermrest_client to have readable names.
@@ -65,6 +68,7 @@ def configure_baseline_catalog(catalog, set_policy=True):
     :param set_policy: Set policy for catalog to support reader/writer/curator/admin groups.
     :return:
     """
+
     model = catalog.getCatalogModel()
 
     # Set up default name style for all schemas.
@@ -82,7 +86,7 @@ def configure_baseline_catalog(catalog, set_policy=True):
             "enumerate": ["*"],
         })
 
-    configure_ermrest_client(catalog)
+    configure_ermrest_client(catalog, model)
     model.apply(catalog)
 
     return
@@ -157,9 +161,9 @@ def asset_map(schema_name, table_name, key_column):
 
     :param schema_name:
     :param table_name:
-    :param hatrac_url:
     :return:
     """
+    asset_table_name = '{}_Assets'.format(table_name)
     asset_mappings = [
         {
             'default_columns': ['RID', 'RCB', 'RMB', 'RCT', 'RMT'],
@@ -170,15 +174,15 @@ def asset_map(schema_name, table_name, key_column):
         {
             'checksum_types': ['md5'],
             'record_query_template':
-                '/entity/{target_table}/Local_Id={local_id}/MD5={md5}/URL={URI_urlencoded}',
-            'hatrac_templates': {'hatrac_uri': '/hatrac/commons/data/{asset_type}/{file_name}'},
+                '/entity/{target_table}/%s={local_id}/MD5={md5}/URL={URI_urlencoded}' % key_column,
+            'hatrac_templates': {'hatrac_uri': '/hatrac/%s/{rid}/{file_name}' % asset_table_name},
             'create_record_before_upload': 'False',
             'ext_pattern': '.*$',
             'file_pattern': '.*',
-            'target_table': [schema_name, table_name],
+            'target_table': [schema_name, asset_table_name],
             'hatrac_options': {'versioned_uris': 'True'},
             'metadata_query_templates': [
-                '/attribute/D:={%s}:{%s}/rid:=D:RID, local_id:=D:{%s}' % (schema_name, table_name, key_column),
+                '/attribute/D:=%s:%s/rid:=D:RID, local_id:=D:%s' % (schema_name, table_name, key_column),
             ],
             'dir_pattern': '^.*/(?P<local_id>[0-9A-Z-]+)/)',
             'column_map': {
@@ -194,12 +198,13 @@ def asset_map(schema_name, table_name, key_column):
     return asset_mappings
 
 
-def create_asset_table(catalog, table):
+def create_asset_table(catalog, table, local_id, set_policy=True):
     """
     Create a basic asset table and configure upload script to load the table along with a table of associated
     metadata.
     :param catalog:
     :param table: Table to contain the asset metadata.  Asset will have a foreign key to this table.
+    :param local_id: The column in the metadata table to be used to correlate assets with entries
     :return:
     """
     table_name = table.name
@@ -212,14 +217,13 @@ def create_asset_table(catalog, table):
             chaise_tags.asset: {
                 'filename_column': 'Filename',
                 'byte_count_column': 'Length',
-                'url_pattern':
-                    '/hatrac/commons/data/{{{%s}}}/{{#encode}}{{{Filename}}}{{/encode}}' % table_name,
+                'url_pattern': '/hatrac/%s/{{{%s_RID}}}/{{{_URL.filename}}}' % (asset_table_name, table_name),
                 'md5': 'MD5'
             },
             chaise_tags.column_display: {'*': {'markdown_pattern': '[**{{Filename}}**]({{{URL}}})'}}
         },
         'Filename': {
-            chaise_tags.column_display: {'*': {'markdown_pattern': '[**{{filename}}**]({{{URL}}})'}}
+            chaise_tags.column_display: {'*': {'markdown_pattern': '[**{{Filename}}**]({{{URL}}})'}}
         }
     }
 
@@ -241,10 +245,26 @@ def create_asset_table(catalog, table):
     key_defs = [em.Key.define(['Filename'],
                               constraint_names=[(schema_name, '{}_Filename_key'.format(asset_table_name))],
                               comment='Key constraint to ensure file names in the table are unique')]
+    if set_policy:
+        fkey_acls = {
+            "insert": [groups.curator],
+            "update": [groups.curator],
+        }
+
+        fkey_acl_bindings = {
+            "self_linkage": {
+                "types": ["insert", "update"],
+                "projection": ["RCB"],
+                "projection_type": "acl",
+            }
+        }
+    else:
+        fkey_acls, fkey_acl_bindings = {}, {}
 
     fkey_defs = [
         em.ForeignKey.define(['{}_RID'.format(table_name)],
                              schema_name, table_name, ['RID'],
+                             acls=fkey_acls, acl_bindings=fkey_acl_bindings,
                              constraint_names=[(schema_name, '()_{}_fkey'.format(asset_table_name, table_name))],
                              )
     ]
@@ -259,11 +279,48 @@ def create_asset_table(catalog, table):
     configure_table_defaults(catalog, asset_table)
 
     # The last thing we should do is update the upload spec to accomidate this new asset table.
-    if chaise_tags.builk_uploads not in model.annotations:
+    if chaise_tags.bulk_upload not in model.annotations:
         model.annotations.update({
-            'asset_mappings': [],
-            'version_update_url': 'https://github.com/informatics-isi-edu/deriva-qt/releases',
-            'version_compatibility': [['>=0.4.3', '<1.0.0']]
-        } )
-    model.annotations[chaise_tags.bulk_upload]['asset_mappings'].append(asset_mappings)
+            chaise_tags.bulk_upload: {
+                'asset_mappings': [],
+                'version_update_url': 'https://github.com/informatics-isi-edu/deriva-qt/releases',
+                'version_compatibility': [['>=0.4.3', '<1.0.0']]
+            }
+        }
+        )
+    model.annotations[chaise_tags.bulk_upload]['asset_mappings'].append(asset_map(schema_name, table_name, local_id))
+    model.apply(catalog)
     return asset_table
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Configure an Ermrest Catalog")
+    parser.add_argument('server', help='Catalog server name')
+    parser.add_argument('schema', help='Name of the schema to be used for table')
+    parser.add_argument('--catalog_id', default=1, help='ID number of desired catalog (Default:1)')
+
+    parser.add_argument('--table', default=None, help='Name of table to be managed (Default:tabledata filename)')
+
+    parser.add_argument('--asset', action='store_true',
+                        help='Automatically create catalog table based on column type inference [Default:False]')
+    parser.add_argument('--upload', action='store_true', help='Load data into catalog [Default:False]')
+    parser.add_argument('--config', default=None, help='python script to set up configuration variables)')
+
+    parser.add_argument('Add asset table')
+
+    args = parser.parse_args()
+
+    credentials = get_credential(args.server)
+    catalog = ErmrestCatalog('https', args.server, args.catalog_id, credentials=credentials)
+
+    if args.asset:
+    pass
+
+    if args.catalog:
+        configure_baseline_catalog(catalog)
+    if args.table:
+        configure_table_defaults(catalog, args.table)
+
+
+if __name__ == "__main__":
+    main()

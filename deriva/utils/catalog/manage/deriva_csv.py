@@ -665,8 +665,7 @@ class DerivaCSV(Table):
                         print(i)
             except exceptions.CastError as e:
                 print('Error: ', e.errors)
-                exit(1)
-            return 0, 1, report
+                return report
 
         if upload:
             print('Loading table data {}:{}'.format(self.schema_name, self.table_name))
@@ -712,7 +711,7 @@ def main():
     parser.add_argument('tabledata', help='Location of tablelike data to be added to catalog')
     parser.add_argument('server', help='Catalog server name')
     parser.add_argument('schema', help='Name of the schema to be used for table')
-    parser.add_argument('--catalog', default=1, help='ID number of desired catalog (Default:1)')
+    parser.add_argument('--catalog_id', default=1, help='ID number of desired catalog (Default:1)')
     parser.add_argument('--table', default=None, help='Name of table to be managed (Default:tabledata filename)')
     parser.add_argument('--key_columns', type=python_value, default=None,
                         help='List of columns to be used as key when creating table schema. Can be either:'
@@ -755,7 +754,7 @@ def main():
             args.derivafile = None
 
     credential = get_credential(args.server)
-    catalog = ErmrestCatalog('https', args.server, args.catalog, credentials=credential)
+    catalog = ErmrestCatalog('https', args.server, args.catalog_id, credentials=credential)
 
     table = DerivaCSV(args.tabledata, args.schema,
                       table_name=args.table, column_map=args.column_map,

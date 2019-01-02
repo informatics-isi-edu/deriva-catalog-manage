@@ -15,8 +15,12 @@ def parse_args(server, catalog_id, is_table=False, is_catalog=False):
         modes = ['table', 'annotations', 'acls', 'comments', 'keys', 'fkeys', 'columns']
     elif is_catalog:
         modes = ['annotations', 'acls']
+        parser.add_argument('--recurse', action='store_true',
+                            help='Update all schema and tables in the catalog.')
     else:
         modes = ['schema', 'annotations', 'acls', 'comments']
+        parser.add_argument('--recurse', action='store_true',
+                            help='Update all tables in the schema.')
 
     parser.add_argument('mode', choices=modes,
                         help='Model element to be updated.')
