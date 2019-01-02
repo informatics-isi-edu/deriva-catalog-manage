@@ -22,10 +22,23 @@ self_service_policy = {
     }
 }
 
+fkey_self_service_policy = {
+    "self_linkage_creator": {
+        "types": ["insert", "update"],
+        "projection": ["RCB"],
+        "projection_type": "acl",
+    },
+    "self_linkage_owner": {
+        "types": ["insert", "update"],
+        "projection": ["Owner"],
+        "projection_type": "acl",
+    }
+}
 
-def configure_ermrest_client(catalog, model):
+
+def configure_ermrest_client(catalog, model, ):
     """
-    Set up ermrest_client table so that it has readable names and uses the full name of the user as the row name.
+    Set up ermrest_client table so that it has readable names and uses the display name of the user as the row name.
     :param catalog: Ermrest catalog
     :return:
     """
@@ -47,7 +60,7 @@ def configure_ermrest_client(catalog, model):
     ermrest_client.annotations.update({
         chaise_tags.display: {'name': 'Users'},
         chaise_tags.visible_columns: {'compact': ['id', 'full_name', 'email']},
-        chaise_tags.table_display: {'row_name': {'row_markdown_pattern': '{{{full_name}}}'}}
+        chaise_tags.table_display: {'row_name': {'row_markdown_pattern': '{{{display_name}}}'}}
     })
 
     for k, v in column_annotations.items():
@@ -120,8 +133,9 @@ def configure_table_defaults(catalog, table, self_serve_policy=True):
        individual.
     2) Adds display annotations and foreign key declarations so that system columns RCB, RMB display in a user friendly
        way.
-    :param catalog:
-    :param table:
+    :param catalog: ERMRest catalog
+    :param table: ERMRest table object which is to be configured.
+    :param self_serv_policy: If true, then configure the table to have a self service policy
     :return:
     """
 
@@ -163,7 +177,7 @@ def asset_map(schema_name, table_name, key_column):
     :param table_name:
     :return:
     """
-    asset_table_name = '{}_Assets'.format(table_name)
+    asset_table_name = '{}_Asset'.format(table_name)
     asset_mappings = [
         {
             'default_columns': ['RID', 'RCB', 'RMB', 'RCT', 'RMT'],
@@ -173,51 +187,55 @@ def asset_map(schema_name, table_name, key_column):
         },
         {
             'checksum_types': ['md5'],
-            'record_query_template':
-                '/entity/{target_table}/%s={local_id}/MD5={md5}/URL={URI_urlencoded}' % key_column,
-            'hatrac_templates': {'hatrac_uri': '/hatrac/%s/{rid}/{file_name}' % asset_table_name},
+            'column_map': {
+                'URL': '{URI}',
+                'Length': '{file_size}',
+                table_name + '_RID': '{table_rid}',
+                'Filename': '{file_name}',
+                'MD5': '{md5}',
+                key_column: '{key_column}'
+            },
             'create_record_before_upload': 'False',
+            'dir_pattern': '^.*/(?P<schema_name>.*)/(?P<table_name>.*)/(?P<key_column>[0-9A-Z-]+)/)',
             'ext_pattern': '.*$',
             'file_pattern': '.*',
+            'hatrac_templates': {'hatrac_uri':
+                                     '/hatrac/{schema_name}/{table_name}_Asset/{table_rid}/{file_name}'
+                                 },
+            # Look for rows in the metadata table with matching key column values.
+            'metadata_query_templates': [
+                '/attribute/D:={schema_name}:{table_name}/%s={key_column}/table_rid:=D:RID' % key_column],
+            'record_query_template':
+                '/entity/{target_table}/{table_name}_RID={table_rid}/MD5={md5}/URL={URI_urlencoded}',
             'target_table': [schema_name, asset_table_name],
             'hatrac_options': {'versioned_uris': 'True'},
-            'metadata_query_templates': [
-                '/attribute/D:=%s:%s/rid:=D:RID, local_id:=D:%s' % (schema_name, table_name, key_column),
-            ],
-            'dir_pattern': '^.*/(?P<local_id>[0-9A-Z-]+)/)',
-            'column_map': {
-                'url': '{URI}',
-                'byte_count': '{file_size}',
-                table_name: '{table_rid}',
-                'filename': '{file_name}',
-                'md5': '{md5}'
-                #             }
-            }
         }
     ]
     return asset_mappings
 
 
-def create_asset_table(catalog, table, local_id, set_policy=True):
+def create_asset_table(catalog, table, key_column, set_policy=True):
     """
     Create a basic asset table and configure upload script to load the table along with a table of associated
     metadata.
     :param catalog:
     :param table: Table to contain the asset metadata.  Asset will have a foreign key to this table.
-    :param local_id: The column in the metadata table to be used to correlate assets with entries
+    :param key_column: The column in the metadata table to be used to correlate assets with entries. Assets will be
+    named using the key column.
     :return:
     """
     table_name = table.name
     schema_name = table.sname
     model = catalog.getCatalogModel()
-    asset_table_name = '{}_Assets'.format(table_name)
+    asset_table_name = '{}_Asset'.format(table_name)
 
     column_annotations = {
         'URL': {
             chaise_tags.asset: {
                 'filename_column': 'Filename',
                 'byte_count_column': 'Length',
-                'url_pattern': '/hatrac/%s/{{{%s_RID}}}/{{{_URL.filename}}}' % (asset_table_name, table_name),
+                'url_pattern': '/hatrac/%s/%s/{{{%s_RID}}}/{{{_URL.filename}}}' %
+                               (schema_name, asset_table_name, table_name),
                 'md5': 'MD5'
             },
             chaise_tags.column_display: {'*': {'markdown_pattern': '[**{{Filename}}**]({{{URL}}})'}}
@@ -250,14 +268,7 @@ def create_asset_table(catalog, table, local_id, set_policy=True):
             "insert": [groups.curator],
             "update": [groups.curator],
         }
-
-        fkey_acl_bindings = {
-            "self_linkage": {
-                "types": ["insert", "update"],
-                "projection": ["RCB"],
-                "projection_type": "acl",
-            }
-        }
+        fkey_acl_bindings = fkey_self_service_policy
     else:
         fkey_acls, fkey_acl_bindings = {}, {}
 
@@ -288,7 +299,8 @@ def create_asset_table(catalog, table, local_id, set_policy=True):
             }
         }
         )
-    model.annotations[chaise_tags.bulk_upload]['asset_mappings'].append(asset_map(schema_name, table_name, local_id))
+    model.annotations[chaise_tags.bulk_upload]['asset_mappings'].extend(asset_map(schema_name, table_name, key_column))
+    print(model.annotations)
     model.apply(catalog)
     return asset_table
 
@@ -314,7 +326,7 @@ def main():
     catalog = ErmrestCatalog('https', args.server, args.catalog_id, credentials=credentials)
 
     if args.asset:
-    pass
+        pass
 
     if args.catalog:
         configure_baseline_catalog(catalog)
