@@ -79,3 +79,4 @@ def create_new_catalog(scheme, server, **kwargs):
     catalog = derivaserver.create_ermrest_catalog()
     catalog_id = catalog.get_server_uri().split('/')[-1]
     return catalog_id
+

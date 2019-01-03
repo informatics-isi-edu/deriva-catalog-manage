@@ -35,6 +35,9 @@ fkey_self_service_policy = {
     }
 }
 
+class DerivaConfigError(Exception):
+    def __init__(self, msg):
+        self.msg = msg
 
 def configure_ermrest_client(catalog, model, ):
     """
@@ -141,9 +144,15 @@ def configure_table_defaults(catalog, table, self_serve_policy=True):
 
     table_name = table.name
     schema_name = table.sname
+    schema = catalog.getCatalogModel().schemas[schema_name]
 
     if self_serve_policy:
         configure_selfserve_policy(catalog, table)
+
+    if chaise_tags.display not in schema.annotations:
+        schema.annotations[chaise_tags.display]  = {}
+    if 'name_style' not in schema.annotations[chaise_tags.display]:
+        schema.annotations[chaise_tags.display].update({'name_style': {'underline_space': True}})
 
     # Set up foreign key to ermrest_client on RCB, RMB and Owner. If ermrest_client is configured, the
     # full name of the user will be used for the FK value.
@@ -213,7 +222,6 @@ def asset_map(schema_name, table_name, key_column):
     ]
     return asset_mappings
 
-
 def create_asset_table(catalog, table, key_column, set_policy=True):
     """
     Create a basic asset table and configure upload script to load the table along with a table of associated
@@ -228,6 +236,9 @@ def create_asset_table(catalog, table, key_column, set_policy=True):
     schema_name = table.sname
     model = catalog.getCatalogModel()
     asset_table_name = '{}_Asset'.format(table_name)
+
+    if key_column not in [i.name for i in table.column_definitions]:
+        raise DerivaConfigError(msg='Key column not found in target table')
 
     column_annotations = {
         'URL': {
@@ -300,7 +311,7 @@ def create_asset_table(catalog, table, key_column, set_policy=True):
         }
         )
     model.annotations[chaise_tags.bulk_upload]['asset_mappings'].extend(asset_map(schema_name, table_name, key_column))
-    print(model.annotations)
+
     model.apply(catalog)
     return asset_table
 
@@ -308,30 +319,30 @@ def create_asset_table(catalog, table, key_column, set_policy=True):
 def main():
     parser = argparse.ArgumentParser(description="Configure an Ermrest Catalog")
     parser.add_argument('server', help='Catalog server name')
-    parser.add_argument('schema', help='Name of the schema to be used for table')
-    parser.add_argument('--catalog_id', default=1, help='ID number of desired catalog (Default:1)')
-
-    parser.add_argument('--table', default=None, help='Name of table to be managed (Default:tabledata filename)')
-
-    parser.add_argument('--asset', action='store_true',
-                        help='Automatically create catalog table based on column type inference [Default:False]')
-    parser.add_argument('--upload', action='store_true', help='Load data into catalog [Default:False]')
+    parser.add_argument('--catalog_id', default=1, help="ID number of desired catalog (Default:1)")
+    parser.add_argument("--catalog", action='store_true', help='Configure a catalog')
+    parser.add_argument('--table', default=None, metavar='SCHEMA_NAME:TABLE_NAME',
+    help='Name of table to be configured (Default:tabledata filename)')
+    parser.add_argument('--asset_table', default=None, metavar='KEY_COLUMN',
+                        help='Create an asset table linked to table on key_column')
     parser.add_argument('--config', default=None, help='python script to set up configuration variables)')
-
-    parser.add_argument('Add asset table')
 
     args = parser.parse_args()
 
     credentials = get_credential(args.server)
     catalog = ErmrestCatalog('https', args.server, args.catalog_id, credentials=credentials)
 
-    if args.asset:
-        pass
-
     if args.catalog:
         configure_baseline_catalog(catalog)
     if args.table:
-        configure_table_defaults(catalog, args.table)
+        [schema_name, table_name] = args.table.split(':')
+        table = catalog.getCatalogModel().schemas[schema_name].tables[table_name]
+        configure_table_defaults(catalog, table)
+    if args.asset_table:
+        if not args.table:
+            print('Creating asset table requires specfication of a table')
+            exit(1)
+        create_asset_table(catalog, table, args.asset_table)
 
 
 if __name__ == "__main__":
