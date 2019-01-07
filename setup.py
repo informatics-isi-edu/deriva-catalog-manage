@@ -23,7 +23,7 @@ setup(
     entry_points={
         'console_scripts': [
             'deriva-catalog-dump = deriva.utils.catalog.manage.dump_catalog:main',
-            'deriva-csv = deriva.utils.catalog.manage.deriva_csv:main'
+            'deriva-csv = deriva.utils.catalog.manage.deriva_csv:main',
             'deriva-catalog-config = deriva.utils.catalog.manage.configure_catalog:main'
         ]
     },
@@ -47,6 +47,7 @@ setup(
         'deriva',
         'tableschema',
         'goodtables',
+        'graphviz',
         'tabulator',
         'urllib',
         'urlparse',
@@ -57,6 +58,8 @@ setup(
         'yapf',
         'tableschema',
         'goodtables',
+        'tabulator',
+        'graphviz',
         'attrdict',
         'deriva>=0.6.7'
     ],
