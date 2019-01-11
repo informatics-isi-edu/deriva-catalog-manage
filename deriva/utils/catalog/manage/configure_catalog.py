@@ -17,10 +17,12 @@ self_service_policy = {
     },
     'self_service_owner': {
         "types": ["update", "delete"],
+        # "projection": [{"outbound": [schema, fkeyname]}, "URI"]`
         "projection": ["Owner"],
         "projection_type": "acl"
     }
 }
+
 
 fkey_self_service_policy = {
     "self_linkage_creator": {
@@ -35,18 +37,20 @@ fkey_self_service_policy = {
     }
 }
 
+
 class DerivaConfigError(Exception):
     def __init__(self, msg):
         self.msg = msg
 
-def configure_ermrest_client(catalog, model, ):
+
+def configure_ermrest_client(catalog):
     """
     Set up ermrest_client table so that it has readable names and uses the display name of the user as the row name.
     :param catalog: Ermrest catalog
     :return:
     """
 
-    ermrest_client = model.schemas['public'].tables['ermrest_client']
+    ermrest_client = catalog.getCatalogModel().schemas['public'].tables['ermrest_client']
 
     column_annotations = {
         'RCT': {chaise_tags.display: {'name': 'Creation Time'}},
@@ -71,6 +75,31 @@ def configure_ermrest_client(catalog, model, ):
 
     ermrest_client.apply(catalog)
     return
+
+
+def configure_group_table(catalog):
+    """
+    Create a table in the public schema for tracking mapping of group names.
+    :param catalog:
+    :return:
+    """
+    model = catalog.getCatalogModel()
+
+    column_defs = [
+        em.Column.define('Name', em.builtin_types['text'], nullok=False, comment='Locally unique name of the group'),
+        em.Column.define('URI', em.builtin_types['text'], nullok=False, comment='URI for the group in Globus Auth'),
+        em.Column.define('Description', em.builtin_types['markdown'], comment='Description of the group'),
+    ]
+
+    key_defs = [em.Key.define(['Name'],
+                              constraint_names=[('public', 'Group_Name_key')],
+                              comment='Key constraint to ensure local group names are unique')]
+    table_def = em.Table.define('Group', column_defs,
+                                key_defs=key_defs, fkey_defs=[],
+                                annotations=[],
+                                comment='Table of group for catalog')
+    group_table = model.schemas['public'].create_table(catalog, table_def)
+    return group_table
 
 
 def configure_baseline_catalog(catalog, set_policy=True):
@@ -102,13 +131,14 @@ def configure_baseline_catalog(catalog, set_policy=True):
             "enumerate": ["*"],
         })
 
-    configure_ermrest_client(catalog, model)
+    configure_ermrest_client(catalog)
+    configure_group_table(catalog)
     model.apply(catalog)
 
     return
 
 
-def configure_selfserve_policy(catalog, table):
+def configure_self_serve_policy(catalog, table):
     """
     Set up a table so it has a self service policy.  Add an owner column if one is not present, and set the acl binding
     so that it follows the self service policy.
@@ -117,11 +147,34 @@ def configure_selfserve_policy(catalog, table):
     :param table: An ermrest model table object on which the policy is to be set.
     :return:
     """
+    table_name = table.name
+    schema_name = table.sname
+    schema = catalog.getCatalogModel().schemas[schema_name]
 
     if 'Owner' not in [i.name for i in table.column_definitions]:
         print('Adding owner column...')
-        col_def = em.Column.define('Owner', em.builtin_types['text'], comment='Current owner of the record.')
+        col_def = em.Column.define('Group', em.builtin_types['text'], comment='Current owner of the record.')
         table.create_column(catalog, col_def)
+
+    fkey_name = '{}_Group_fkey'.format(table_name)
+    fk = em.ForeignKey.define(['Group'],
+                              'public', 'Group', ['RID'],
+                              constraint_names=[(schema_name, fkey_name)],
+                              )
+    table.create_fkey(fk)
+
+    self_service_policy = {
+        "self_service_creator": {
+            "types": ["update", "delete"],
+            "projection": ["RCB"],
+            "projection_type": "acl"
+        },
+        'self_service_group': {
+            "types": ["update", "delete"],
+            "projection": [{"outbound": [schema_name, fkey_name]}, "URI"],
+            "projection_type": "acl"
+        }
+    }
 
     # Make table policy be self service, creators and owners can update.
     table.acl_bindings.update(self_service_policy)
@@ -150,7 +203,7 @@ def configure_table_defaults(catalog, table, self_serve_policy=True):
         configure_selfserve_policy(catalog, table)
 
     if chaise_tags.display not in schema.annotations:
-        schema.annotations[chaise_tags.display]  = {}
+        schema.annotations[chaise_tags.display] = {}
     if 'name_style' not in schema.annotations[chaise_tags.display]:
         schema.annotations[chaise_tags.display].update({'name_style': {'underline_space': True}})
 
@@ -221,6 +274,7 @@ def asset_map(schema_name, table_name, key_column):
         }
     ]
     return asset_mappings
+
 
 def create_asset_table(catalog, table, key_column, set_policy=True):
     """
@@ -322,7 +376,7 @@ def main():
     parser.add_argument('--catalog_id', default=1, help="ID number of desired catalog (Default:1)")
     parser.add_argument("--catalog", action='store_true', help='Configure a catalog')
     parser.add_argument('--table', default=None, metavar='SCHEMA_NAME:TABLE_NAME',
-    help='Name of table to be configured (Default:tabledata filename)')
+                        help='Name of table to be configured (Default:tabledata filename)')
     parser.add_argument('--asset_table', default=None, metavar='KEY_COLUMN',
                         help='Create an asset table linked to table on key_column')
     parser.add_argument('--config', default=None, help='python script to set up configuration variables)')
