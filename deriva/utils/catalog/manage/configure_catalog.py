@@ -160,15 +160,15 @@ def configure_self_serve_policy(catalog, table):
 
     if 'Owner' not in [i.name for i in table.column_definitions]:
         print('Adding owner column...')
-        col_def = em.Column.define('Group', em.builtin_types['text'], comment='Current owner of the record.')
+        col_def = em.Column.define('Owner', em.builtin_types['text'], comment='Current owner of the record.')
         table.create_column(catalog, col_def)
 
     fkey_name = '{}_Group_fkey'.format(table_name)
-    fk = em.ForeignKey.define(['Group'],
+    fk = em.ForeignKey.define(['Owner'],
                               'public', 'Group', ['RID'],
                               constraint_names=[(schema_name, fkey_name)],
                               )
-    table.create_fkey(fk)
+    table.create_fkey(catalog, fk)
 
     self_service_policy = {
         "self_service_creator": {
@@ -207,7 +207,7 @@ def configure_table_defaults(catalog, table, self_serve_policy=True):
     schema = catalog.getCatalogModel().schemas[schema_name]
 
     if self_serve_policy:
-        configure_selfserve_policy(catalog, table)
+        configure_self_serve_policy(catalog, table)
 
     if chaise_tags.display not in schema.annotations:
         schema.annotations[chaise_tags.display] = {}
