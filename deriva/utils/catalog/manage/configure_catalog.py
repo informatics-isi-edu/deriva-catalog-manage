@@ -86,7 +86,10 @@ def configure_group_table(catalog):
 
     column_defs = [
         em.Column.define('Name', em.builtin_types['text'], nullok=False, comment='Locally unique name of the group'),
-        em.Column.define('URI', em.builtin_types['text'], nullok=False, comment='URI for the group in Globus Auth'),
+        em.Column.define('URI', em.builtin_types['text'], nullok=False,
+                         annotations={chaise_tags.column_display:
+                                          {'*': {'markdown_pattern': '[**{{URI}}**]({{{URI}}})'}}},
+                         comment='URI for the group in Globus Auth'),
         em.Column.define('Description', em.builtin_types['markdown'], comment='Description of the group'),
     ]
 
@@ -95,6 +98,9 @@ def configure_group_table(catalog):
                               comment='Key constraint to ensure local group names are unique')]
     table_def = em.Table.define('Group', column_defs,
                                 key_defs=key_defs,
+                                #  annotations={chaise_tags.display: {'name': 'Name'},
+                                #               chaise_tags.table_display: {
+                                #                                              'row_name': {'row_markdown_pattern': '{{{Name}}}'}}},
                                 comment='Table of group for catalog')
     group_table = model.schemas['public'].create_table(catalog, table_def)
     return group_table
@@ -132,7 +138,7 @@ def configure_baseline_catalog(catalog, set_policy=True):
     configure_ermrest_client(catalog)
     configure_group_table(catalog)
 
-    target_table = catalog.getPathBuilder().schemas['public'].tables['Group'].insert(
+    catalog.getPathBuilder().schemas['public'].tables['Group'].insert(
         [
             {'Name': 'admin', 'URI': groups.admin, 'Description': 'Catalog administrators'},
             {'Name': 'reader', 'URI': groups.writer, 'Description': 'Catalog readers'},
@@ -156,7 +162,6 @@ def configure_self_serve_policy(catalog, table):
     """
     table_name = table.name
     schema_name = table.sname
-    schema = catalog.getCatalogModel().schemas[schema_name]
 
     if 'Owner' not in [i.name for i in table.column_definitions]:
         print('Adding owner column...')
@@ -198,7 +203,7 @@ def configure_table_defaults(catalog, table, self_serve_policy=True):
        way.
     :param catalog: ERMRest catalog
     :param table: ERMRest table object which is to be configured.
-    :param self_serv_policy: If true, then configure the table to have a self service policy
+    :param self_serve_policy: If true, then configure the table to have a self service policy
     :return:
     """
 
@@ -244,6 +249,7 @@ def asset_map(schema_name, table_name, key_column):
 
     :param schema_name:
     :param table_name:
+    :param key_column: Column used to correlate asset to metadata
     :return:
     """
     asset_table_name = '{}_Asset'.format(table_name)
@@ -268,9 +274,7 @@ def asset_map(schema_name, table_name, key_column):
             'dir_pattern': '^.*/(?P<schema_name>.*)/(?P<table_name>.*)/(?P<key_column>[0-9A-Z-]+)/)',
             'ext_pattern': '.*$',
             'file_pattern': '.*',
-            'hatrac_templates': {'hatrac_uri':
-                                     '/hatrac/{schema_name}/{table_name}_Asset/{table_rid}/{file_name}'
-                                 },
+            'hatrac_templates': {'hatrac_uri': '/hatrac/{schema_name}/{table_name}_Asset/{table_rid}/{file_name}'},
             # Look for rows in the metadata table with matching key column values.
             'metadata_query_templates': [
                 '/attribute/D:={schema_name}:{table_name}/%s={key_column}/table_rid:=D:RID' % key_column],
@@ -291,6 +295,7 @@ def create_asset_table(catalog, table, key_column, set_policy=True):
     :param table: Table to contain the asset metadata.  Asset will have a foreign key to this table.
     :param key_column: The column in the metadata table to be used to correlate assets with entries. Assets will be
     named using the key column.
+    :param set_policy: If true, add ACLs for self serve policy to the asset table
     :return:
     """
     table_name = table.name

@@ -6,7 +6,6 @@ import importlib
 import os
 import re
 import sys
-import time
 
 from yapf.yapflib.yapf_api import FormatCode
 
@@ -47,6 +46,7 @@ class DerivaConfig:
             configmod = load_module_from_path(configfile)
             DerivaConfig.groups = AttrDict(configmod.groups)
             DerivaConfig.variables = []
+            # Now go though the module and add any user defined variables you find to the config dictionary.
             for i in dir(configmod):
                 if '__' not in i:
                     DerivaConfig.variables.append(i)
@@ -79,7 +79,7 @@ def load_module_from_path(file):
     moddir, file = os.path.split(os.path.abspath(file))
     modname = os.path.splitext(file)[0]
     importlib.invalidate_caches()
-
+    # If we have already loaded this module reload it otherwise import.
     with AddPath(moddir):
         try:
             mod = importlib.reload(sys.modules[modname])
@@ -201,10 +201,10 @@ class DerivaCatalogToString:
 
     def table_annotations_to_str(self, table):
         s = ''.join([self.tag_variables_to_str(table.annotations),
-                         self.annotations_to_str(table.annotations, var_name='table_annotations'),
-                         self.variable_to_str('table_comment', table.comment),
-                         self.variable_to_str('table_acls', table.acls),
-                         self.variable_to_str('table_acl_bindings', table.acl_bindings)])
+                     self.annotations_to_str(table.annotations, var_name='table_annotations'),
+                     self.variable_to_str('table_comment', table.comment),
+                     self.variable_to_str('table_acls', table.acls),
+                     self.variable_to_str('table_acl_bindings', table.acl_bindings)])
         return s
 
     def column_annotations_to_str(self, table):
@@ -274,8 +274,8 @@ class DerivaCatalogToString:
         for col in table.column_definitions:
             if col.name in system_columns and self._provide_system_columns:
                 continue
-            s.append('''    em.Column.define('{}', em.builtin_types['{}'],'''. \
-                format(col.name, col.type.typename + '[]' if 'is_array' is True else col.type.typename))
+            s.append('''    em.Column.define('{}', em.builtin_types['{}'],'''.
+                     format(col.name, col.type.typename + '[]' if 'is_array' is True else col.type.typename))
             if col.nullok is False:
                 s.append("nullok=False,")
             if col.default and col.name not in system_columns:
@@ -337,10 +337,10 @@ def main():
     parser.add_argument('--table', default=None, help='Only dump out the spec for the specified table.  Format is '
                                                       'schema_name:table_name')
     parser.add_argument('--schemas', type=python_value, default=None, help='Only dump out the spec for the specified '
-                                                                          'schemas (value or list).')
+                                                                           'schemas (value or list).')
     parser.add_argument('--skipschemas', type=python_value, default=None, help='List of schema so skip over')
     parser.add_argument('--graph', action='store_true', help='Dump graph of catalog')
-    parser.add_argument('--graphformat', choices=['pdf', 'dot','png','svg'],
+    parser.add_argument('--graphformat', choices=['pdf', 'dot', 'png', 'svg'],
                         default='pdf', help='Format to use for graph dump')
     args = parser.parse_args()
 
@@ -364,18 +364,23 @@ def main():
 
     DerivaConfig(configfile)
 
-    variables = {k: v for k, v in DerivaConfig.groups.items()}
-    variables.update(DerivaConfig.tags)
-
     credential = get_credential(server)
     catalog = ErmrestCatalog('https', server, catalog_id, credentials=credential)
     model_root = catalog.getCatalogModel()
 
+    variables = {}
+    # Get the group names used if the Group table exists in the catalog.
+    if 'Group' in model_root.schemas['public'].tables:
+        variables = {e.Name: e.URI for e in catalog.getPathBuilder().public.Group.entities()}
+
+    # Now add values that come from the config file.
+    variables.update({k: v for k, v in DerivaConfig.groups.items()})
+    variables.update(DerivaConfig.tags)
+
     print('Catalog has {} schema and {} tables'.format(len(model_root.schemas),
                                                        sum([len(v.tables) for k, v in model_root.schemas.items()])))
-    for k,s in model_root.schemas.items():
+    for k, s in model_root.schemas.items():
         print('    {} has {} tables'.format(k, len(s.tables)))
-
 
     if table is not None:
         if ':' not in table:
