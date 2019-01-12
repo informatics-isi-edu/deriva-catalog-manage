@@ -3,6 +3,7 @@ from __future__ import print_function
 import argparse
 import ast
 import importlib
+import logging
 import os
 import re
 import sys
@@ -25,6 +26,10 @@ if IS_PY3:
 else:
     from urlparse import urlparse
 
+logger = logging.getLogger('Dump Catalog')
+logger.setLevel(logging.DEBUG)
+logger.addHandler(logging.StreamHandler())
+
 yapf_style = {
     'based_on_style': 'pep8',
     'allow_split_before_dict_value': False,
@@ -37,23 +42,24 @@ yapf_style = {
 
 class DerivaConfig:
     # Load a configuration file and look for a groups dictionary.
-    groups = {}
+    groups = AttrDict()
     tags = chaise_tags
-    variables = {}
+    variables = AttrDict()
 
-    def __init__(self, configfile):
+    def __init__(self, configfile, groups=None):
+        if groups:
+            DerivaConfig.groups.update(groups)
+            DerivaConfig.variables['groups'] = groups
         if configfile:
             configmod = load_module_from_path(configfile)
-            DerivaConfig.groups = AttrDict(configmod.groups)
-            DerivaConfig.variables = []
+            DerivaConfig.groups.update(configmod.groups)
             # Now go though the module and add any user defined variables you find to the config dictionary.
             for i in dir(configmod):
                 if '__' not in i:
-                    DerivaConfig.variables.append(i)
                     val = getattr(configmod, i)
                     if type(val) is dict:
                         val = AttrDict(val)
-                    setattr(DerivaConfig, i, val)
+                    DerivaConfig.variables[i] = val
 
 
 def load_module_from_path(file):
@@ -119,7 +125,7 @@ class DerivaCatalogToString:
         Print out a variable assignment on one line if empty, otherwise pretty print.
         :param name: Left hand side of assigment
         :param value: Right hand side of assignment
-        :param substitute:
+        :param substitute: If true, replace the   group and tag values with their corrisponding names
         :return:
         """
 
@@ -166,9 +172,14 @@ class DerivaCatalogToString:
         return s
 
     def config_to_str(self, config):
+        """
+        Print out the variable declarations for all of the variables in the configuration.
+        :param config:
+        :return:
+        """
         s = ''
-        for i in config.variables:
-            s += self.variable_to_str(i, getattr(config, i), substitute=False)
+        for k, v in config.variables.items():
+            s += self.variable_to_str(k, v, substitute=False)
             s += '\n\n'
         return s
 
@@ -331,7 +342,7 @@ def main():
 
     parser = argparse.ArgumentParser(description='Dump definition for catalog {}:{}')
     parser.add_argument('server', help='Catalog server name')
-    parser.add_argument('--catalog', default=1, help='ID number of desired catalog')
+    parser.add_argument('--catalog_id', default=1, help='ID number of desired catalog')
     parser.add_argument('--dir', default="catalog-configs", help='output directory name)')
     parser.add_argument('--config', default=None, help='python script to set up configuration variables)')
     parser.add_argument('--table', default=None, help='Only dump out the spec for the specified table.  Format is '
@@ -346,7 +357,7 @@ def main():
 
     dumpdir = args.dir
     server = args.server
-    catalog_id = args.catalog
+    catalog_id = args.catalog_id
     configfile = args.config
     table = args.table
 
@@ -362,7 +373,7 @@ def main():
         print("Creation of the directory %s failed" % dumpdir)
         sys.exit(1)
 
-    DerivaConfig(configfile)
+
 
     credential = get_credential(server)
     catalog = ErmrestCatalog('https', server, catalog_id, credentials=credential)
@@ -371,8 +382,9 @@ def main():
     variables = {}
     # Get the group names used if the Group table exists in the catalog.
     if 'Group' in model_root.schemas['public'].tables:
-        variables = {e.Name: e.URI for e in catalog.getPathBuilder().public.Group.entities()}
+        groups = {e['Name']: e['URI'] for e in catalog.getPathBuilder().public.Group.entities()}
 
+    DerivaConfig(configfile, groups)
     # Now add values that come from the config file.
     variables.update({k: v for k, v in DerivaConfig.groups.items()})
     variables.update(DerivaConfig.tags)

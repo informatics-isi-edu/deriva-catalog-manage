@@ -9,20 +9,6 @@ from config import groups
 
 groups = AttrDict(groups)
 
-self_service_policy = {
-    "self_service_creator": {
-        "types": ["update", "delete"],
-        "projection": ["RCB"],
-        "projection_type": "acl"
-    },
-    'self_service_owner': {
-        "types": ["update", "delete"],
-        # "projection": [{"outbound": [schema, fkeyname]}, "URI"]`
-        "projection": ["Owner"],
-        "projection_type": "acl"
-    }
-}
-
 fkey_self_service_policy = {
     "self_linkage_creator": {
         "types": ["insert", "update"],
@@ -84,26 +70,32 @@ def configure_group_table(catalog):
     """
     model = catalog.getCatalogModel()
 
-    column_defs = [
-        em.Column.define('Name', em.builtin_types['text'], nullok=False, comment='Locally unique name of the group'),
-        em.Column.define('URI', em.builtin_types['text'], nullok=False,
-                         annotations={chaise_tags.column_display:
-                                          {'*': {'markdown_pattern': '[**{{URI}}**]({{{URI}}})'}}},
-                         comment='URI for the group in Globus Auth'),
-        em.Column.define('Description', em.builtin_types['markdown'], comment='Description of the group'),
-    ]
+    if 'Group' not in model.schemas['public'].tables:
+        column_defs = [
+            em.Column.define('Name', em.builtin_types['text'], nullok=False, comment='Locally unique name of the group'),
+            em.Column.define('URI', em.builtin_types['text'], nullok=False,
+                             annotations={chaise_tags.column_display:
+                                              {'*': {'markdown_pattern': '[**{{URI}}**]({{{URI}}})'}}},
+                             comment='URI for the group in Globus Auth'),
+            em.Column.define('Description', em.builtin_types['markdown'], comment='Description of the group'),
+        ]
 
-    key_defs = [em.Key.define(['Name'],
-                              constraint_names=[('public', 'Group_Name_key')],
-                              comment='Key constraint to ensure local group names are unique')]
-    table_def = em.Table.define('Group', column_defs,
-                                key_defs=key_defs,
-                                #  annotations={chaise_tags.display: {'name': 'Name'},
-                                #               chaise_tags.table_display: {
-                                #                                              'row_name': {'row_markdown_pattern': '{{{Name}}}'}}},
-                                comment='Table of group for catalog')
-    group_table = model.schemas['public'].create_table(catalog, table_def)
-    return group_table
+        key_defs = [em.Key.define(['Name'],
+                                  constraint_names=[('public', 'Group_Name_key')],
+                                  comment='Key constraint to ensure local group names are unique')]
+        table_def = em.Table.define('Group', column_defs,
+                                    key_defs=key_defs, comment='Table of groups for catalog')
+        group_table = model.schemas['public'].create_table(catalog, table_def)
+        catalog.getPathBuilder().schemas['public'].tables['Group'].insert(
+            [
+                {'Name': 'admin', 'URI': groups.admin, 'Description': 'Catalog administrators'},
+                {'Name': 'reader', 'URI': groups.writer, 'Description': 'Catalog readers'},
+                {'Name': 'writer', 'URI': groups.reader, 'Description': 'Catalog writers'},
+                {'Name': 'curator', 'URI': groups.curator, 'Description': 'Catalog curators'},
+
+            ])
+        configure_table_defaults(catalog, group_table, self_serve_policy=True)
+    return model.schemas['public'].tables['Group']
 
 
 def configure_baseline_catalog(catalog, set_policy=True):
@@ -138,16 +130,7 @@ def configure_baseline_catalog(catalog, set_policy=True):
     configure_ermrest_client(catalog)
     configure_group_table(catalog)
 
-    catalog.getPathBuilder().schemas['public'].tables['Group'].insert(
-        [
-            {'Name': 'admin', 'URI': groups.admin, 'Description': 'Catalog administrators'},
-            {'Name': 'reader', 'URI': groups.writer, 'Description': 'Catalog readers'},
-            {'Name': 'writer', 'URI': groups.reader, 'Description': 'Catalog writers'},
-            {'Name': 'curator', 'URI': groups.curator, 'Description': 'Catalog curators'},
-
-        ])
     model.apply(catalog)
-
     return
 
 
@@ -221,7 +204,7 @@ def configure_table_defaults(catalog, table, self_serve_policy=True):
 
     # Set up foreign key to ermrest_client on RCB, RMB and Owner. If ermrest_client is configured, the
     # full name of the user will be used for the FK value.
-    for col, display in [('RCB', 'Created By'), ('RMB', 'Modified By'), ('Owner', 'Owner')]:
+    for col, display in [('RCB', 'Created By'), ('RMB', 'Modified By')]:
         fk_name = '{}_{}_fkey'.format(table_name, col)
         try:
             # Delete old fkey if there is one laying around....
