@@ -23,7 +23,6 @@ self_service_policy = {
     }
 }
 
-
 fkey_self_service_policy = {
     "self_linkage_creator": {
         "types": ["insert", "update"],
@@ -95,8 +94,7 @@ def configure_group_table(catalog):
                               constraint_names=[('public', 'Group_Name_key')],
                               comment='Key constraint to ensure local group names are unique')]
     table_def = em.Table.define('Group', column_defs,
-                                key_defs=key_defs, fkey_defs=[],
-                                annotations=[],
+                                key_defs=key_defs,
                                 comment='Table of group for catalog')
     group_table = model.schemas['public'].create_table(catalog, table_def)
     return group_table
@@ -133,6 +131,15 @@ def configure_baseline_catalog(catalog, set_policy=True):
 
     configure_ermrest_client(catalog)
     configure_group_table(catalog)
+
+    target_table = catalog.getPathBuilder().schemas['public'].tables['Group'].insert(
+        [
+            {'Name': 'admin', 'URI': groups.admin, 'Description': 'Catalog administrators'},
+            {'Name': 'reader', 'URI': groups.writer, 'Description': 'Catalog readers'},
+            {'Name': 'writer', 'URI': groups.reader, 'Description': 'Catalog writers'},
+            {'Name': 'curator', 'URI': groups.curator, 'Description': 'Catalog curators'},
+
+        ])
     model.apply(catalog)
 
     return
