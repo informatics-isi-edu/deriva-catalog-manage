@@ -5,9 +5,9 @@ import deriva.core.ermrest_model as em
 from deriva.core.ermrest_config import tag as chaise_tags
 from deriva.core import ErmrestCatalog, get_credential
 
-from config import groups
+from config import groups as config_groups
 
-groups = AttrDict(groups)
+catalog_groups = AttrDict(config_groups)
 
 fkey_self_service_policy = {
     "self_linkage_creator": {
@@ -27,15 +27,17 @@ class DerivaConfigError(Exception):
     def __init__(self, msg):
         self.msg = msg
 
-
-def configure_ermrest_client(catalog):
+def configure_ermrest_client(catalog, model, groups=catalog_groups):
     """
     Set up ermrest_client table so that it has readable names and uses the display name of the user as the row name.
     :param catalog: Ermrest catalog
     :return:
     """
 
-    ermrest_client = catalog.getCatalogModel().schemas['public'].tables['ermrest_client']
+    ermrest_client = model.schemas['public'].tables['ermrest_client']
+
+    # Make ermrest_client table visible to members of the reader group.
+    ermrest_client.acls['select'] = [groups['reader']]
 
     column_annotations = {
         'RCT': {chaise_tags.display: {'name': 'Creation Time'}},
@@ -61,22 +63,58 @@ def configure_ermrest_client(catalog):
     ermrest_client.apply(catalog)
     return
 
+def group_urls(group):
+    guid = group.split('/')[-1]
+    link = 'https://app.globus.org/groups/' + guid
+    uri = 'https://auth.globus.org/' + guid
+    return link,uri
 
-def configure_group_table(catalog):
+
+def group_entities(groups):
+    """
+    Convert a
+    if 'auth.globus' in uri:
+
+    :return:
+    """
+    # Descriptions for standard group names....
+    descriptions = {
+        'admin': 'Catalog administrators',
+        'reader': 'Catalog readers',
+        'writer': 'Catalog writers',
+        'curator': 'Catalog curators'
+    }
+
+    group_entries = []
+    for k, v in groups.items():
+        if type(v) is dict:
+            uri = v['uri']
+            description = v['description']
+        else:
+            uri = v
+            description = descriptions.get(k, '')
+        link, uri = group_urls(uri)
+        group_entries.append({'Name': k, 'URI': uri, 'Link': link, 'Description': description})
+    return group_entries
+
+
+def configure_group_table(catalog, model, groups=catalog_groups):
     """
     Create a table in the public schema for tracking mapping of group names.
     :param catalog:
     :return:
     """
-    model = catalog.getCatalogModel()
 
     if 'Group' not in model.schemas['public'].tables:
         column_defs = [
-            em.Column.define('Name', em.builtin_types['text'], nullok=False, comment='Locally unique name of the group'),
+            em.Column.define('Name', em.builtin_types['text'], nullok=False,
+                             comment='Locally unique name of the group'),
             em.Column.define('URI', em.builtin_types['text'], nullok=False,
-                             annotations={chaise_tags.column_display:
-                                              {'*': {'markdown_pattern': '[**{{URI}}**]({{{URI}}})'}}},
                              comment='URI for the group in Globus Auth'),
+            em.Column.define('Link', em.builtin_types['text'], nullok=False,
+                             annotations={chaise_tags.column_display:
+                                              {'*': {'markdown_pattern': '[**{{Name}}**]({{{Link}}})'}}},
+                             comment='URL to group management page'),
             em.Column.define('Description', em.builtin_types['markdown'], comment='Description of the group'),
         ]
 
@@ -86,19 +124,30 @@ def configure_group_table(catalog):
         table_def = em.Table.define('Group', column_defs,
                                     key_defs=key_defs, comment='Table of groups for catalog')
         group_table = model.schemas['public'].create_table(catalog, table_def)
-        catalog.getPathBuilder().schemas['public'].tables['Group'].insert(
-            [
-                {'Name': 'admin', 'URI': groups.admin, 'Description': 'Catalog administrators'},
-                {'Name': 'reader', 'URI': groups.writer, 'Description': 'Catalog readers'},
-                {'Name': 'writer', 'URI': groups.reader, 'Description': 'Catalog writers'},
-                {'Name': 'curator', 'URI': groups.curator, 'Description': 'Catalog curators'},
-
-            ])
         configure_table_defaults(catalog, group_table, self_serve_policy=True)
+
+        catalog.getPathBuilder().schemas['public'].tables['Group'].insert(group_entities(groups))
+    else:
+        pb = catalog.getPathBuilder()
+        # Construct the new groups, reusing the RID from the existing entries.
+        updated_groups, new_groups = [], []
+        for i in pb.public.Group.entities():
+            entity = {'Name': i['Name'],
+                        'URI': group_urls(groups[i['Name']])[1],
+                        'Link': group_urls(groups[i['Name']])[0],
+                        'Description': i['Description']}
+            if i['Name'] in groups:
+                entity.update({'RID': i['RID']})
+                updated_groups.append(entity)
+            else:
+                new_groups.append(entity)
+
+        pb.public.Group.update(updated_groups)
+        pb.public.Group.update(updated_groups)
     return model.schemas['public'].tables['Group']
 
 
-def configure_baseline_catalog(catalog, set_policy=True):
+def configure_baseline_catalog(catalog, groups=catalog_groups, set_policy=True):
     """
     Put catalog into standard configuration which includes:
     1) Setting default display mode to be to turn underscores to spaces.
@@ -119,16 +168,16 @@ def configure_baseline_catalog(catalog, set_policy=True):
     # modify local representation of catalog ACL config
     if set_policy:
         model.acls.update({
-            "owner": [groups.admin],
-            "insert": [groups.curator, groups.writer],
-            "update": [groups.curator],
-            "delete": [groups.curator],
-            "select": [groups.writer, groups.reader],
+            "owner": [groups['admin']],
+            "insert": [groups['curator'], groups['writer']],
+            "update": [groups['curator']],
+            "delete": [groups['curator']],
+            "select": [groups['writer'], groups['reader']],
             "enumerate": ["*"],
         })
 
-    configure_ermrest_client(catalog)
-    configure_group_table(catalog)
+    configure_ermrest_client(catalog, model, groups=groups)
+    configure_group_table(catalog, model, groups=groups)
 
     model.apply(catalog)
     return
@@ -151,9 +200,17 @@ def configure_self_serve_policy(catalog, table):
         col_def = em.Column.define('Owner', em.builtin_types['text'], comment='Current owner of the record.')
         table.create_column(catalog, col_def)
 
+    fkey_group_policy = {
+        'set_owner': {"types": ["update", "insert"],
+                      "projection": ["URI"],
+                      "projection_type": "acl"}
+    }
+    fkey_group_acls = {"insert": [], "update": []}
+
     fkey_name = '{}_Group_fkey'.format(table_name)
     fk = em.ForeignKey.define(['Owner'],
                               'public', 'Group', ['RID'],
+                              acls=fkey_group_acls, acl_bindings=fkey_group_policy,
                               constraint_names=[(schema_name, fkey_name)],
                               )
     table.create_fkey(catalog, fk)
@@ -270,7 +327,7 @@ def asset_map(schema_name, table_name, key_column):
     return asset_mappings
 
 
-def create_asset_table(catalog, table, key_column, set_policy=True):
+def create_asset_table(catalog, table, key_column, groups=catalog_groups, set_policy=True):
     """
     Create a basic asset table and configure upload script to load the table along with a table of associated
     metadata.
@@ -382,7 +439,7 @@ def main():
     catalog = ErmrestCatalog('https', args.server, args.catalog_id, credentials=credentials)
 
     if args.catalog:
-        configure_baseline_catalog(catalog)
+        configure_baseline_catalog(catalog, catalog_groups)
     if args.table:
         [schema_name, table_name] = args.table.split(':')
         table = catalog.getCatalogModel().schemas[schema_name].tables[table_name]
@@ -391,7 +448,7 @@ def main():
         if not args.table:
             print('Creating asset table requires specfication of a table')
             exit(1)
-        create_asset_table(catalog, table, args.asset_table)
+        create_asset_table(catalog, table, catalog_groups, args.asset_table)
 
 
 if __name__ == "__main__":
