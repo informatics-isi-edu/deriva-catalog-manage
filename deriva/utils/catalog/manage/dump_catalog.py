@@ -373,8 +373,6 @@ def main():
         print("Creation of the directory %s failed" % dumpdir)
         sys.exit(1)
 
-
-
     credential = get_credential(server)
     catalog = ErmrestCatalog('https', server, catalog_id, credentials=credential)
     model_root = catalog.getCatalogModel()

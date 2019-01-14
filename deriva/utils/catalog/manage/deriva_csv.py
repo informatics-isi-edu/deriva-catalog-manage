@@ -153,7 +153,8 @@ class DerivaModel:
                                                 nullok=not col.required, comment=col.descriptor.get('description', '')))
         return column_defs
 
-    def __deriva_keys(self, csvschema):
+    @staticmethod
+    def __deriva_keys(csvschema):
         keys = []
         for cols in csvschema._key_columns:
             mapped_cols = [csvschema.map_name(i) for i in cols]
@@ -283,7 +284,8 @@ class DerivaCSV(Table):
         self.schema.commit(strict=True)
         return
 
-    def __get_type(self, val, prev_type):
+    @staticmethod
+    def __get_type(val, prev_type):
         # Skip over empty cells or if you have already gotten to string type.
         if val == '' or prev_type is str:
             next_type = prev_type

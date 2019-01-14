@@ -1,5 +1,13 @@
 # deriva-catalog-manage
-Deriva catalog management using deriva-py. 
+Deriva catalog management using deriva-py. Deriva catalog management streamlines common tasks associated with creating
+and managing catalog.  For example, given an empty catalog and a CSV file that is an example of a table, a functioning
+catalog can be created by:
+
+1) Run catalog-configure to set up basic display configuration and a simple access control policy.
+2) Run deriva-csv to create a table in the catalog that conforms to the CSV.
+3) Run catalog-configure to create an asset table and configure upload annotations to associate files with rows in the
+CSV file
+4) Run dump-catalog to create a set of deriva-py programs that can be modified to further configure the catalog.
 
 ## Installing
 
@@ -26,7 +34,7 @@ This repo will install a number of different subpackages that will all live in t
 Current modules include:
 - dump_catalog. A module for querying an ERMRest catalog and creation a set of deriva-py scripts to recreate elements of that catalog
 - deriva_csv. A module for using tables and [tableschema](https://frictionlessdata.io/specs/table-schema/) to load and mangage ERMRest catalogs. 
-
+- configure_catalog. Set up catalog configuration, policy and table configurations.
 To load load a specific module, you can use a import statement such as:
 ```
 from deriva.utils.catalog.manage import deriva_csv

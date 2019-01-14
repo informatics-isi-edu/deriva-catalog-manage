@@ -27,6 +27,7 @@ class DerivaConfigError(Exception):
     def __init__(self, msg):
         self.msg = msg
 
+
 def configure_ermrest_client(catalog, model, groups=catalog_groups):
     """
     Set up ermrest_client table so that it has readable names and uses the display name of the user as the row name.
@@ -102,6 +103,8 @@ def configure_group_table(catalog, model, groups=catalog_groups):
     """
     Create a table in the public schema for tracking mapping of group names.
     :param catalog:
+    :param model:
+    :param groups:
     :return:
     """
 
@@ -155,6 +158,7 @@ def configure_baseline_catalog(catalog, groups=catalog_groups, set_policy=True):
     3) Configure ermrest_client to have readable names.
 
     :param catalog: Ermrest catalog
+    :param groups:
     :param set_policy: Set policy for catalog to support reader/writer/curator/admin groups.
     :return:
     """
@@ -335,6 +339,7 @@ def create_asset_table(catalog, table, key_column, groups=catalog_groups, set_po
     :param table: Table to contain the asset metadata.  Asset will have a foreign key to this table.
     :param key_column: The column in the metadata table to be used to correlate assets with entries. Assets will be
     named using the key column.
+    :param groups:
     :param set_policy: If true, add ACLs for self serve policy to the asset table
     :return:
     """
@@ -428,7 +433,7 @@ def main():
     parser.add_argument('--catalog_id', default=1, help="ID number of desired catalog (Default:1)")
     parser.add_argument("--catalog", action='store_true', help='Configure a catalog')
     parser.add_argument('--table', default=None, metavar='SCHEMA_NAME:TABLE_NAME',
-                        help='Name of table to be configured (Default:tabledata filename)')
+                        help='Name of table to be configured')
     parser.add_argument('--asset_table', default=None, metavar='KEY_COLUMN',
                         help='Create an asset table linked to table on key_column')
     parser.add_argument('--config', default=None, help='python script to set up configuration variables)')
