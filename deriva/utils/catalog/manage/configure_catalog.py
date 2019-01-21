@@ -1,4 +1,3 @@
-from attrdict import AttrDict
 import argparse
 import sys
 
@@ -34,7 +33,8 @@ def configure_ermrest_client(catalog, model, groups, anonymous=False):
     ermrest_client = model.schemas['public'].tables['ERMrest_Client']
 
     # Make ermrest_client table visible to members of the reader group. By default, this is not
-    ermrest_client.acls['select'] = [groups['reader']] if not anonymous else ['*']
+    ermrest_client.acls['select'] = [groups['reader'], groups['writer'], groups['curator'], groups['admin']] \
+        if not anonymous else ['*']
 
     # Set table and row name.
     ermrest_client.annotations.update({
@@ -69,6 +69,7 @@ def get_core_groups(catalog, model, catalog_name=None, admin=None, curator=None,
     """
     Look in the catalog to get the group IDs for the four core groups used in the baseline configuration.
     :param catalog:
+    :param model:
     :param catalog_name: Name of the catalog to use as a prefix in looking up default name of the group. Default
            group names are formed by combining the catalog_name with the standard group name: e.g. foo-admin
            foo-writer, and foo-reader
@@ -129,25 +130,17 @@ def configure_group_table(catalog, model, groups, anonymous=False):
     :param catalog:
     :param model:
     :param groups:
+    :param anonymous: Set to true if anonymous read access is to be allowed.
     :return:
     """
 
     ermrest_group = model.schemas['public'].tables['ERMrest_Group']
 
     # Make ERMrest_Group table visible to members of the group members, curators, and admins.
-    ermrest_group.acls['select'] = [groups['curator'], groups['admin']]
-    ermrest_group.acls['enumerate'] = [groups['reader']] if not anonymous else ['*']
+    ermrest_group.acls['select'] = [groups['reader'], groups['writer'], groups['curator'], groups['admin']] \
+        if not anonymous else ['*']
 
-    ermrest_group.acl_bindings.update(
-        {
-            'restrict_to_members': {
-                "types": ["select"],
-                "projection": ["ID"],
-                "projection_type": "acl"},
-        }
-    )
-
-    configure_table_defaults(catalog, ermrest_group, self_serve_policy=True)
+    configure_table_defaults(catalog, ermrest_group, self_serve_policy=False)
 
     # Set table and row name.
     ermrest_group.annotations.update({
@@ -223,6 +216,7 @@ def configure_self_serve_policy(catalog, table, groups):
     owner_fkey_name = '{}_ERMrest_Group_fkey'.format(table_name)
     fk = em.ForeignKey.define(['Owner'],
                               'public', 'ERMrest_Group', ['ID'],
+
                               acls=fkey_group_acls, acl_bindings=fkey_group_policy,
                               constraint_names=[(schema_name, owner_fkey_name)],
                               )
@@ -255,6 +249,7 @@ def configure_baseline_catalog(catalog, catalog_name=None,
     :param writer: Name of the writer group. Defaults to catalog-writer
     :param reader: Name of the reader group. Defaults to catalog-reader
     :param set_policy: Set policy for catalog to support reader/writer/curator/admin groups.
+    :param anonymous: Set to true if anonymous read access should be allowed.
     :return:
     """
 
@@ -521,14 +516,14 @@ def main():
     catalog = ErmrestCatalog('https', args.server, args.catalog_id, credentials=credentials)
 
     if args.catalog:
-        configure_baseline_catalog(catalog,catalog=args.catalog_name)
+        configure_baseline_catalog(catalog, catalog_name=args.catalog_name)
     if args.table:
         [schema_name, table_name] = args.table.split(':')
         table = catalog.getCatalogModel().schemas[schema_name].tables[table_name]
         configure_table_defaults(catalog, table)
     if args.asset_table:
         if not args.table:
-            print('Creating asset table requires specfication of a table')
+            print('Creating asset table requires specification of a table')
             exit(1)
         create_asset_table(catalog, table, args.asset_table)
 

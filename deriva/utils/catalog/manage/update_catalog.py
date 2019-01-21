@@ -6,7 +6,7 @@ from deriva.core import ErmrestCatalog, get_credential
 def parse_args(server, catalog_id, is_table=False, is_catalog=False):
     parser = argparse.ArgumentParser(description='Update catalog configuration')
     parser.add_argument('--server', default=server, help='Catalog server name')
-    parser.add_argument('--catalog', default=catalog_id, help='ID of desired catalog')
+    parser.add_argument('--catalog_id', default=catalog_id, help='ID of desired catalog')
     parser.add_argument('--replace', action='store_true',
                         help='Replace existing values with new ones.  Otherwise, attempt to merge in values provided.')
 
@@ -25,7 +25,7 @@ def parse_args(server, catalog_id, is_table=False, is_catalog=False):
                         help='Model element to be updated.')
 
     args = parser.parse_args()
-    return args.mode, args.replace, args.server, args.catalog
+    return args.mode, args.replace, args.server, args.catalog_id
 
 
 class CatalogUpdaterException(Exception):
