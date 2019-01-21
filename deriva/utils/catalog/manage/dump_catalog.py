@@ -160,10 +160,10 @@ class DerivaCatalogToString:
         return s
 
     def table_annotations_to_str(self, table):
-        s = ''.join([self.tag_variables_to_str(table.annotations),'\n',
-                     self.annotations_to_str(table.annotations, var_name='table_annotations'),'\n',
-                     self.variable_to_str('table_comment', table.comment),'\n',
-                     self.variable_to_str('table_acls', table.acls),'\n',
+        s = ''.join([self.tag_variables_to_str(table.annotations), '\n',
+                     self.annotations_to_str(table.annotations, var_name='table_annotations'), '\n',
+                     self.variable_to_str('table_comment', table.comment), '\n',
+                     self.variable_to_str('table_acls', table.acls), '\n',
                      self.variable_to_str('table_acl_bindings', table.acl_bindings)])
         return s
 
@@ -269,12 +269,12 @@ class DerivaCatalogToString:
         catalog_id = self._catalog.get_server_uri().split('/')[-1]
 
 
-        column_annotations=self.column_annotations_to_str(table)
-        column_defs=self.column_defs_to_str(table)
-        table_annotations=self.table_annotations_to_str(table)
-        key_defs=self.key_defs_to_str(table)
-        fkey_defs=self.foreign_key_defs_to_str(table)
-        table_def=self.table_def_to_str()
+        column_annotations = self.column_annotations_to_str(table)
+        column_defs = self.column_defs_to_str(table)
+        table_annotations = self.table_annotations_to_str(table)
+        key_defs = self.key_defs_to_str(table)
+        fkey_defs = self.foreign_key_defs_to_str(table)
+        table_def = self.table_def_to_str()
         groups = self.variable_to_str('groups', self._referenced_groups, substitute=False)
 
         s = table_file_template.format(server=server, catalog_id=catalog_id,

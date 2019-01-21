@@ -56,7 +56,7 @@ def configure_ermrest_client(catalog, model, groups, anonymous=False):
     return
 
 
-def patch_group_table(catalog):
+def update_group_table(catalog):
     pb = catalog.getPathBuilder()
     # Attempt to add URL.  This can go away once we have URL entered by ERMrest.
     pb.public.ERMrest_Group.update(
@@ -152,7 +152,7 @@ def configure_group_table(catalog, model, groups, anonymous=False):
     # Set table and row name.
     ermrest_group.annotations.update({
         chaise_tags.display: {'name': 'Groups'},
-        chaise_tags.visible_columns: {'*': ['Display_Name', 'ID', 'URL']},
+        chaise_tags.visible_columns: {'*': ['Display_Name', 'ID', 'URL', 'Description']},
         chaise_tags.table_display: {'row_name': {'row_markdown_pattern': '{{{Display_Name}}}'}}
     })
 
@@ -188,13 +188,36 @@ def configure_self_serve_policy(catalog, table, groups):
         col_def = em.Column.define('Owner', em.builtin_types['text'], comment='Group that can update the record.')
         table.create_column(catalog, col_def)
 
-    # FKey can be created only if you are a member of the group you are referancing, or if you are in the curators
-    # group.
+    # Now configure the policy on the table...
+    self_service_policy = {
+        # Set up a policy for the table that allows the creator of the record to update and delete the record.
+        "self_service_creator": {
+            "types": ["update", "delete"],
+            "projection": ["RCB"],
+            "projection_type": "acl"
+        },
+        # Set up a policy for the table that allows members of the group referenced by the Owner column to update
+        # and delete the record.
+        'self_service_group': {
+            "types": ["update", "delete"],
+            "projection": ["Owner"],
+            "projection_type": "acl"
+        }
+    }
+
+    # Make table policy be self service, creators and owners can update.
+    table.acl_bindings.update(self_service_policy)
+
+    # Set up a foreign key to the group table on the owners column so that the creator of a record can only select
+    # groups of which they are members of for values of the Owners column.
     fkey_group_policy = {
+        # FKey to group can be created only if you are a member of the group you are referencing
         'set_owner': {"types": ["update", "insert"],
                       "projection": ["ID"],
                       "projection_type": "acl"}
     }
+
+    # Allow curators to also update the foreign key.
     fkey_group_acls = {"insert": [groups['curator']], "update": [groups['curator']]}
 
     owner_fkey_name = '{}_ERMrest_Group_fkey'.format(table_name)
@@ -209,27 +232,10 @@ def configure_self_serve_policy(catalog, table, groups):
         f.delete(catalog, table)
     except KeyError:
         pass
+
+    # Now create the foreign key to the group table.
     table.create_fkey(catalog, fk)
 
-    # Now configure the policy on the table...
-    self_service_policy = {
-        # Set up a policy for the table that allows the creator of the record to update and delete the record.
-        "self_service_creator": {
-            "types": ["update", "delete"],
-            "projection": ["RCB"],
-            "projection_type": "acl"
-        },
-        # Set up a policy for the table that allows members of the group referenced by the Owner column to update
-        # and delete the record.
-        'self_service_group': {
-            "types": ["update", "delete"],
-            "projection": [{"outbound": [schema_name, owner_fkey_name]}, "ID"],
-            "projection_type": "acl"
-        }
-    }
-
-    # Make table policy be self service, creators and owners can update.
-    table.acl_bindings.update(self_service_policy)
     table.apply(catalog)
 
 
@@ -258,6 +264,7 @@ def configure_baseline_catalog(catalog, catalog_name=None,
         catalog_name = urlparse(catalog.get_server_uri()).hostname.split('.')[0]
     groups = get_core_groups(catalog, model, catalog_name=catalog_name,
                              admin=admin, curator=curator, writer=writer, reader=reader)
+
     # Record configuration of catalog so we can retrieve when we configure tables later on.
     model.annotations[CATALOG_CONFIG__TAG] = {'name': catalog_name, 'groups': groups}
     model.apply(catalog)
@@ -290,7 +297,7 @@ def configure_table_defaults(catalog, table, self_serve_policy=True):
     This function adds the following basic configuration details to an existing table:
     1) Creates a self service modification policy in which creators can update update any row they create.  Optionally,
        an Owner column can be provided, which allows the creater of a row to delegate row ownership to a specific
-       individual.
+       group.
     2) Adds display annotations and foreign key declarations so that system columns RCB, RMB display in a user friendly
        way.
     :param catalog: ERMRest catalog
@@ -301,6 +308,9 @@ def configure_table_defaults(catalog, table, self_serve_policy=True):
     model_root = catalog.getCatalogModel()
     if CATALOG_CONFIG__TAG not in model_root.annotations:
         raise DerivaConfigError(msg='Attempting to configure table before catalog is configured')
+
+    # Hack to update description and URL until we get these passed through ermrest....
+    update_group_table(catalog)
 
     table_name = table.name
     schema_name = table.sname
