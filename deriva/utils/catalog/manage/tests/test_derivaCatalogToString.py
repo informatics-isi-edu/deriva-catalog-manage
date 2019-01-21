@@ -4,7 +4,9 @@ import sys
 import deriva.core.ermrest_model as em
 from deriva.utils.catalog.manage.utils import TempErmrestCatalog
 from deriva.core import get_credential
-from deriva.utils.catalog.manage.dump_catalog import DerivaCatalogToString, DerivaConfig, load_module_from_path
+from deriva.core.ermrest_config import tag as chaise_tags
+from deriva.utils.catalog.manage.dump_catalog import DerivaCatalogToString
+from deriva.utils.catalog.manage.deriva_csv import load_module_from_path
 
 if sys.version_info >= (3, 0):
     from urllib.parse import urlparse
@@ -16,9 +18,6 @@ class TestDerivaCatalogToString(TestCase):
     def setUp(self):
         self.server = 'dev.isrd.isi.edu'
         self.credentials = get_credential(self.server)
-        DerivaConfig('config.py')
-        self._variables = {k: v for k, v in DerivaConfig.groups.items()}
-        self._variables.update(DerivaConfig.tags)
 
     def test_substitute_variables(self):
         pass
@@ -36,10 +35,10 @@ class TestDerivaCatalogToString(TestCase):
         pass
 
     def test_catalog_to_str(self):
-        with TempErmrestCatalog('https',self.server, credentials=self.credentials) as catalog:
+        with TempErmrestCatalog('https', self.server, credentials=self.credentials) as catalog:
             model = catalog.getCatalogModel()
             model.create_schema(catalog, em.Schema.define('TestSCchema'))
-            stringer = DerivaCatalogToString(catalog, variables=self._variables)
+            stringer = DerivaCatalogToString(catalog)
             catalog_string = stringer.catalog_to_str()
             tdir = tempfile.mkdtemp()
             modfile = '{}/TestCatalog.py'.format(tdir)
@@ -68,7 +67,7 @@ class TestDerivaCatalogToString(TestCase):
         pass
 
     def test_table_def_to_str(self):
-       pass
+        pass
 
     def test_table_to_str(self):
         pass

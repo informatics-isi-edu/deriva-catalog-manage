@@ -9,7 +9,7 @@ import random
 import warnings
 
 from tableschema import exceptions
-from deriva.utils.catalog.manage.deriva_csv import DerivaCSV
+from deriva.utils.catalog.manage.deriva_csv import DerivaCSV, load_module_from_path
 import deriva.utils.catalog.manage.dump_catalog as dump_catalog
 from deriva.core import get_credential
 import deriva.core.ermrest_model as em
@@ -101,7 +101,7 @@ class TestDerivaCSV(TestCase):
         pyfile = '{}/{}.py'.format(self.test_dir, self.table_name)
         try:
             self.table.convert_to_deriva(outfile=pyfile)
-            tablescript = dump_catalog.load_module_from_path(pyfile)
+            tablescript = load_module_from_path(pyfile)
             tablescript.main(self.catalog, 'table')
         except ValueError as e:
             print(e)

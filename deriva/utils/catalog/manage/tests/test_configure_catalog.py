@@ -73,11 +73,11 @@ class TestConfigureCatalog(TestCase):
 
 
     def test_configure_baseline_catalog(self):
-        configure_catalog.configure_baseline_catalog(self.catalog)
+        configure_catalog.configure_baseline_catalog(self.catalog, catalog_name='test', admin='isrd-systems')
         return
 
     def test_configure_table_defaults(self):
         model = self.catalog.getCatalogModel()
-        configure_catalog.configure_baseline_catalog(self.catalog)
+        configure_catalog.configure_baseline_catalog(self.catalog, catalog_name='test', admin='isrd-systems')
         configure_catalog.configure_table_defaults(self.catalog,
                                                    model.schemas[self.schema_name].tables[self.table.map_name(self.table_name)])

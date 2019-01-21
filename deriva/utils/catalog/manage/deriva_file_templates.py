@@ -6,11 +6,11 @@ import deriva.core.ermrest_model as em
 from deriva.core.ermrest_config import tag as chaise_tags
 from deriva.utils.catalog.manage.update_catalog import CatalogUpdater, parse_args
 
+{groups}
+
 table_name = '{table_name}'
 
 schema_name = '{schema_name}'
-
-{variables}
 
 {column_annotations}
 
@@ -48,11 +48,11 @@ import deriva.core.ermrest_model as em
 from deriva.core.ermrest_config import tag as chaise_tags
 from deriva.utils.catalog.manage.update_catalog import CatalogUpdater, parse_args
 
+{groups}
+
 schema_name = '{schema_name}'
 
 {table_names}
-
-{variables}
 
 {annotations}
 
@@ -89,9 +89,7 @@ from deriva.utils.catalog.manage.update_catalog import CatalogUpdater, parse_arg
 from deriva.core.ermrest_config import tag as chaise_tags
 import deriva.core.ermrest_model as em
 
-
-{variables}
-
+{groups}
 
 {tag_variables}
 

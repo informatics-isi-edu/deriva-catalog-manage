@@ -3,7 +3,6 @@ from requests.exceptions import HTTPError
 
 from deriva.core import ErmrestCatalog, get_credential
 
-
 def parse_args(server, catalog_id, is_table=False, is_catalog=False):
     parser = argparse.ArgumentParser(description='Update catalog configuration')
     parser.add_argument('--server', default=server, help='Catalog server name')
@@ -193,8 +192,8 @@ class CatalogUpdater:
             self.update_acls(table, table_acls)
             self.update_acl_bindings(table, table_acl_bindings, replace=replace)
 
-            column_acls = {i.name: i.acls for i in column_defs}
-            column_acl_bindings = {i.name: i.acl_bindings for i in column_defs}
+            column_acls = {i['name']: i['acls'] for i in column_defs if 'acls' in i}
+            column_acl_bindings = {i['name']: i['acl_bindings'] for i in column_defs if 'acl_bindings in i'}
             for c in table.column_definitions:
                 if c.name in column_acls:
                     self.update_acls(c, column_acls[c.name], replace=replace)

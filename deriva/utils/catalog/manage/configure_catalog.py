@@ -1,26 +1,20 @@
 from attrdict import AttrDict
 import argparse
+import sys
 
 import deriva.core.ermrest_model as em
 from deriva.core.ermrest_config import tag as chaise_tags
 from deriva.core import ErmrestCatalog, get_credential
 
-from config import groups as config_groups
+IS_PY2 = (sys.version_info[0] == 2)
+IS_PY3 = (sys.version_info[0] == 3)
 
-catalog_groups = AttrDict(config_groups)
+if IS_PY3:
+    from urllib.parse import urlparse
+else:
+    from urlparse import urlparse
 
-fkey_self_service_policy = {
-    "self_linkage_creator": {
-        "types": ["insert", "update"],
-        "projection": ["RCB"],
-        "projection_type": "acl",
-    },
-    "self_linkage_owner": {
-        "types": ["insert", "update"],
-        "projection": ["Owner"],
-        "projection_type": "acl",
-    }
-}
+CATALOG_CONFIG__TAG = 'tag:isrd.isi.edu,2019:catalog-config'
 
 
 class DerivaConfigError(Exception):
@@ -28,78 +22,108 @@ class DerivaConfigError(Exception):
         self.msg = msg
 
 
-def configure_ermrest_client(catalog, model, groups=catalog_groups):
+def configure_ermrest_client(catalog, model, groups, anonymous=False):
     """
     Set up ermrest_client table so that it has readable names and uses the display name of the user as the row name.
     :param catalog: Ermrest catalog
+    :param model:
+    :param groups:
     :return:
     """
 
-    ermrest_client = model.schemas['public'].tables['ermrest_client']
+    ermrest_client = model.schemas['public'].tables['ERMrest_Client']
 
-    # Make ermrest_client table visible to members of the reader group.
-    ermrest_client.acls['select'] = [groups['reader']]
+    # Make ermrest_client table visible to members of the reader group. By default, this is not
+    ermrest_client.acls['select'] = [groups['reader']] if not anonymous else ['*']
+
+    # Set table and row name.
+    ermrest_client.annotations.update({
+        chaise_tags.display: {'name': 'Users'},
+        chaise_tags.visible_columns: {'compact': ['ID', 'Full_Name', 'Email']},
+        chaise_tags.table_display: {'row_name': {'row_markdown_pattern': '{{{Display_Name}}}'}}
+    })
 
     column_annotations = {
         'RCT': {chaise_tags.display: {'name': 'Creation Time'}},
         'RMT': {chaise_tags.display: {'name': 'Last Modified Time'}},
         'RCB': {chaise_tags.display: {'name': 'Created By'}},
-        'RMB': {chaise_tags.display: {'name': 'Modified By'}},
-        'id': {chaise_tags.display: {'name': 'ID'}},
-        'full_name': {chaise_tags.display: {'name': 'Full Name'}},
-        'display_name': {chaise_tags.display: {'name': 'Display Name'}},
-        'email': {chaise_tags.display: {'name': 'Email'}}
+        'RMB': {chaise_tags.display: {'name': 'Modified By'}}
     }
-
-    # Set table and row name.
-    ermrest_client.annotations.update({
-        chaise_tags.display: {'name': 'Users'},
-        chaise_tags.visible_columns: {'compact': ['id', 'full_name', 'email']},
-        chaise_tags.table_display: {'row_name': {'row_markdown_pattern': '{{{display_name}}}'}}
-    })
-
     for k, v in column_annotations.items():
         ermrest_client.column_definitions[k].annotations.update(v)
 
     ermrest_client.apply(catalog)
     return
 
+
+def patch_group_table(catalog):
+    pb = catalog.getPathBuilder()
+    # Attempt to add URL.  This can go away once we have URL entered by ERMrest.
+    pb.public.ERMrest_Group.update(
+        [{'RID': i['RID'], 'URL': group_urls(i['ID'])[0]} for i in pb.public.ERMrest_Group.entities()]
+    )
+
+
+def get_core_groups(catalog, model, catalog_name=None, admin=None, curator=None, writer=None, reader=None,
+                    replace=False):
+    """
+    Look in the catalog to get the group IDs for the four core groups used in the baseline configuration.
+    :param catalog:
+    :param catalog_name: Name of the catalog to use as a prefix in looking up default name of the group. Default
+           group names are formed by combining the catalog_name with the standard group name: e.g. foo-admin
+           foo-writer, and foo-reader
+    :param admin: Group name to use in place of default
+    :param curator: Group name to use in place of default
+    :param writer: Group name to use in lace of default
+    :param reader: Either '*' for anonymous read access, or the group name to use in place of default
+    :param replace: Ignore existing catalog config and use provided arguements.
+    :return: dictionary with the four group ids.
+    """
+    groups = {}
+    # Get previous catalog configuration values if they exist
+    if CATALOG_CONFIG__TAG in model.annotations and not replace:
+        groups.update({
+            'admin': model.annotations[CATALOG_CONFIG__TAG]['groups']['admin'],
+            'curator': model.annotations[CATALOG_CONFIG__TAG]['groups']['curator'],
+            'writer': model.annotations[CATALOG_CONFIG__TAG]['groups']['writer'],
+            'reader': model.annotations[CATALOG_CONFIG__TAG]['groups']['reader']
+        })
+    else:
+        if admin == '*' or curator == '*' or writer == '*':
+            raise DerivaConfigError(msg='Only reader may be anonymous when setting core catalog groups')
+        if not catalog_name and (admin is None or curator is None or writer is None or reader is None):
+            raise DerivaConfigError(msg='Catalog name required to look up group')
+
+        if admin is None:
+            admin = catalog_name + '-admin'
+        if curator is None:
+            curator = catalog_name + '-curator'
+        if writer is None:
+            writer = catalog_name + '-writer'
+        if reader is None:
+            reader = catalog_name + '-reader'
+
+        pb = catalog.getPathBuilder()
+        catalog_groups = {i['Display_Name']: i for i in pb.public.ERMrest_Group.entities()}
+        groups = {}
+        try:
+            groups['admin'] = catalog_groups[admin]['ID']
+            groups['curator'] = catalog_groups[curator]['ID']
+            groups['writer'] = catalog_groups[writer]['ID']
+            groups['reader'] = catalog_groups[reader]['ID'] if reader is not '*' else '*'
+        except KeyError as e:
+            raise DerivaConfigError(msg='Group {} not defined'.format(e.args[0]))
+    return groups
+
+
 def group_urls(group):
     guid = group.split('/')[-1]
     link = 'https://app.globus.org/groups/' + guid
     uri = 'https://auth.globus.org/' + guid
-    return link,uri
+    return link, uri
 
 
-def group_entities(groups):
-    """
-    Convert a
-    if 'auth.globus' in uri:
-
-    :return:
-    """
-    # Descriptions for standard group names....
-    descriptions = {
-        'admin': 'Catalog administrators',
-        'reader': 'Catalog readers',
-        'writer': 'Catalog writers',
-        'curator': 'Catalog curators'
-    }
-
-    group_entries = []
-    for k, v in groups.items():
-        if type(v) is dict:
-            uri = v['uri']
-            description = v['description']
-        else:
-            uri = v
-            description = descriptions.get(k, '')
-        link, uri = group_urls(uri)
-        group_entries.append({'Name': k, 'URI': uri, 'Link': link, 'Description': description})
-    return group_entries
-
-
-def configure_group_table(catalog, model, groups=catalog_groups):
+def configure_group_table(catalog, model, groups, anonymous=False):
     """
     Create a table in the public schema for tracking mapping of group names.
     :param catalog:
@@ -108,126 +132,98 @@ def configure_group_table(catalog, model, groups=catalog_groups):
     :return:
     """
 
-    if 'Group' not in model.schemas['public'].tables:
-        column_defs = [
-            em.Column.define('Name', em.builtin_types['text'], nullok=False,
-                             comment='Locally unique name of the group'),
-            em.Column.define('URI', em.builtin_types['text'], nullok=False,
-                             comment='URI for the group in Globus Auth'),
-            em.Column.define('Link', em.builtin_types['text'], nullok=False,
-                             annotations={chaise_tags.column_display:
-                                              {'*': {'markdown_pattern': '[**{{Name}}**]({{{Link}}})'}}},
-                             comment='URL to group management page'),
-            em.Column.define('Description', em.builtin_types['markdown'], comment='Description of the group'),
-        ]
+    ermrest_group = model.schemas['public'].tables['ERMrest_Group']
 
-        key_defs = [em.Key.define(['Name'],
-                                  constraint_names=[('public', 'Group_Name_key')],
-                                  comment='Key constraint to ensure local group names are unique')]
-        table_def = em.Table.define('Group', column_defs,
-                                    key_defs=key_defs, comment='Table of groups for catalog')
-        group_table = model.schemas['public'].create_table(catalog, table_def)
-        configure_table_defaults(catalog, group_table, self_serve_policy=True)
+    # Make ERMrest_Group table visible to members of the group members, curators, and admins.
+    ermrest_group.acls['select'] = [groups['curator'], groups['admin']]
+    ermrest_group.acls['enumerate'] = [groups['reader']] if not anonymous else ['*']
 
-        catalog.getPathBuilder().schemas['public'].tables['Group'].insert(group_entities(groups))
-    else:
-        pb = catalog.getPathBuilder()
-        # Construct the new groups, reusing the RID from the existing entries.
-        updated_groups, new_groups = [], []
-        for i in pb.public.Group.entities():
-            entity = {'Name': i['Name'],
-                        'URI': group_urls(groups[i['Name']])[1],
-                        'Link': group_urls(groups[i['Name']])[0],
-                        'Description': i['Description']}
-            if i['Name'] in groups:
-                entity.update({'RID': i['RID']})
-                updated_groups.append(entity)
-            else:
-                new_groups.append(entity)
+    ermrest_group.acl_bindings.update(
+        {
+            'restrict_to_members': {
+                "types": ["select"],
+                "projection": ["ID"],
+                "projection_type": "acl"},
+        }
+    )
 
-        pb.public.Group.update(updated_groups)
-        pb.public.Group.update(updated_groups)
-    return model.schemas['public'].tables['Group']
+    configure_table_defaults(catalog, ermrest_group, self_serve_policy=True)
+
+    # Set table and row name.
+    ermrest_group.annotations.update({
+        chaise_tags.display: {'name': 'Groups'},
+        chaise_tags.visible_columns: {'*': ['Display_Name', 'ID', 'URL']},
+        chaise_tags.table_display: {'row_name': {'row_markdown_pattern': '{{{Display_Name}}}'}}
+    })
+
+    # Clean up presentation of URL field.
+    ermrest_group.column_definitions['URL'].annotations.update(
+        {chaise_tags.column_display: {'*': {'markdown_pattern': '[**{{Display_Name}}**]({{{URL}}})'}},
+         chaise_tags.display: {'name': 'Group Management Page'}
+         }
+    )
+
+    ermrest_group.apply(catalog)
 
 
-def configure_baseline_catalog(catalog, groups=catalog_groups, set_policy=True):
-    """
-    Put catalog into standard configuration which includes:
-    1) Setting default display mode to be to turn underscores to spaces.
-    2) Set access control assuming admin, curator, writer, and reader groups.
-    3) Configure ermrest_client to have readable names.
-
-    :param catalog: Ermrest catalog
-    :param groups:
-    :param set_policy: Set policy for catalog to support reader/writer/curator/admin groups.
-    :return:
-    """
-
-    model = catalog.getCatalogModel()
-
-    # Set up default name style for all schemas.
-    for s in model.schemas.values():
-        s.annotations[chaise_tags.display] = {'name_style': {'underline_space': True}}
-
-    # modify local representation of catalog ACL config
-    if set_policy:
-        model.acls.update({
-            "owner": [groups['admin']],
-            "insert": [groups['curator'], groups['writer']],
-            "update": [groups['curator']],
-            "delete": [groups['curator']],
-            "select": [groups['writer'], groups['reader']],
-            "enumerate": ["*"],
-        })
-
-    configure_ermrest_client(catalog, model, groups=groups)
-    configure_group_table(catalog, model, groups=groups)
-
-    model.apply(catalog)
-    return
-
-
-def configure_self_serve_policy(catalog, table):
+def configure_self_serve_policy(catalog, table, groups):
     """
     Set up a table so it has a self service policy.  Add an owner column if one is not present, and set the acl binding
     so that it follows the self service policy.
 
     :param catalog:
     :param table: An ermrest model table object on which the policy is to be set.
+    :param groups: dictionary of core catalog groups
+
     :return:
     """
     table_name = table.name
     schema_name = table.sname
 
+    # Configure table so that access can be assigned to a group.  This requires that we create a column and establish
+    # a foreign key to an entry in the group table.  We will set the access control on the foreign key so that you
+    # are only able to delagate access to a the creator of the entity belongs to.
     if 'Owner' not in [i.name for i in table.column_definitions]:
         print('Adding owner column...')
-        col_def = em.Column.define('Owner', em.builtin_types['text'], comment='Current owner of the record.')
+        col_def = em.Column.define('Owner', em.builtin_types['text'], comment='Group that can update the record.')
         table.create_column(catalog, col_def)
 
+    # FKey can be created only if you are a member of the group you are referancing, or if you are in the curators
+    # group.
     fkey_group_policy = {
         'set_owner': {"types": ["update", "insert"],
-                      "projection": ["URI"],
+                      "projection": ["ID"],
                       "projection_type": "acl"}
     }
-    fkey_group_acls = {"insert": [], "update": []}
+    fkey_group_acls = {"insert": [groups['curator']], "update": [groups['curator']]}
 
-    fkey_name = '{}_Group_fkey'.format(table_name)
+    owner_fkey_name = '{}_ERMrest_Group_fkey'.format(table_name)
     fk = em.ForeignKey.define(['Owner'],
-                              'public', 'Group', ['RID'],
+                              'public', 'ERMrest_Group', ['ID'],
                               acls=fkey_group_acls, acl_bindings=fkey_group_policy,
-                              constraint_names=[(schema_name, fkey_name)],
+                              constraint_names=[(schema_name, owner_fkey_name)],
                               )
+    try:
+        # Delete old fkey if there is one laying around....
+        f = table.foreign_keys[(schema_name, owner_fkey_name)]
+        f.delete(catalog, table)
+    except KeyError:
+        pass
     table.create_fkey(catalog, fk)
 
+    # Now configure the policy on the table...
     self_service_policy = {
+        # Set up a policy for the table that allows the creator of the record to update and delete the record.
         "self_service_creator": {
             "types": ["update", "delete"],
             "projection": ["RCB"],
             "projection_type": "acl"
         },
+        # Set up a policy for the table that allows members of the group referenced by the Owner column to update
+        # and delete the record.
         'self_service_group': {
             "types": ["update", "delete"],
-            "projection": [{"outbound": [schema_name, fkey_name]}, "URI"],
+            "projection": [{"outbound": [schema_name, owner_fkey_name]}, "ID"],
             "projection_type": "acl"
         }
     }
@@ -235,6 +231,58 @@ def configure_self_serve_policy(catalog, table):
     # Make table policy be self service, creators and owners can update.
     table.acl_bindings.update(self_service_policy)
     table.apply(catalog)
+
+
+def configure_baseline_catalog(catalog, catalog_name=None,
+                               admin=None, curator=None, writer=None, reader=None,
+                               set_policy=True, anonymous=False):
+    """
+    Put catalog into standard configuration which includes:
+    1) Setting default display mode to be to turn underscores to spaces.
+    2) Set access control assuming admin, curator, writer, and reader groups.
+    3) Configure ermrest_client to have readable names.
+
+    :param catalog: Ermrest catalog
+    :param catalog_name:
+    :param admin: Name of the admin group.  Defaults to catalog-admin
+    :param curator: Name of the curator group. Defaults to catalog-curator
+    :param writer: Name of the writer group. Defaults to catalog-writer
+    :param reader: Name of the reader group. Defaults to catalog-reader
+    :param set_policy: Set policy for catalog to support reader/writer/curator/admin groups.
+    :return:
+    """
+
+    model = catalog.getCatalogModel()
+    if not catalog_name:
+        # If catalog name is not provided, default to the host name of the server.
+        catalog_name = urlparse(catalog.get_server_uri()).hostname.split('.')[0]
+    groups = get_core_groups(catalog, model, catalog_name=catalog_name,
+                             admin=admin, curator=curator, writer=writer, reader=reader)
+    # Record configuration of catalog so we can retrieve when we configure tables later on.
+    model.annotations[CATALOG_CONFIG__TAG] = {'name': catalog_name, 'groups': groups}
+    model.apply(catalog)
+
+    # Set up default name style for all schemas.
+    for s in model.schemas.values():
+        s.annotations[chaise_tags.display] = {'name_style': {'underline_space': True}}
+
+    # modify catalog ACL config to support basic admin/curator/writer/reader access.
+    if set_policy:
+        model.acls.update({
+            "owner": [groups['admin']],
+            "insert": [groups['curator'], groups['writer']],
+            "update": [groups['curator']],
+            "delete": [groups['curator']],
+            "select": [groups['writer'], groups['reader']] if not anonymous else ['*'],
+            "enumerate": ["*"],
+        })
+
+    configure_ermrest_client(catalog, model, groups)
+    configure_group_table(catalog, model, groups)
+
+    model.apply(catalog)
+
+    return
 
 
 def configure_table_defaults(catalog, table, self_serve_policy=True):
@@ -250,14 +298,18 @@ def configure_table_defaults(catalog, table, self_serve_policy=True):
     :param self_serve_policy: If true, then configure the table to have a self service policy
     :return:
     """
+    model_root = catalog.getCatalogModel()
+    if CATALOG_CONFIG__TAG not in model_root.annotations:
+        raise DerivaConfigError(msg='Attempting to configure table before catalog is configured')
 
     table_name = table.name
     schema_name = table.sname
-    schema = catalog.getCatalogModel().schemas[schema_name]
+    schema = model_root.schemas[schema_name]
 
     if self_serve_policy:
-        configure_self_serve_policy(catalog, table)
+        configure_self_serve_policy(catalog, table, get_core_groups(catalog, model_root))
 
+    # Configure schema if not already done so.
     if chaise_tags.display not in schema.annotations:
         schema.annotations[chaise_tags.display] = {}
     if 'name_style' not in schema.annotations[chaise_tags.display]:
@@ -274,7 +326,7 @@ def configure_table_defaults(catalog, table, self_serve_policy=True):
         except KeyError:
             pass
         fk = em.ForeignKey.define([col],
-                                  'public', 'ermrest_client', ['id'],
+                                  'public', 'ERMrest_Client', ['ID'],
                                   constraint_names=[(schema_name, fk_name)],
                                   )
         table.create_fkey(catalog, fk)
@@ -331,7 +383,7 @@ def asset_map(schema_name, table_name, key_column):
     return asset_mappings
 
 
-def create_asset_table(catalog, table, key_column, groups=catalog_groups, set_policy=True):
+def create_asset_table(catalog, table, key_column, set_policy=True):
     """
     Create a basic asset table and configure upload script to load the table along with a table of associated
     metadata.
@@ -339,7 +391,6 @@ def create_asset_table(catalog, table, key_column, groups=catalog_groups, set_po
     :param table: Table to contain the asset metadata.  Asset will have a foreign key to this table.
     :param key_column: The column in the metadata table to be used to correlate assets with entries. Assets will be
     named using the key column.
-    :param groups:
     :param set_policy: If true, add ACLs for self serve policy to the asset table
     :return:
     """
@@ -347,6 +398,9 @@ def create_asset_table(catalog, table, key_column, groups=catalog_groups, set_po
     schema_name = table.sname
     model = catalog.getCatalogModel()
     asset_table_name = '{}_Asset'.format(table_name)
+
+    if CATALOG_CONFIG__TAG not in model.annotations:
+        raise DerivaConfigError(msg='Attempting to configure table before catalog is configured')
 
     if key_column not in [i.name for i in table.column_definitions]:
         raise DerivaConfigError(msg='Key column not found in target table')
@@ -385,14 +439,26 @@ def create_asset_table(catalog, table, key_column, groups=catalog_groups, set_po
     key_defs = [em.Key.define(['Filename'],
                               constraint_names=[(schema_name, '{}_Filename_key'.format(asset_table_name))],
                               comment='Key constraint to ensure file names in the table are unique')]
+
+    fkey_acls, fkey_acl_bindings = {}, {}
     if set_policy:
+        groups = get_core_groups(catalog, model)
         fkey_acls = {
-            "insert": [groups.curator],
-            "update": [groups.curator],
+            "insert": [groups['curator']],
+            "update": [groups['curator']],
         }
-        fkey_acl_bindings = fkey_self_service_policy
-    else:
-        fkey_acls, fkey_acl_bindings = {}, {}
+        fkey_acl_bindings = {
+            "self_linkage_creator": {
+                "types": ["insert", "update"],
+                "projection": ["RCB"],
+                "projection_type": "acl",
+            },
+            "self_linkage_owner": {
+                "types": ["insert", "update"],
+                "projection": ["Owner"],
+                "projection_type": "acl",
+            }
+        }
 
     fkey_defs = [
         em.ForeignKey.define(['{}_RID'.format(table_name)],
@@ -431,6 +497,7 @@ def main():
     parser = argparse.ArgumentParser(description="Configure an Ermrest Catalog")
     parser.add_argument('server', help='Catalog server name')
     parser.add_argument('--catalog_id', default=1, help="ID number of desired catalog (Default:1)")
+    parser.add_argument('--catalog_name', default=None, help="Name of catalog (Default:hostname)")
     parser.add_argument("--catalog", action='store_true', help='Configure a catalog')
     parser.add_argument('--table', default=None, metavar='SCHEMA_NAME:TABLE_NAME',
                         help='Name of table to be configured')
@@ -444,7 +511,7 @@ def main():
     catalog = ErmrestCatalog('https', args.server, args.catalog_id, credentials=credentials)
 
     if args.catalog:
-        configure_baseline_catalog(catalog, catalog_groups)
+        configure_baseline_catalog(catalog,catalog=args.catalog_name)
     if args.table:
         [schema_name, table_name] = args.table.split(':')
         table = catalog.getCatalogModel().schemas[schema_name].tables[table_name]
@@ -453,7 +520,7 @@ def main():
         if not args.table:
             print('Creating asset table requires specfication of a table')
             exit(1)
-        create_asset_table(catalog, table, catalog_groups, args.asset_table)
+        create_asset_table(catalog, table, args.asset_table)
 
 
 if __name__ == "__main__":
