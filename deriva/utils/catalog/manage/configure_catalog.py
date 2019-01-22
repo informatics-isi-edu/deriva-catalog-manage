@@ -156,7 +156,32 @@ def configure_group_table(catalog, model, groups, anonymous=False):
          }
     )
 
+    ermrest_group.create_key(em.Key.define(
+        ['ID', 'URL', 'Display_Name', 'Description'],
+        constraint_names=['Group_Compound_key'],
+        comment='Compound key used to ensure that columns sync up into Visible_Groups on update.'
+
+    ))
     ermrest_group.apply(catalog)
+
+    # Create a visible groups table
+    # Set policy so you can only add elements, you cannot edit as the column values will be synchonized from the
+    # group table.
+    visible_groups = em.Table.define(
+        'Visible_Groups',
+        column_defs=[em.Column.define('ID',em.builtin_types['text'], nullok=False),
+                     em.Column.define('URL', em.builtin_types['text']),
+                     em.Column.define('Display_Name', em.builtin_types['text']),
+                     em.Column.define('Description', em.builtin_types['text'])],
+        fkey_defs=[em.ForeignKey.define(['ID','URL', 'Display_Name', 'Description'],
+                                    'public', 'ERMrest_Group',['ID','URL', 'Display_Name', 'Description'],
+        on_update='CASCADE',
+              )],
+        acls=[],
+        acl_bindings=[]
+    )
+
+
 
 
 def configure_self_serve_policy(catalog, table, groups):
@@ -215,7 +240,7 @@ def configure_self_serve_policy(catalog, table, groups):
 
     owner_fkey_name = '{}_ERMrest_Group_fkey'.format(table_name)
     fk = em.ForeignKey.define(['Owner'],
-                              'public', 'ERMrest_Group', ['ID'],
+                              'public', 'Visible_Group', ['ID'],
 
                               acls=fkey_group_acls, acl_bindings=fkey_group_policy,
                               constraint_names=[(schema_name, owner_fkey_name)],
