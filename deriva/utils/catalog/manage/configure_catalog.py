@@ -5,6 +5,8 @@ import deriva.core.ermrest_model as em
 from deriva.core.ermrest_config import tag as chaise_tags
 from deriva.core import ErmrestCatalog, get_credential
 
+from requests import exceptions
+
 IS_PY2 = (sys.version_info[0] == 2)
 IS_PY3 = (sys.version_info[0] == 3)
 
@@ -149,14 +151,27 @@ def configure_group_table(catalog, model, groups, anonymous=False):
     })
 
     # Set compound key so that we can link up with Visible_Group table.
-    ermrest_group.create_key(
-        catalog,
-        em.Key.define(['ID', 'URL', 'Display_Name', 'Description'],
-                      constraint_names=['Group_Compound_key'],
-                      comment='Compound key to ensure that columns sync up into Visible_Groups on update.'
+    try:
+        ermrest_group.create_key(
+            catalog,
+            em.Key.define(['ID', 'URL', 'Display_Name', 'Description'],
+                          constraint_names=[('public', 'Group_Compound_key')],
+                          comment='Compound key to ensure that columns sync up into Visible_Groups on update.'
 
-                      )
-    )
+                          )
+        )
+        ermrest_group.create_key(
+            catalog,
+            em.Key.define(['ID'],
+                          constraint_names=[('public', 'Group_ID_key')],
+                          comment='Compound key to ensure that columns sync up into Visible_Groups on update.'
+
+                          )
+        )
+    except exceptions.HTTPError as e:
+        if 'already exists' not in e.args[0]:
+            raise
+
     ermrest_group.apply(catalog)
 
     # Create a visible groups table
@@ -171,6 +186,14 @@ def configure_group_table(catalog, model, groups, anonymous=False):
                          ),
         em.Column.define('Display_Name', em.builtin_types['text']),
         em.Column.define('Description', em.builtin_types['text'])
+    ]
+
+    key_defs = [
+        em.Key.define(['ID'],
+                      constraint_names=[('public', 'Group_ID_key')],
+                      comment='Compound key to ensure that columns sync up into Visible_Groups on update.'
+
+                      )
     ]
 
     # Set up a foreign key to the group table so that the creator of a record can only select
@@ -197,9 +220,9 @@ def configure_group_table(catalog, model, groups, anonymous=False):
     # Create the visible groups table. Set ACLs so that writers or curators can add entries or edit.  Allow writers
     # to be able to create new entries.  No one is allowed to update, as this is only done via the CASCADE.
     visible_groups = em.Table.define(
-        'Visible_Groups',
+        'Visible_Group',
         column_defs=column_defs,
-        fkey_defs=fkey_defs,
+        fkey_defs=fkey_defs, key_defs=key_defs,
         acls={
             # Make ERMrest_Group table visible to members of the group members, curators, and admins.
             'select': [groups['reader']],
