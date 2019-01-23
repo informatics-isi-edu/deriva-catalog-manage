@@ -40,6 +40,20 @@ To load load a specific module, you can use a import statement such as:
 from deriva.utils.catalog.manage import deriva_csv
 ```
 
+
+
+## CLIs
+
+The CLIs include:
+- `deriva-dump-catalog`: a command-line tools that will dump the current configuration of a catalog as a set of deriva-py scripts. The scripts are pure deriva-py and have placeholder variables to set annotations, acls, and acl-bindings.  The scripts are self contained and can be run directly from the command line using the python interpreter. Run without optioins the program will dump config files for an entire catalog.  Command line arguments can be used to specify a single table be dumped.  The dump catalog CLI also has an option to create an ER diagram of the catalog model.  This can be output in pdf, DOT or other image formats.
+
+- deriva-csv: upload a csv or other table like data with options to create a table in the catalog, to validate data and to upload to the catalog.  This command supports "chunked" upload for large files. If the table has columns that are keys, these can be specified in the command line.  In the absensee of a key in the CSV file, the script will use a system generated upload ID along with the row number of the CSV to ensure that the CSV uploads can be restarted without duplicate rows being entered.
+
+- deriva-catalog-configure: Set up catalog and tables in a catalog to have a standard baseline configuration.  Properties of the standard catalog confuration are:
+   - Table and column names are displayed with underscores converted into spaces
+   - Access control is configured for self-service. This means that there are four basic groups admin, curator, reader and writer and they are set up with appropriate rights. In addition, the creator of an entity may edit that entity, or assigne rights to a group to edit the entity.
+   - Tables and catalog are set up to display user names rather then user IDs.
+   
 ## APIs
 
 ### deriva_csv
@@ -55,33 +69,9 @@ Main entry points of this module are:
 - configure_table: This module provides a set of functions that can be used to create a baseline configuration for catalogs and tables.  The baseline configuration is:
     * Convert underscores in table and column names to spaces when displayed
     * Configure the ermrest_client table so that 
-    * Configure table so that system columns have meaningfull names and foreign keys are created to ermrest_client so that user names are used for creation and modification names.
+    * Configure table so that system columns have meaningful names and foreign keys are created to ermrest_client so that user names are used for creation and modification names.
     * Apply a "self-service" policy which allows creators of a table to edit it.  In addition, an additional 'Owner' column is added to the table to allow the creator to delegate the table to a different user to update.
-
-## CLIs
-
-The CLIs include:
-- `deriva-dump-catalog`: a command-line tools that will dump the current configuration of a catalog as a set of deriva-py scripts. The scripts are pure deriva-py and have placeholder variables to set annotations, acls, and acl-bindings.  The scripts are self contained and can be run directly from the command line using the python interpreter. Run without optioins the program will dump config files for an entire catalog.  Command line arguments can be used to specify a single table be dumped.
-
-- deriva-csv: upload a csv or other table like data with options to create a table in the catalog, to validate data and to upload to the catalog.  This command supports "chunked" upload for large files. If the table has columns that are keys, these can be specified in the command line.  In the absensee of a key in the CSV file, the script will use a system generated upload ID along with the row number of the CSV to ensure that the CSV uploads can be restarted without duplicate rows being entered.
-
-
-## Config files.
-
-All of the scripts in this package can recieved additional configuration information by providing a python config file which is specified by the --configfile command line argument.  Currently, the libary looks in the config file a variable named groups, which is a dictionary that maps between a conveient name and a Globus group URI:  e.g.:
-
-```
-groups = {
-    "admin": "https://auth.globus.org/80df6c56-a0e8-11e8-b9dc-0ada61684422",
-    "modeler": "https://auth.globus.org/a45e5ba2-709f-11e8-a40d-0e847f194132",
-    "curator ": "https://auth.globus.org/da80b96c-edab-11e8-80e2-0a7c1eab007a",
-    "writer": "https://auth.globus.org/6a96ec62-7032-11e8-9132-0a043b872764",
-    "reader": "https://auth.globus.org/aa5a2f6e-53e8-11e8-b60b-0a7c735d220a",
-    "isrd": 'https://auth.globus.org/3938e0d0-ed35-11e5-8641-22000ab4b42b'
-}
-```
-
-deriva-dump-catalog will include the variables defined in a config file into the generated files, and will attept to factor out use of the variable from any expressions that are generated by the program.
+    
 
 
 
