@@ -145,8 +145,8 @@ def configure_group_table(catalog, model, groups, anonymous=False):
 
     # Set table and row name.
     ermrest_group.annotations.update({
-        chaise_tags.display: {'name': 'Groups'},
-        chaise_tags.visible_columns: {'*': ['Display_Name', 'ID', 'URL', 'Description']},
+        chaise_tags.display: {'name': 'Globus Group'},
+        chaise_tags.visible_columns: {'*': ['Display_Name','Description', 'URL', 'ID']},
         chaise_tags.table_display: {'row_name': {'row_markdown_pattern': '{{{Display_Name}}}'}}
     })
 
@@ -164,7 +164,7 @@ def configure_group_table(catalog, model, groups, anonymous=False):
             catalog,
             em.Key.define(['ID'],
                           constraint_names=[('public', 'Group_ID_key')],
-                          comment='Compound key to ensure that columns sync up into Visible_Groups on update.'
+                          comment='Group ID is unique.'
 
                           )
         )
@@ -174,9 +174,9 @@ def configure_group_table(catalog, model, groups, anonymous=False):
 
     ermrest_group.apply(catalog)
 
-    # Create a visible groups table
+    # Create a catalog groups table
     column_defs = [
-        em.Column.define('ID', em.builtin_types['text'], nullok=False),
+        em.Column.define('Display_Name', em.builtin_types['text']),
         em.Column.define('URL', em.builtin_types['text'],
                          annotations={
                              chaise_tags.column_display: {
@@ -184,14 +184,14 @@ def configure_group_table(catalog, model, groups, anonymous=False):
                              chaise_tags.display: {'name': 'Group Management Page'}
                          }
                          ),
-        em.Column.define('Display_Name', em.builtin_types['text']),
-        em.Column.define('Description', em.builtin_types['text'])
+        em.Column.define('Description', em.builtin_types['text']),
+        em.Column.define('ID', em.builtin_types['text'], nullok=False)
     ]
 
     key_defs = [
         em.Key.define(['ID'],
                       constraint_names=[('public', 'Group_ID_key')],
-                      comment='Compound key to ensure that columns sync up into Visible_Groups on update.'
+                      comment='Compound key to ensure that columns sync up into Catalog_Groups on update.'
 
                       )
     ]
@@ -200,7 +200,7 @@ def configure_group_table(catalog, model, groups, anonymous=False):
     # groups of which they are members of for values of the Owners column.
     fkey_group_policy = {
         # FKey to group can be created only if you are a member of the group you are referencing
-        'set_owner': {"types": ["update", "insert"],
+        'set_owner': {"types": ["insert"],
                       "projection": ["ID"],
                       "projection_type": "acl"}
     }
@@ -217,10 +217,12 @@ def configure_group_table(catalog, model, groups, anonymous=False):
                              acl_bindings=fkey_group_policy,
                              )
     ]
+
     # Create the visible groups table. Set ACLs so that writers or curators can add entries or edit.  Allow writers
     # to be able to create new entries.  No one is allowed to update, as this is only done via the CASCADE.
-    visible_groups = em.Table.define(
-        'Visible_Group',
+    catalog_group = em.Table.define(
+        'Catalog_Group',
+        annotations={chaise_tags.table_display: {'row_name': {'row_markdown_pattern': '{{{Display_Name}}}'}}},
         column_defs=column_defs,
         fkey_defs=fkey_defs, key_defs=key_defs,
         acls={
@@ -229,7 +231,8 @@ def configure_group_table(catalog, model, groups, anonymous=False):
             'insert': [groups['writer'], groups['curator']]
         },
     )
-    model.schemas['public'].create_table(catalog, visible_groups)
+    model.schemas['public'].create_table(catalog, catalog_group)
+    configure_table_defaults(catalog, catalog_group, self_serve_policy=False)
 
 
 def configure_self_serve_policy(catalog, table, groups):
@@ -286,9 +289,9 @@ def configure_self_serve_policy(catalog, table, groups):
     # Allow curators to also update the foreign key.
     fkey_group_acls = {"insert": [groups['curator']], "update": [groups['curator']]}
 
-    owner_fkey_name = '{}_Visible_Group_fkey'.format(table_name)
+    owner_fkey_name = '{}_Catalog_Group_fkey'.format(table_name)
     fk = em.ForeignKey.define(['Owner'],
-                              'public', 'Visible_Group', ['ID'],
+                              'public', 'Catalog_Group', ['ID'],
 
                               acls=fkey_group_acls, acl_bindings=fkey_group_policy,
                               constraint_names=[(schema_name, owner_fkey_name)],
