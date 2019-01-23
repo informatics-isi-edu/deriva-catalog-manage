@@ -136,9 +136,8 @@ def configure_group_table(catalog, model, groups, anonymous=False):
 
     ermrest_group = model.schemas['public'].tables['ERMrest_Group']
 
-    # Make ERMrest_Group table visible to members of the group members, curators, and admins.
-    ermrest_group.acls['select'] = [groups['reader'], groups['writer'], groups['curator'], groups['admin']] \
-        if not anonymous else ['*']
+    # Make ERMrest_Group table visible to writers, curators, and admins.
+    ermrest_group.acls['select'] = [groups['writer'], groups['curator'], groups['admin']]
 
     configure_table_defaults(catalog, ermrest_group, self_serve_policy=False)
 
@@ -149,39 +148,65 @@ def configure_group_table(catalog, model, groups, anonymous=False):
         chaise_tags.table_display: {'row_name': {'row_markdown_pattern': '{{{Display_Name}}}'}}
     })
 
-    # Clean up presentation of URL field.
-    ermrest_group.column_definitions['URL'].annotations.update(
-        {chaise_tags.column_display: {'*': {'markdown_pattern': '[**{{Display_Name}}**]({{{URL}}})'}},
-         chaise_tags.display: {'name': 'Group Management Page'}
-         }
+    # Set compound key so that we can link up with Visible_Group table.
+    ermrest_group.create_key(
+        catalog,
+        em.Key.define(['ID', 'URL', 'Display_Name', 'Description'],
+                      constraint_names=['Group_Compound_key'],
+                      comment='Compound key to ensure that columns sync up into Visible_Groups on update.'
+
+                      )
     )
-
-    ermrest_group.create_key(em.Key.define(
-        ['ID', 'URL', 'Display_Name', 'Description'],
-        constraint_names=['Group_Compound_key'],
-        comment='Compound key used to ensure that columns sync up into Visible_Groups on update.'
-
-    ))
     ermrest_group.apply(catalog)
 
     # Create a visible groups table
-    # Set policy so you can only add elements, you cannot edit as the column values will be synchonized from the
-    # group table.
+    column_defs = [
+        em.Column.define('ID', em.builtin_types['text'], nullok=False),
+        em.Column.define('URL', em.builtin_types['text'],
+                         annotations={
+                             chaise_tags.column_display: {
+                                 '*': {'markdown_pattern': '[**{{Display_Name}}**]({{{URL}}})'}},
+                             chaise_tags.display: {'name': 'Group Management Page'}
+                         }
+                         ),
+        em.Column.define('Display_Name', em.builtin_types['text']),
+        em.Column.define('Description', em.builtin_types['text'])
+    ]
+
+    # Set up a foreign key to the group table so that the creator of a record can only select
+    # groups of which they are members of for values of the Owners column.
+    fkey_group_policy = {
+        # FKey to group can be created only if you are a member of the group you are referencing
+        'set_owner': {"types": ["update", "insert"],
+                      "projection": ["ID"],
+                      "projection_type": "acl"}
+    }
+
+    # Allow curators to also update the foreign key.
+    fkey_group_acls = {"insert": [groups['curator']], "update": [groups['curator']]}
+
+    # Create a foreign key to the group table. Set update policy to keep group entry in sync.
+    fkey_defs = [
+        em.ForeignKey.define(['ID', 'URL', 'Display_Name', 'Description'],
+                             'public', 'ERMrest_Group', ['ID', 'URL', 'Display_Name', 'Description'],
+                             on_update='CASCADE',
+                             acls=fkey_group_acls,
+                             acl_bindings=fkey_group_policy,
+                             )
+    ]
+    # Create the visible groups table. Set ACLs so that writers or curators can add entries or edit.  Allow writers
+    # to be able to create new entries.  No one is allowed to update, as this is only done via the CASCADE.
     visible_groups = em.Table.define(
         'Visible_Groups',
-        column_defs=[em.Column.define('ID',em.builtin_types['text'], nullok=False),
-                     em.Column.define('URL', em.builtin_types['text']),
-                     em.Column.define('Display_Name', em.builtin_types['text']),
-                     em.Column.define('Description', em.builtin_types['text'])],
-        fkey_defs=[em.ForeignKey.define(['ID','URL', 'Display_Name', 'Description'],
-                                    'public', 'ERMrest_Group',['ID','URL', 'Display_Name', 'Description'],
-        on_update='CASCADE',
-              )],
-        acls=[],
-        acl_bindings=[]
+        column_defs=column_defs,
+        fkey_defs=fkey_defs,
+        acls={
+            # Make ERMrest_Group table visible to members of the group members, curators, and admins.
+            'select': [groups['reader']],
+            'insert': [groups['writer'], groups['curator']]
+        },
     )
-
-
+    model.schemas['public'].create_table(catalog, visible_groups)
 
 
 def configure_self_serve_policy(catalog, table, groups):
@@ -238,7 +263,7 @@ def configure_self_serve_policy(catalog, table, groups):
     # Allow curators to also update the foreign key.
     fkey_group_acls = {"insert": [groups['curator']], "update": [groups['curator']]}
 
-    owner_fkey_name = '{}_ERMrest_Group_fkey'.format(table_name)
+    owner_fkey_name = '{}_Visible_Group_fkey'.format(table_name)
     fk = em.ForeignKey.define(['Owner'],
                               'public', 'Visible_Group', ['ID'],
 
