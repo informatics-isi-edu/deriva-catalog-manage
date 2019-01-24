@@ -231,8 +231,8 @@ def configure_group_table(catalog, model, groups, anonymous=False):
             'insert': [groups['writer'], groups['curator']]
         },
     )
-    model.schemas['public'].create_table(catalog, catalog_group)
-    configure_table_defaults(catalog, catalog_group, self_serve_policy=False)
+    catalog_group_table = model.schemas['public'].create_table(catalog, catalog_group)
+    configure_table_defaults(catalog, catalog_group_table, self_serve_policy=False)
 
 
 def configure_self_serve_policy(catalog, table, groups):
