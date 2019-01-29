@@ -141,12 +141,12 @@ def configure_group_table(catalog, model, groups, anonymous=False):
     # Make ERMrest_Group table visible to writers, curators, and admins.
     ermrest_group.acls['select'] = [groups['writer'], groups['curator'], groups['admin']]
 
-    configure_table_defaults(catalog, ermrest_group, self_serve_policy=False)
+    configure_table_defaults(catalog, ermrest_group, set_policy=False)
 
     # Set table and row name.
     ermrest_group.annotations.update({
         chaise_tags.display: {'name': 'Globus Group'},
-        chaise_tags.visible_columns: {'*': ['Display_Name','Description', 'URL', 'ID']},
+        chaise_tags.visible_columns: {'*': ['Display_Name', 'Description', 'URL', 'ID']},
         chaise_tags.table_display: {'row_name': {'row_markdown_pattern': '{{{Display_Name}}}'}}
     })
 
@@ -232,7 +232,7 @@ def configure_group_table(catalog, model, groups, anonymous=False):
         },
     )
     catalog_group_table = model.schemas['public'].create_table(catalog, catalog_group)
-    configure_table_defaults(catalog, catalog_group_table, self_serve_policy=False)
+    configure_table_defaults(catalog, catalog_group_table, set_policy=False)
 
 
 def configure_self_serve_policy(catalog, table, groups):
@@ -356,14 +356,14 @@ def configure_baseline_catalog(catalog, catalog_name=None,
         })
 
     configure_ermrest_client(catalog, model, groups)
-    configure_group_table(catalog, model, groups)
+    configure_group_table(catalog, model, groups, anonymous=anonymous)
 
     model.apply(catalog)
 
     return
 
 
-def configure_table_defaults(catalog, table, self_serve_policy=True):
+def configure_table_defaults(catalog, table, set_policy=True, anonymous=False):
     """
     This function adds the following basic configuration details to an existing table:
     1) Creates a self service modification policy in which creators can update update any row they create.  Optionally,
@@ -373,7 +373,7 @@ def configure_table_defaults(catalog, table, self_serve_policy=True):
        way.
     :param catalog: ERMRest catalog
     :param table: ERMRest table object which is to be configured.
-    :param self_serve_policy: If true, then configure the table to have a self service policy
+    :param set_policy: If true, then configure the table to have a self service policy
     :return:
     """
     model_root = catalog.getCatalogModel()
@@ -387,7 +387,12 @@ def configure_table_defaults(catalog, table, self_serve_policy=True):
     schema_name = table.sname
     schema = model_root.schemas[schema_name]
 
-    if self_serve_policy:
+    if anonymous:
+        table.acls.update({
+            "select": ['*']
+        })
+
+    if set_policy:
         configure_self_serve_policy(catalog, table, get_core_groups(catalog, model_root))
 
     # Configure schema if not already done so.
@@ -425,8 +430,13 @@ def main():
     parser.add_argument('--catalog_id', default=1, help="ID number of desired catalog (Default:1)")
     parser.add_argument('--catalog_name', default=None, help="Name of catalog (Default:hostname)")
     parser.add_argument("--catalog", action='store_true', help='Configure a catalog')
+    parser.add_argument("--schema", help='Name of schema to configure'),
     parser.add_argument('--table', default=None, metavar='SCHEMA_NAME:TABLE_NAME',
                         help='Name of table to be configured')
+    parser.add_argument('--setpolicy', default='True', choices=[True, False],
+                        help='Access control policy to be applied to catalog or table')
+    parser.add_argument('--publish', default=False, action='store_true', help='Make the catalog or table accessable for '
+                                                                             'reading without logging in')
     parser.add_argument('--config', default=None, help='python script to set up configuration variables)')
 
     args = parser.parse_args()
@@ -435,11 +445,12 @@ def main():
     catalog = ErmrestCatalog('https', args.server, args.catalog_id, credentials=credentials)
 
     if args.catalog:
-        configure_baseline_catalog(catalog, catalog_name=args.catalog_name)
+        configure_baseline_catalog(catalog, catalog_name=args.catalog_name,
+                                   set_policy=args.setpolicy, anonymous=args.publish)
     if args.table:
         [schema_name, table_name] = args.table.split(':')
         table = catalog.getCatalogModel().schemas[schema_name].tables[table_name]
-        configure_table_defaults(catalog, table)
+        configure_table_defaults(catalog, table, set_policy=args.setpolicy, anonymous=args.publish)
 
 
 if __name__ == "__main__":

@@ -205,6 +205,17 @@ def link_tables(s1,t1,s2,t2):
 
 
 
+def rename_column(catalog, table, from_column, to_column):
+
+    # Check to make sure that this column is not part of a FK definition.
+
+    # Create a new column_spec from the existing spec.
+    # Copy over the old values
+    # Udate annotations where the old spec was being used
+    # Delete old column
+    # Patch up
+    return
+
 
 def main():
     parser = argparse.ArgumentParser(description="Configure an Ermrest Catalog")
