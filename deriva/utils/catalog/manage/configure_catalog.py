@@ -4,6 +4,7 @@ import sys
 import deriva.core.ermrest_model as em
 from deriva.core.ermrest_config import tag as chaise_tags
 from deriva.core import ErmrestCatalog, get_credential
+from deriva.utils.catalog.components import create_asset_table
 
 from requests import exceptions
 
@@ -128,7 +129,8 @@ def group_urls(group):
 
 def configure_www_schema(catalog, model):
     www_schema = em.Schema.define('WWWW')
-    model.create_schema(catalog, em.Schema.define())
+    model.create_schema(catalog, em.Schema.define('WWW',
+                                                  comment='Schema for tables that will be displayed as web content'))
 
     page_table = em.Table.define(
         'Page',
@@ -138,8 +140,10 @@ def configure_www_schema(catalog, model):
         ],
         key_defs=[em.Key.define(['Title'],['Page_Title_key'])],
     )
-    catalog_group_table = www_schema.create_table(catalog, page_table)
+    page_table = www_schema.create_table(catalog, page_table)
     configure_table_defaults(catalog, page_table)
+    create_asset_table(catalog, page_table, 'Page_Assets', 'RID')
+
     return
 
 
