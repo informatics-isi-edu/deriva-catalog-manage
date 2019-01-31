@@ -738,18 +738,18 @@ def main():
     parser.add_argument('tabledata', help='Location of tablelike data to be added to catalog')
     parser.add_argument('server', help='Catalog server name')
     parser.add_argument('schema', help='Name of the schema to be used for table')
-    parser.add_argument('--catalog_id', default=1, help='ID number of desired catalog (Default:1)')
+    parser.add_argument('--catalog-id', default=1, help='ID number of desired catalog (Default:1)')
     parser.add_argument('--table', default=None, help='Name of table to be managed (Default:tabledata filename)')
-    parser.add_argument('--key_columns', type=python_value, default=None,
+    parser.add_argument('--key-columns', type=python_value, default=None,
                         help='List of columns to be used as key when creating table schema. Can be either:'
                              '1) just the name of the column to be used as a key or a list of the columns to be '
                              'used as keys. Compound keys can be expressed by using list of columns.')
-    parser.add_argument('--row_number_as_key', action='store_true', help='Use the row number in the CSV as a unique key'
+    parser.add_argument('--rownumber-as-key', action='store_true', help='Use the row number in the CSV as a unique key'
                                                                          'in conjunction with the upload_id')
-    parser.add_argument('--upload_id', default=None, help='Restart the upload')
+    parser.add_argument('--upload-id', default=None, help='Restart the upload')
     parser.add_argument('--convert', action='store_true',
                         help='Generate a deriva-py program to create the table [Default:True]')
-    parser.add_argument('--column_map', default=True, type=python_value,
+    parser.add_argument('--column-map', default=True, type=python_value,
                         help='Convert column names to cannonical form [Default:True]. A value can be provided to '
                              'customize the column mapping.  If the value is of the form [n1,n2,n3] '
                              'a column name is split into words, and if there is a case insenitive match on any of the '

@@ -299,15 +299,15 @@ def main():
 
     parser = argparse.ArgumentParser(description='Dump definition for catalog {}:{}')
     parser.add_argument('server', help='Catalog server name')
-    parser.add_argument('--catalog_id', default=1, help='ID number of desired catalog')
+    parser.add_argument('--catalog-id', default=1, help='ID number of desired catalog')
     parser.add_argument('--dir', default="catalog-configs", help='output directory name)')
     parser.add_argument('--table', default=None, help='Only dump out the spec for the specified table.  Format is '
                                                       'schema_name:table_name')
     parser.add_argument('--schemas', type=python_value, default=None, help='Only dump out the spec for the specified '
                                                                            'schemas (value or list).')
-    parser.add_argument('--skipschemas', type=python_value, default=None, help='List of schema so skip over')
+    parser.add_argument('--skip-schemas', type=python_value, default=None, help='List of schema so skip over')
     parser.add_argument('--graph', action='store_true', help='Dump graph of catalog')
-    parser.add_argument('--graphformat', choices=['pdf', 'dot', 'png', 'svg'],
+    parser.add_argument('--graph-format', choices=['pdf', 'dot', 'png', 'svg'],
                         default='pdf', help='Format to use for graph dump')
     args = parser.parse_args()
 

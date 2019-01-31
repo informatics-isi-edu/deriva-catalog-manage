@@ -427,17 +427,24 @@ def configure_table_defaults(catalog, table, set_policy=True, anonymous=False):
 def main():
     parser = argparse.ArgumentParser(description="Configure an Ermrest Catalog")
     parser.add_argument('server', help='Catalog server name')
-    parser.add_argument('--catalog_id', default=1, help="ID number of desired catalog (Default:1)")
-    parser.add_argument('--catalog_name', default=None, help="Name of catalog (Default:hostname)")
+    parser.add_argument('--catalog-id', default=1, help="ID number of desired catalog (Default:1)")
+    parser.add_argument('--catalog-name', default=None, help="Name of catalog (Default:hostname)")
     parser.add_argument("--catalog", action='store_true', help='Configure a catalog')
     parser.add_argument("--schema", help='Name of schema to configure'),
     parser.add_argument('--table', default=None, metavar='SCHEMA_NAME:TABLE_NAME',
                         help='Name of table to be configured')
-    parser.add_argument('--setpolicy', default='True', choices=[True, False],
+    parser.add_argument('--set-policy', default='True', choices=[True, False],
                         help='Access control policy to be applied to catalog or table')
-    parser.add_argument('--publish', default=False, action='store_true', help='Make the catalog or table accessable for '
-                                                                             'reading without logging in')
-    parser.add_argument('--config', default=None, help='python script to set up configuration variables)')
+    parser.add_argument('--reader-group', dest='reader', default='None',
+                        help='Group name to use for readers. For a catalog named "foo" defaults for foo-reader')
+    parser.add_argument('--writer-group', dest='writer', default='None',
+                        help='Group name to use for writers. For a catalog named "foo" defaults for foo-writer')
+    parser.add_argument('--curator-group', dest='curator', default='None',
+                        help='Group name to use for readers. For a catalog named "foo" defaults for foo-curator')
+    parser.add_argument('--admin-group', dest='admin', default='None',
+                        help='Group name to use for readers. For a catalog named "foo" defaults for foo-admin')
+    parser.add_argument('--publish', default=False, action='store_true',
+                        help='Make the catalog or table accessable for reading without logging in')
 
     args = parser.parse_args()
 
@@ -446,6 +453,7 @@ def main():
 
     if args.catalog:
         configure_baseline_catalog(catalog, catalog_name=args.catalog_name,
+                                   reader=args.reader, writer=args.writer, curator=args.curator, admin=args.admin,
                                    set_policy=args.setpolicy, anonymous=args.publish)
     if args.table:
         [schema_name, table_name] = args.table.split(':')
