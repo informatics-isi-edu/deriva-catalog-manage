@@ -126,6 +126,23 @@ def group_urls(group):
     return link, uri
 
 
+def configure_www_schema(catalog, model):
+    www_schema = em.Schema.define('WWWW')
+    model.create_schema(catalog, em.Schema.define())
+
+    page_table = em.Table.define(
+        'Page',
+        column_defs=[
+            em.Column.define('Title', em.builtin_types['text'], nullok=False, comment='Unique title for the page'),
+            em.Column.define('Content', em.builtin_types['markdown'], comment='Content of the page in markdown')
+        ],
+        key_defs=[em.Key.define(['Title'],['Page_Title_key'])],
+    )
+    catalog_group_table = www_schema.create_table(catalog, page_table)
+    configure_table_defaults(catalog, page_table)
+    return
+
+
 def configure_group_table(catalog, model, groups, anonymous=False):
     """
     Create a table in the public schema for tracking mapping of group names.
@@ -140,8 +157,6 @@ def configure_group_table(catalog, model, groups, anonymous=False):
 
     # Make ERMrest_Group table visible to writers, curators, and admins.
     ermrest_group.acls['select'] = [groups['writer'], groups['curator'], groups['admin']]
-
-    configure_table_defaults(catalog, ermrest_group, set_policy=False)
 
     # Set table and row name.
     ermrest_group.annotations.update({
@@ -435,30 +450,35 @@ def main():
                         help='Name of table to be configured')
     parser.add_argument('--set-policy', default='True', choices=[True, False],
                         help='Access control policy to be applied to catalog or table')
-    parser.add_argument('--reader-group', dest='reader', default='None',
+    parser.add_argument('--reader-group', dest='reader', default=None,
                         help='Group name to use for readers. For a catalog named "foo" defaults for foo-reader')
-    parser.add_argument('--writer-group', dest='writer', default='None',
+    parser.add_argument('--writer-group', dest='writer', default=None,
                         help='Group name to use for writers. For a catalog named "foo" defaults for foo-writer')
-    parser.add_argument('--curator-group', dest='curator', default='None',
+    parser.add_argument('--curator-group', dest='curator', default=None,
                         help='Group name to use for readers. For a catalog named "foo" defaults for foo-curator')
-    parser.add_argument('--admin-group', dest='admin', default='None',
+    parser.add_argument('--admin-group', dest='admin', default=None,
                         help='Group name to use for readers. For a catalog named "foo" defaults for foo-admin')
     parser.add_argument('--publish', default=False, action='store_true',
-                        help='Make the catalog or table accessable for reading without logging in')
+                        help='Make the catalog or table accessible for reading without logging in')
 
     args = parser.parse_args()
 
     credentials = get_credential(args.server)
     catalog = ErmrestCatalog('https', args.server, args.catalog_id, credentials=credentials)
 
-    if args.catalog:
-        configure_baseline_catalog(catalog, catalog_name=args.catalog_name,
-                                   reader=args.reader, writer=args.writer, curator=args.curator, admin=args.admin,
-                                   set_policy=args.setpolicy, anonymous=args.publish)
-    if args.table:
-        [schema_name, table_name] = args.table.split(':')
-        table = catalog.getCatalogModel().schemas[schema_name].tables[table_name]
-        configure_table_defaults(catalog, table, set_policy=args.setpolicy, anonymous=args.publish)
+    try:
+        if args.catalog:
+            print('Configuring catalog {}:{}'.format(args.server, args.catalog_id))
+            configure_baseline_catalog(catalog, catalog_name=args.catalog_name,
+                                       reader=args.reader, writer=args.writer, curator=args.curator, admin=args.admin,
+                                       set_policy=args.set_policy, anonymous=args.publish)
+        if args.table:
+            [schema_name, table_name] = args.table.split(':')
+            table = catalog.getCatalogModel().schemas[schema_name].tables[table_name]
+            configure_table_defaults(catalog, table, set_policy=args.set_policy, anonymous=args.publish)
+    except DerivaConfigError as e:
+        print(e.msg)
+    return
 
 
 if __name__ == "__main__":
