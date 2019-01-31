@@ -280,14 +280,14 @@ def configure_self_serve_policy(catalog, table, groups):
     self_service_policy = {
         # Set up a policy for the table that allows the creator of the record to update and delete the record.
         "self_service_creator": {
-            "types": ["update", "insert", 'delete'],
+            "types": ["update", 'delete'],
             "projection": ["RCB"],
             "projection_type": "acl"
         },
         # Set up a policy for the table that allows members of the group referenced by the Owner column to update
         # and delete the record.
         'self_service_group': {
-            "types": ["update", "insert", "delete"],
+            "types": ["update", "delete"],
             "projection": ["Owner"],
             "projection_type": "acl"
         }
