@@ -128,22 +128,32 @@ def group_urls(group):
 
 
 def configure_www_schema(catalog, model):
-    www_schema = em.Schema.define('WWWW')
-    model.create_schema(catalog, em.Schema.define('WWW',
-                                                  comment='Schema for tables that will be displayed as web content'))
+    try:
+        www_schema_def = em.Schema.define('WWW', comment='Schema for tables that will be displayed as web content')
+        www_schema = model.create_schema(catalog, www_schema_def)
+    except ValueError as e:
+        if 'already exists' not in e.args[0]:
+            raise
+        else:
+            www_schema = model.schemas['WWW']
 
-    page_table = em.Table.define(
+    page_table_def = em.Table.define(
         'Page',
         column_defs=[
             em.Column.define('Title', em.builtin_types['text'], nullok=False, comment='Unique title for the page'),
             em.Column.define('Content', em.builtin_types['markdown'], comment='Content of the page in markdown')
         ],
-        key_defs=[em.Key.define(['Title'],['Page_Title_key'])],
+        key_defs=[em.Key.define(['Title'], [['WWW','Page_Title_key']])],
     )
-    page_table = www_schema.create_table(catalog, page_table)
+    try:
+        page_table = www_schema.create_table(catalog, page_table_def)
+    except ValueError as e:
+        if 'already exists' not in e.args[0]:
+            raise
+        else:
+            page_table = www_schema.tables['Page']
     configure_table_defaults(catalog, page_table)
-    create_asset_table(catalog, page_table, 'Page_Assets', 'RID')
-
+    create_asset_table(catalog, page_table, 'RID')
     return
 
 
@@ -252,10 +262,12 @@ def configure_group_table(catalog, model, groups, anonymous=False):
     )
 
     public_schema = model.schemas['public']
+
     # Get or create Catalog_Group table....
-    print(public_schema)
-    catalog_group_table = public_schema.tables.get('Catalog_Group',
-                                                   public_schema.create_table(catalog, catalog_group))
+    if ('Catalog_Group' in public_schema.tables):
+        catalog_group_table = public_schema.tables['Catalog_Group']
+    else:
+        catalog_group_table = public_schema.create_table(catalog, catalog_group)
     configure_table_defaults(catalog, catalog_group_table, set_policy=False)
 
 
