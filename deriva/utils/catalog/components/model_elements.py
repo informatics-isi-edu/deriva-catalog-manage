@@ -246,11 +246,11 @@ def rename_column(catalog, table, from_column, to_column):
 def main():
     parser = argparse.ArgumentParser(description="Configure an Ermrest Catalog")
     parser.add_argument('server', help='Catalog server name')
-    parser.add_argument('--catalog_id', default=1, help="ID number of desired catalog (Default:1)")
+    parser.add_argument('--catalog-id', default=1, help="ID number of desired catalog (Default:1)")
 
     parser.add_argument('--table', default=None, metavar='SCHEMA_NAME:TABLE_NAME',
                         help='Name of table to be configured')
-    parser.add_argument('--asset_table', default=None, metavar='KEY_COLUMN',
+    parser.add_argument('--asset-table', default=None, metavar='KEY_COLUMN',
                         help='Create an asset table linked to table on key_column')
     parser.add_argument('--config', default=None, help='python script to set up configuration variables)')
 

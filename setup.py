@@ -24,7 +24,8 @@ setup(
         'console_scripts': [
             'deriva-catalog-dump = deriva.utils.catalog.manage.dump_catalog:main',
             'deriva-csv = deriva.utils.catalog.manage.deriva_csv:main',
-            'deriva-catalog-config = deriva.utils.catalog.manage.configure_catalog:main'
+            'deriva-catalog-config = deriva.utils.catalog.manage.configure_catalog:main',
+            'deriva-model-components = deriva.utils.catalog.components.model_elements:main'
         ]
     },
     requires=[
