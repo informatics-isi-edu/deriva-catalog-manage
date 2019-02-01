@@ -430,6 +430,7 @@ def configure_table_defaults(catalog, table, set_policy=True, anonymous=False):
             table.acls.update(schema.acls)
         elif model_root.acls:
             table.acls.update(model_root.acls)
+        table.acls.pop("create", None)
         # Now add permision for anyone to read.
         table.acls['select'] = ['*']
 
