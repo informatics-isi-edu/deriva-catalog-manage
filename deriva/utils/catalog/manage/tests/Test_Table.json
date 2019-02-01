@@ -1,0 +1,119 @@
+{
+    "fields": [
+        {
+            "name": "id",
+            "type": "integer",
+            "format": "default",
+            "constraints": {
+                "required": true,
+                "unique": true
+            }
+        },
+        {
+            "name": "field 0",
+            "type": "integer",
+            "format": "default"
+        },
+        {
+            "name": "field 1",
+            "type": "boolean",
+            "format": "default"
+        },
+        {
+            "name": "field 2",
+            "type": "number",
+            "format": "default"
+        },
+        {
+            "name": "field 3",
+            "type": "string",
+            "format": "default"
+        },
+        {
+            "name": "field 4",
+            "type": "string",
+            "format": "default"
+        },
+        {
+            "name": "field 5",
+            "type": "integer",
+            "format": "default"
+        },
+        {
+            "name": "field 6",
+            "type": "boolean",
+            "format": "default"
+        },
+        {
+            "name": "field 7",
+            "type": "number",
+            "format": "default"
+        },
+        {
+            "name": "field 8",
+            "type": "string",
+            "format": "default"
+        },
+        {
+            "name": "field 9",
+            "type": "string",
+            "format": "default"
+        },
+        {
+            "name": "field 10",
+            "type": "integer",
+            "format": "default"
+        },
+        {
+            "name": "field 11",
+            "type": "boolean",
+            "format": "default"
+        },
+        {
+            "name": "field 12",
+            "type": "number",
+            "format": "default"
+        },
+        {
+            "name": "field 13",
+            "type": "string",
+            "format": "default"
+        },
+        {
+            "name": "field 14",
+            "type": "string",
+            "format": "default"
+        },
+        {
+            "name": "field 15",
+            "type": "integer",
+            "format": "default"
+        },
+        {
+            "name": "field 16",
+            "type": "boolean",
+            "format": "default"
+        },
+        {
+            "name": "field 17",
+            "type": "number",
+            "format": "default"
+        },
+        {
+            "name": "field 18",
+            "type": "string",
+            "format": "default"
+        },
+        {
+            "name": "field 19",
+            "type": "string",
+            "format": "default"
+        }
+    ],
+    "missingValues": [
+        ""
+    ],
+    "primaryKey": [
+        "id"
+    ]
+}

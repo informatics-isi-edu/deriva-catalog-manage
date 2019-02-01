@@ -4,7 +4,9 @@ import sys
 import deriva.core.ermrest_model as em
 from deriva.core.ermrest_config import tag as chaise_tags
 from deriva.core import ErmrestCatalog, get_credential
-from deriva.utils.catalog.manage.configure_catalog import configure_table_defaults
+
+# Import of configure_catalog at end of file to avoid circular dependency on load.
+#from deriva.utils.catalog.manage.configure_catalog import configure_table_defaults
 
 from requests import exceptions
 
@@ -90,6 +92,13 @@ def create_asset_table(catalog, table, key_column, set_policy=True):
     if key_column not in [i.name for i in table.column_definitions]:
         raise DerivaConfigError(msg='Key column not found in target table')
 
+    groups = {
+            'admin': model.annotations[CATALOG_CONFIG__TAG]['groups']['admin'],
+            'curator': model.annotations[CATALOG_CONFIG__TAG]['groups']['curator'],
+            'writer': model.annotations[CATALOG_CONFIG__TAG]['groups']['writer'],
+            'reader': model.annotations[CATALOG_CONFIG__TAG]['groups']['reader']
+        }
+
     column_annotations = {
         'URL': {
             chaise_tags.asset: {
@@ -127,7 +136,6 @@ def create_asset_table(catalog, table, key_column, set_policy=True):
 
     fkey_acls, fkey_acl_bindings = {}, {}
     if set_policy:
-        groups = get_core_groups(catalog, model)
         fkey_acls = {
             "insert": [groups['curator']],
             "update": [groups['curator']],
@@ -177,32 +185,50 @@ def create_asset_table(catalog, table, key_column, set_policy=True):
     model.apply(catalog)
     return asset_table
 
-def link_tables(s1,t1,s2,t2):
+
+def link_tables(catalog, model, t1, t2, schema=None):
     """
     Create a pure binary association table that connects rows in table one to rows in table 2.  Assume that RIDs are
     used for linking
-    :param s1:
-    :param t1:
-    :param s2:
+    :param catalog:
+    :param model:
+    :param t1: table spec
     :param t2:
     :return:
     """
-    fkey_defs = [
-        em.ForeignKey.define(['{}_RID'.format(table1_name)],
-                             schema1_name, table1_name, ['RID'],
-                             acls=fkey_acls, acl_bindings=fkey_acl_bindings,
-                             constraint_names=[(schema_name, '()_{}_fkey'.format(asset_table_name, table_name))],
-                             )
-        em.ForeignKey.define(['{}_RID'.format(table_name)],
-                             schema2_name, table2_name, ['RID'],
-                             acls=fkey_acls, acl_bindings=fkey_acl_bindings,
-                             cons
-    ]
-    table_def = em.Table.define(table_name, column_defs,
-                                key_defs=key_defs, fkey_defs=fkey_defs,
-                                annotations=table_annotations,
-                                comment='Asset table for {}'.format(table_name))
 
+    (from_schema, from_table) = t1
+    (to_schema, to_table) = t2
+
+    if schema is None:
+        schema = from_schema
+
+    association_table_name = '{}_{}'.format(from_table, to_table)
+
+    columun_defs = [
+        em.Column.define('{}_RID'.format(from_table), em.builtin_types['text'], nullok=False),
+        em.Column.define('{}_RID'.format(to_table), em.builtin_types['text'], nullok=False)
+    ]
+
+    key_defs = [
+        em.Key.define(['{}_RID'.format(from_table), '{}_RID_{}_RID_key'.format(from_table, to_table)],
+                      constraint_names=[(from_schema, '()_{}_key'.format(association_table_name, from_table))],
+                      )
+    ]
+
+    fkey_defs = [
+        em.ForeignKey.define(['{}_RID'.format(from_table)],
+                             from_schema, from_table, ['RID'],
+                             constraint_names=[(from_schema, '{}_{}_fkey'.format(association_table_name, from_table))],
+                             ),
+        em.ForeignKey.define(['{}_RID'.format(to_table)],
+                             to_schema, to_table, ['RID'],
+                             constraint_names=[(to_schema, '{}_{}_fkey'.format(association_table_name, to_table))])
+    ]
+    table_def = em.Table.define(association_table_name, column_defs=columun_defs,
+                                key_defs=key_defs, fkey_defs=fkey_defs,
+                                comment='Association table for {}'.format(association_table_name))
+    return model.schemas[schema].create_table(catalog, table_def)
 
 
 def rename_column(catalog, table, from_column, to_column):
@@ -242,6 +268,9 @@ def main():
             exit(1)
         create_asset_table(catalog, table, args.asset_table)
 
+
+# Do this import at the end of the file to deal with circular dependency.
+from deriva.utils.catalog.manage.configure_catalog import configure_table_defaults
 
 if __name__ == "__main__":
     main()

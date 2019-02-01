@@ -4,7 +4,7 @@ import sys
 import deriva.core.ermrest_model as em
 from deriva.core.ermrest_config import tag as chaise_tags
 from deriva.core import ErmrestCatalog, get_credential
-from deriva.utils.catalog.components import create_asset_table
+from deriva.utils.catalog.components.model_elements import create_asset_table
 
 from requests import exceptions
 
@@ -250,7 +250,12 @@ def configure_group_table(catalog, model, groups, anonymous=False):
             'insert': [groups['writer'], groups['curator']]
         },
     )
-    catalog_group_table = model.schemas['public'].create_table(catalog, catalog_group)
+
+    public_schema = model.schemas['public']
+    # Get or create Catalog_Group table....
+    print(public_schema)
+    catalog_group_table = public_schema.tables.get('Catalog_Group',
+                                                   public_schema.create_table(catalog, catalog_group))
     configure_table_defaults(catalog, catalog_group_table, set_policy=False)
 
 
@@ -376,6 +381,7 @@ def configure_baseline_catalog(catalog, catalog_name=None,
 
     configure_ermrest_client(catalog, model, groups)
     configure_group_table(catalog, model, groups, anonymous=anonymous)
+    configure_www_schema(catalog, model)
 
     model.apply(catalog)
 
