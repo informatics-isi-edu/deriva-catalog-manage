@@ -155,7 +155,12 @@ def configure_www_schema(catalog, model):
         else:
             page_table = www_schema.tables['Page']
     configure_table_defaults(catalog, page_table)
-    create_asset_table(catalog, page_table, 'RID')
+    try:
+        create_asset_table(catalog, page_table, 'RID')
+    except ValueError as e:
+        if 'already exists' not in e.args[0]:
+            raise
+
     return
 
 
@@ -266,10 +271,14 @@ def configure_group_table(catalog, model, groups, anonymous=False):
     public_schema = model.schemas['public']
 
     # Get or create Catalog_Group table....
-    if ('Catalog_Group' in public_schema.tables):
-        catalog_group_table = public_schema.tables['Catalog_Group']
-    else:
+    try:
         catalog_group_table = public_schema.create_table(catalog, catalog_group)
+    except ValueError as e:
+        if 'already exists' not in e.args[0]:
+            raise
+        else:
+            catalog_group_table = public_schema.tables['Catalog_Group']
+
     configure_table_defaults(catalog, catalog_group_table, set_policy=False)
 
 
