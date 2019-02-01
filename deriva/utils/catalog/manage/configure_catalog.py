@@ -143,7 +143,9 @@ def configure_www_schema(catalog, model):
             em.Column.define('Title', em.builtin_types['text'], nullok=False, comment='Unique title for the page'),
             em.Column.define('Content', em.builtin_types['markdown'], comment='Content of the page in markdown')
         ],
-        key_defs=[em.Key.define(['Title'], [['WWW','Page_Title_key']])],
+        key_defs=[em.Key.define(['Title'], [['WWW', 'Page_Title_key']])],
+        annotations={chaise_tags.visible_foreign_keys: {'detailed': {}},
+                     chaise_tags.visible_columns: {'detailed': ['Content']}}
     )
     try:
         page_table = www_schema.create_table(catalog, page_table_def)
