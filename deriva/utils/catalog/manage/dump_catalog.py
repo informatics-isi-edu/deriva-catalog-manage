@@ -356,7 +356,7 @@ def main():
         graph = DerivaCatalogToGraph(catalog)
         graphfile = '{}_{}'.format(server, catalog_id)
         graph.catalog_to_graph(skip_schemas=skip_schemas, schemas=schemas, skip_terms=True, skip_assocation_tables=True)
-        graph.save(filename=graphfile, format=args.graphformat)
+        graph.save(filename=graphfile, format=args.graph_format)
     else:
         print("Dumping catalog def....")
         stringer = DerivaCatalogToString(catalog)
