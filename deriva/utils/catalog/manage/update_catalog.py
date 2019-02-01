@@ -176,7 +176,7 @@ class CatalogUpdater:
         if mode == 'annotations':
             self.update_annotations(table, table_annotations, replace=replace)
 
-            column_annotations = {i.name: i.annotations for i in column_defs}
+            column_annotations = {i['name']: i['annotations'] for i in column_defs}
             for c in table.column_definitions:
                 if c.name in [column_annotations]:
                     self.update_annotations(c, column_annotations[c.name], replace=replace)
