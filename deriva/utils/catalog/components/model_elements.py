@@ -86,18 +86,12 @@ def create_asset_table(catalog, table, key_column, set_policy=True):
     model = catalog.getCatalogModel()
     asset_table_name = '{}_Asset'.format(table_name)
 
-    if CATALOG_CONFIG__TAG not in model.annotations:
+
+    if set_policy and CATALOG_CONFIG__TAG not in model.annotations:
         raise DerivaConfigError(msg='Attempting to configure table before catalog is configured')
 
     if key_column not in [i.name for i in table.column_definitions]:
         raise DerivaConfigError(msg='Key column not found in target table')
-
-    groups = {
-            'admin': model.annotations[CATALOG_CONFIG__TAG]['groups']['admin'],
-            'curator': model.annotations[CATALOG_CONFIG__TAG]['groups']['curator'],
-            'writer': model.annotations[CATALOG_CONFIG__TAG]['groups']['writer'],
-            'reader': model.annotations[CATALOG_CONFIG__TAG]['groups']['reader']
-        }
 
     column_annotations = {
         'URL': {
@@ -136,6 +130,13 @@ def create_asset_table(catalog, table, key_column, set_policy=True):
 
     fkey_acls, fkey_acl_bindings = {}, {}
     if set_policy:
+        groups = {
+            'admin': model.annotations[CATALOG_CONFIG__TAG]['groups']['admin'],
+            'curator': model.annotations[CATALOG_CONFIG__TAG]['groups']['curator'],
+            'writer': model.annotations[CATALOG_CONFIG__TAG]['groups']['writer'],
+            'reader': model.annotations[CATALOG_CONFIG__TAG]['groups']['reader']
+        }
+
         fkey_acls = {
             "insert": [groups['curator']],
             "update": [groups['curator']],
@@ -186,7 +187,7 @@ def create_asset_table(catalog, table, key_column, set_policy=True):
     return asset_table
 
 
-def link_tables(catalog, model, t1, t2, schema=None):
+def link_tables(catalog, t1, t2, model=None, schema=None):
     """
     Create a pure binary association table that connects rows in table one to rows in table 2.  Assume that RIDs are
     used for linking
@@ -197,49 +198,73 @@ def link_tables(catalog, model, t1, t2, schema=None):
     :return:
     """
 
-    (from_schema, from_table) = t1
-    (to_schema, to_table) = t2
+    if model is None:
+        model = catalog.getCatalogModel()
+    (left_schema, left_table) = t1
+    (right_schema, right_table) = t2
 
     if schema is None:
-        schema = from_schema
+        schema = left_schema
 
-    association_table_name = '{}_{}'.format(from_table, to_table)
+    association_table_name = '{}_{}'.format(left_table, right_table)
 
     columun_defs = [
-        em.Column.define('{}_RID'.format(from_table), em.builtin_types['text'], nullok=False),
-        em.Column.define('{}_RID'.format(to_table), em.builtin_types['text'], nullok=False)
+        em.Column.define('{}_RID'.format(left_table), em.builtin_types['text'], nullok=False),
+        em.Column.define('{}_RID'.format(right_table), em.builtin_types['text'], nullok=False)
     ]
 
     key_defs = [
-        em.Key.define(['{}_RID'.format(from_table), '{}_RID_{}_RID_key'.format(from_table, to_table)],
-                      constraint_names=[(from_schema, '()_{}_key'.format(association_table_name, from_table))],
+        em.Key.define(['%s_RID' % left_table, '%s_RID' % right_table],
+                      constraint_names=[(schema, '{}_{}_{}_key'.format(association_table_name, left_table, right_table))],
                       )
     ]
 
     fkey_defs = [
-        em.ForeignKey.define(['{}_RID'.format(from_table)],
-                             from_schema, from_table, ['RID'],
-                             constraint_names=[(from_schema, '{}_{}_fkey'.format(association_table_name, from_table))],
+        em.ForeignKey.define(['{}_RID'.format(left_table)],
+                             left_schema, left_table, ['RID'],
+                             constraint_names=[(schema, '{}_{}_fkey'.format(association_table_name, left_table))],
                              ),
-        em.ForeignKey.define(['{}_RID'.format(to_table)],
-                             to_schema, to_table, ['RID'],
-                             constraint_names=[(to_schema, '{}_{}_fkey'.format(association_table_name, to_table))])
+        em.ForeignKey.define(['{}_RID'.format(right_table)],
+                             right_schema, right_table, ['RID'],
+                             constraint_names=[(schema, '{}_{}_fkey'.format(association_table_name, right_table))])
     ]
     table_def = em.Table.define(association_table_name, column_defs=columun_defs,
                                 key_defs=key_defs, fkey_defs=fkey_defs,
                                 comment='Association table for {}'.format(association_table_name))
-    return model.schemas[schema].create_table(catalog, table_def)
+    print(table_def)
+    association_table = model.schemas[schema].create_table(catalog, table_def)
+    return association_table
 
 
-def rename_column(catalog, table, from_column, to_column):
+def rename_column(catalog, table, from_column, to_column, delete=False):
 
-    # Check to make sure that this column is not part of a FK definition.
+    table_name = table.name
+    schema_name = table.sname
+
+    # Check to make sure that this column is not part of a FK.
+    column_ref =  {'schema_name': schema_name, 'table_name':table_name, 'column_name': from_column}
+    for fk in table.referenced_by:
+        if column_ref in fk.referenced_columns:
+            raise DerivaConfigError(msg='Cannot rename column that is used in foreign key')
 
     # Create a new column_spec from the existing spec.
+    to_def = table.column_definitions[from_column].prejson()
+    to_def['name'] = to_column
+    table.create_column(catalog,to_def)
+
     # Copy over the old values
+    table_path = catalog.getPathBuilder().schemas[schema_name].tables[table_name]
+    table_path.update(table_path.entities(table_path.RID, **{to_column: table_path.column_definitions[from_column]}))
+
+
     # Udate annotations where the old spec was being used
+    for k, v in table.annotations[chaise_tags.visible_columns]:
+        pass
+
     # Delete old column
-    # Patch up
+    if delete:
+        table.column_definitions[from_column].delete(catalog, table)
+
     return
 
 

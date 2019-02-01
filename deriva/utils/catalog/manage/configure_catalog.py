@@ -24,7 +24,7 @@ class DerivaConfigError(Exception):
         self.msg = msg
 
 
-def configure_ermrest_client(catalog, model, groups, anonymous=False):
+def configure_ermrest_client(catalog, model, groups):
     """
     Set up ermrest_client table so that it has readable names and uses the display name of the user as the row name.
     :param catalog: Ermrest catalog
@@ -35,15 +35,15 @@ def configure_ermrest_client(catalog, model, groups, anonymous=False):
 
     ermrest_client = model.schemas['public'].tables['ERMrest_Client']
 
-    # Make ermrest_client table visible to members of the reader group. By default, this is not
-    ermrest_client.acls['select'] = [groups['reader'], groups['writer'], groups['curator'], groups['admin']] \
-        if not anonymous else ['*']
+    # Make ermrest_client table visible.  If the GUID or member name is considered sensitivie, then this needs to be
+    # changed.
+    ermrest_client.acls['select'] = ['*']
 
     # Set table and row name.
     ermrest_client.annotations.update({
         chaise_tags.display: {'name': 'Users'},
-        chaise_tags.visible_columns: {'compact': ['ID', 'Full_Name', 'Email']},
-        chaise_tags.table_display: {'row_name': {'row_markdown_pattern': '{{{Display_Name}}}'}}
+        chaise_tags.visible_columns: {'compact': ['ID', 'Full_Name', 'Display_Name','Email']},
+        chaise_tags.table_display: {'row_name': {'row_markdown_pattern': '{{{Full_Name}}}'}}
     })
 
     column_annotations = {
@@ -70,7 +70,9 @@ def update_group_table(catalog):
 def get_core_groups(catalog, model, catalog_name=None, admin=None, curator=None, writer=None, reader=None,
                     replace=False):
     """
-    Look in the catalog to get the group IDs for the four core groups used in the baseline configuration.
+    Look in the catalog to get the group IDs for the four core groups used in the baseline configuration. THere are
+    three options:  1) core group name can be provided explicitly, 2) group name can be formed from a catalog
+    name and a default group name, 3) group name can be formed from the server name and a default group name.
     :param catalog:
     :param model:
     :param catalog_name: Name of the catalog to use as a prefix in looking up default name of the group. Default
@@ -111,10 +113,12 @@ def get_core_groups(catalog, model, catalog_name=None, admin=None, curator=None,
         catalog_groups = {i['Display_Name']: i for i in pb.public.ERMrest_Group.entities()}
         groups = {}
         try:
-            groups['admin'] = catalog_groups[admin]['ID']
-            groups['curator'] = catalog_groups[curator]['ID']
-            groups['writer'] = catalog_groups[writer]['ID']
-            groups['reader'] = catalog_groups[reader]['ID'] if reader is not '*' else '*'
+            groups.update({
+                'admin': catalog_groups[admin]['ID'],
+                'curator': catalog_groups[curator]['ID'],
+                'writer': catalog_groups[writer]['ID'],
+                'reader': catalog_groups[reader]['ID'] if reader is not '*' else '*'
+            })
         except KeyError as e:
             raise DerivaConfigError(msg='Group {} not defined'.format(e.args[0]))
     return groups
@@ -128,6 +132,15 @@ def group_urls(group):
 
 
 def configure_www_schema(catalog, model):
+    """
+    Set up a new schema and tables to hold web-page like content.  The tables include a page table, and a asset table
+    that can have images that are referred to by the web page.  Pages are written using markdown.
+    :param catalog:
+    :param model:
+    :return:
+    """
+
+    # Create a WWW schema if one doesn't already exist.
     try:
         www_schema_def = em.Schema.define('WWW', comment='Schema for tables that will be displayed as web content')
         www_schema = model.create_schema(catalog, www_schema_def)
@@ -137,6 +150,7 @@ def configure_www_schema(catalog, model):
         else:
             www_schema = model.schemas['WWW']
 
+    # Create the page table
     page_table_def = em.Table.define(
         'Page',
         column_defs=[
@@ -155,6 +169,8 @@ def configure_www_schema(catalog, model):
         else:
             page_table = www_schema.tables['Page']
     configure_table_defaults(catalog, page_table)
+
+    # Now set up the asset table
     try:
         create_asset_table(catalog, page_table, 'RID')
     except ValueError as e:
@@ -164,13 +180,12 @@ def configure_www_schema(catalog, model):
     return
 
 
-def configure_group_table(catalog, model, groups, anonymous=False):
+def configure_group_table(catalog, model, groups):
     """
     Create a table in the public schema for tracking mapping of group names.
     :param catalog:
     :param model:
     :param groups:
-    :param anonymous: Set to true if anonymous read access is to be allowed.
     :return:
     """
 
@@ -300,7 +315,6 @@ def configure_self_serve_policy(catalog, table, groups):
     # a foreign key to an entry in the group table.  We will set the access control on the foreign key so that you
     # are only able to delagate access to a the creator of the entity belongs to.
     if 'Owner' not in [i.name for i in table.column_definitions]:
-        print('Adding owner column...')
         col_def = em.Column.define('Owner', em.builtin_types['text'], comment='Group that can update the record.')
         table.create_column(catalog, col_def)
 
@@ -358,7 +372,7 @@ def configure_self_serve_policy(catalog, table, groups):
 
 def configure_baseline_catalog(catalog, catalog_name=None,
                                admin=None, curator=None, writer=None, reader=None,
-                               set_policy=True, anonymous=False):
+                               set_policy=True, public=False):
     """
     Put catalog into standard configuration which includes:
     1) Setting default display mode to be to turn underscores to spaces.
@@ -372,7 +386,7 @@ def configure_baseline_catalog(catalog, catalog_name=None,
     :param writer: Name of the writer group. Defaults to catalog-writer
     :param reader: Name of the reader group. Defaults to catalog-reader
     :param set_policy: Set policy for catalog to support reader/writer/curator/admin groups.
-    :param anonymous: Set to true if anonymous read access should be allowed.
+    :param public: Set to true if anonymous read access should be allowed.
     :return:
     """
 
@@ -398,12 +412,12 @@ def configure_baseline_catalog(catalog, catalog_name=None,
             "insert": [groups['curator'], groups['writer']],
             "update": [groups['curator']],
             "delete": [groups['curator']],
-            "select": [groups['writer'], groups['reader']] if not anonymous else ['*'],
+            "select": [groups['writer'], groups['reader']] if not public else ['*'],
             "enumerate": ["*"],
         })
 
     configure_ermrest_client(catalog, model, groups)
-    configure_group_table(catalog, model, groups, anonymous=anonymous)
+    configure_group_table(catalog, model, groups)
     configure_www_schema(catalog, model)
 
     model.apply(catalog)
@@ -411,7 +425,7 @@ def configure_baseline_catalog(catalog, catalog_name=None,
     return
 
 
-def configure_table_defaults(catalog, table, set_policy=True, anonymous=False):
+def configure_table_defaults(catalog, table, set_policy=True, public=False):
     """
     This function adds the following basic configuration details to an existing table:
     1) Creates a self service modification policy in which creators can update update any row they create.  Optionally,
@@ -435,7 +449,7 @@ def configure_table_defaults(catalog, table, set_policy=True, anonymous=False):
     schema_name = table.sname
     schema = model_root.schemas[schema_name]
 
-    if anonymous:
+    if public:
         # First copy dver any inherited ACLS.
         if schema.acls:
             table.acls.update(schema.acls)
@@ -509,11 +523,11 @@ def main():
             print('Configuring catalog {}:{}'.format(args.server, args.catalog_id))
             configure_baseline_catalog(catalog, catalog_name=args.catalog_name,
                                        reader=args.reader, writer=args.writer, curator=args.curator, admin=args.admin,
-                                       set_policy=args.set_policy, anonymous=args.publish)
+                                       set_policy=args.set_policy, public=args.publish)
         if args.table:
             [schema_name, table_name] = args.table.split(':')
             table = catalog.getCatalogModel().schemas[schema_name].tables[table_name]
-            configure_table_defaults(catalog, table, set_policy=args.set_policy, anonymous=args.publish)
+            configure_table_defaults(catalog, table, set_policy=args.set_policy, public=args.publish)
     except DerivaConfigError as e:
         print(e.msg)
     return
