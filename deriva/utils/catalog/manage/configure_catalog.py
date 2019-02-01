@@ -425,9 +425,13 @@ def configure_table_defaults(catalog, table, set_policy=True, anonymous=False):
     schema = model_root.schemas[schema_name]
 
     if anonymous:
-        table.acls.update({
-            "select": ['*']
-        })
+        # First copy dver any inherited ACLS.
+        if schema.acls:
+            table.acls.update(schema.acls)
+        elif model_root.acls:
+            table.acls.update(model_root.acls)
+        # Now add permision for anyone to read.
+        table.acls['select'] = ['*']
 
     if set_policy:
         configure_self_serve_policy(catalog, table, get_core_groups(catalog, model_root))
