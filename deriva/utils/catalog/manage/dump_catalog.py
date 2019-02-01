@@ -319,7 +319,7 @@ def main():
     schemas = args.schemas
     schemas = [schemas] if schemas is not None and type(schemas) is str else schemas
 
-    skip_schemas = args.skipschemas
+    skip_schemas = args.skip_schemas
     skip_schemas = [skip_schemas] if skip_schemas is not None and type(skip_schemas) is str else skip_schemas
 
     try:
