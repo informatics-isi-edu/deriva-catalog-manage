@@ -123,12 +123,13 @@ def create_default_visible_columns(catalog, table_spec, model=None, set_annotati
     (schema_name,table_name) = table_spec
     table = model.schemas[schema_name].tables[table_name]
 
-    if chaise_tags.visible_columns not in table.annotations:
+    if chaise_tags.visible_columns not in table.annotations or really:
         table.annotations[chaise_tags.visible_columns] = default_visible_column_spec(table)
         table.apply(catalog)
     else:
         raise DerivaConfigError(msg='Existing visible column annotation in {}'.format(table_name))
     return
+
 
 def default_visible_column_spec(table):
     """
@@ -140,11 +141,11 @@ def default_visible_column_spec(table):
     fkeys = {i.foreign_key_columns[0]['column_name']: [i.names[0], i.referenced_columns[0]['column_name']]
              for i in table.foreign_keys}
     return {'*': [
-        {'outbound': fkeys[i.name]} if i.name in fkeys else i.name
+        {'source': [{'outbound': fkeys[i.name][0]}, fkeys[i.name][1]]}
+        if i.name in fkeys else i.name
         for i in table.column_definitions
     ]
     }
-
 
 class DerivaModelElementsCLI(BaseCLI):
 
@@ -158,13 +159,11 @@ class DerivaModelElementsCLI(BaseCLI):
         self.host = None
 
         # parent arg parser
-        self.remove_options(['--config-file', '--credential-file'])
-
-        parser = argparse.ArgumentParser(description="Configure an Ermrest Catalog")
-        parser.add_argument('--catalog', default=1, help="ID number of desired catalog (Default:1)")
-
-        parser.add_argument('--table', default=None, metavar='SCHEMA_NAME:TABLE_NAME',
+        parser = self.parser
+        parser.add_argument('server', help='Catalog server name')
+        parser.add_argument('table', default=None, metavar='SCHEMA_NAME:TABLE_NAME',
                             help='Name of table to be configured')
+        parser.add_argument('--catalog', default=1, help="ID number of desired catalog (Default:1)")
         parser.add_argument('--asset-table', default=None, metavar='KEY_COLUMN',
                             help='Create an asset table linked to table on key_column')
 
@@ -186,16 +185,14 @@ class DerivaModelElementsCLI(BaseCLI):
 
         try:
             catalog = ErmrestCatalog('https', args.host, args.catalog, credentials=self._get_credential(args.host))
-
-            if args.table:
-                [schema_name, table_name] = args.table.split(':')
-                table = catalog.getCatalogModel().schemas[schema_name].tables[table_name]
+            [schema_name, table_name] = args.table.split(':')
+            table = catalog.getCatalogModel().schemas[schema_name].tables[table_name]
             if args.asset_table:
                 if not args.table:
                     print('Creating asset table requires specification of a table')
                     exit(1)
                 create_asset_table(catalog, table, args.asset_table)
-
+            if args.visible_columns:
         except HTTPError as e:
             if e.response.status_code == requests.codes.unauthorized:
                 msg = 'Authentication required'
