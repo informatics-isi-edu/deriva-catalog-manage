@@ -116,7 +116,7 @@ def rename_column(catalog, table, from_column, to_column, delete=False):
     return
 
 
-def create_default_visible_columns(catalog, table_spec, model=None, set_annotation=False, really=False):
+def create_default_visible_columns(catalog, table_spec, model=None, really=False):
     if not model:
         model=catalog.getCatalogModel()
 
@@ -166,10 +166,9 @@ class DerivaModelElementsCLI(BaseCLI):
         parser.add_argument('--catalog', default=1, help="ID number of desired catalog (Default:1)")
         parser.add_argument('--asset-table', default=None, metavar='KEY_COLUMN',
                             help='Create an asset table linked to table on key_column')
-
         parser.add_argument('--visible-columns', action='store_true',
                         help='Create a default visible columns annotation')
-
+        parser.add_argument('--replace', action='store_true', help='Overwrite existing value')
 
     @staticmethod
     def _get_credential(host_name, token=None):
@@ -188,11 +187,10 @@ class DerivaModelElementsCLI(BaseCLI):
             [schema_name, table_name] = args.table.split(':')
             table = catalog.getCatalogModel().schemas[schema_name].tables[table_name]
             if args.asset_table:
-                if not args.table:
-                    print('Creating asset table requires specification of a table')
-                    exit(1)
                 create_asset_table(catalog, table, args.asset_table)
             if args.visible_columns:
+                create_default_visible_columns(catalog, (schema_name, table_name), really=args.replace)
+
         except HTTPError as e:
             if e.response.status_code == requests.codes.unauthorized:
                 msg = 'Authentication required'
