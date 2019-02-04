@@ -123,15 +123,18 @@ def create_default_visible_columns(catalog, table_spec, model=None, really=False
     (schema_name,table_name) = table_spec
     table = model.schemas[schema_name].tables[table_name]
 
-    if chaise_tags.visible_columns not in table.annotations or really:
-        table.annotations[chaise_tags.visible_columns] = default_visible_column_spec(table)
-        table.apply(catalog)
+    if chaise_tags.visible_columns not in table.annotations:
+        table.annotations[chaise_tags.visible_columns] = {'*' : default_visible_column_list(table)}
+    elif '*' not in table.annotations[chaise_tags.visible_columns] or really:
+        table.annotations[chaise_tags.visible_columns].update({'*': default_visible_column_list(table)})
     else:
         raise DerivaConfigError(msg='Existing visible column annotation in {}'.format(table_name))
+
+    table.apply(catalog)
     return
 
 
-def default_visible_column_spec(table):
+def default_visible_column_list(table):
     """
     Create a general visible columns annotation spec that would be consistant with what chaise does by default.
     This spec can then be added to a table and editied for user preference.
@@ -140,12 +143,13 @@ def default_visible_column_spec(table):
     """
     fkeys = {i.foreign_key_columns[0]['column_name']: [i.names[0], i.referenced_columns[0]['column_name']]
              for i in table.foreign_keys}
-    return {'*': [
-        {'source': [{'outbound': fkeys[i.name][0]}, fkeys[i.name][1]]}
-        if i.name in fkeys else i.name
+    return [
+        {'source':
+             [{'outbound': fkeys[i.name][0]}, fkeys[i.name][1]] if i.name in fkeys else i.name
+         }
         for i in table.column_definitions
     ]
-    }
+
 
 class DerivaModelElementsCLI(BaseCLI):
 
