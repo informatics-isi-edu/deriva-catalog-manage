@@ -316,7 +316,9 @@ def create_asset_table(catalog, table, key_column,
                        file_pattern='.*',
                        key_column_pattern='[0-9A-Z-]+/',
                        column_defs=[], key_defs=[], fkey_defs=[],
-                       comment=None, acls={}, acl_bindings={}, annotations={},
+                       comment=None, acls={},
+                       acl_bindings={},
+                       annotations={},
                        set_policy=True):
     """
     Create a basic asset table and configures the bulk upload annotation to load the table along with a table of
@@ -430,6 +432,9 @@ def create_asset_table(catalog, table, key_column,
                                                )
                       ] + fkey_defs
     comment = comment if comment else 'Asset table for {}'.format(table_name)
+
+    if chaise_tags.table_display not in annotations:
+        annotations[chaise_tags.table_display] = {'row_name': {'row_markdown_pattern': '{{{Filename}}}'}}
 
     table_def = em.Table.define_asset(schema_name, asset_table_name, fkey_defs=asset_fkey_defs,
                                       column_defs=column_defs, key_defs=key_defs, annotations=annotations,
