@@ -10,7 +10,8 @@ from deriva.core.base_cli import BaseCLI
 from deriva.core.ermrest_config import tag as chaise_tags
 from deriva.core import ErmrestCatalog, get_credential, urlquote, format_exception
 from deriva.core.utils import eprint
-from deriva.utils.catalog.manage.configure_catalog import create_asset_table, configure_table_defaults
+from deriva.utils.catalog.manage.configure_catalog import create_asset_table, configure_table_defaults, \
+    create_default_visible_columns
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
@@ -114,41 +115,6 @@ def rename_column(catalog, table, from_column, to_column, delete=False):
         table.column_definitions[from_column].delete(catalog, table)
 
     return
-
-
-def create_default_visible_columns(catalog, table_spec, model=None, really=False):
-    if not model:
-        model=catalog.getCatalogModel()
-
-    (schema_name,table_name) = table_spec
-    table = model.schemas[schema_name].tables[table_name]
-
-    if chaise_tags.visible_columns not in table.annotations:
-        table.annotations[chaise_tags.visible_columns] = {'*' : default_visible_column_list(table)}
-    elif '*' not in table.annotations[chaise_tags.visible_columns] or really:
-        table.annotations[chaise_tags.visible_columns].update({'*': default_visible_column_list(table)})
-    else:
-        raise DerivaConfigError(msg='Existing visible column annotation in {}'.format(table_name))
-
-    table.apply(catalog)
-    return
-
-
-def default_visible_column_list(table):
-    """
-    Create a general visible columns annotation spec that would be consistant with what chaise does by default.
-    This spec can then be added to a table and editied for user preference.
-    :param table:
-    :return:
-    """
-    fkeys = {i.foreign_key_columns[0]['column_name']: [i.names[0], i.referenced_columns[0]['column_name']]
-             for i in table.foreign_keys}
-    return [
-        {'source':
-             [{'outbound': fkeys[i.name][0]}, fkeys[i.name][1]] if i.name in fkeys else i.name
-         }
-        for i in table.column_definitions
-    ]
 
 
 class DerivaModelElementsCLI(BaseCLI):
