@@ -116,7 +116,21 @@ def rename_column(catalog, table, from_column, to_column, delete=False):
     return
 
 
-def create_default_visible_columns(table):
+def create_default_visible_columns(catalog, table_spec, model=None, set_annotation=False, really=False):
+    if not model:
+        model=catalog.getCatalogModel()
+
+    (schema_name,table_name) = table_spec
+    table = model.schemas[schema_name].tables[table_name]
+
+    if chaise_tags.visible_columns not in table.annotations:
+        table.annotations[chaise_tags.visible_columns] = default_visible_column_spec(table)
+        table.apply(catalog)
+    else:
+        raise DerivaConfigError(msg='Existing visible column annotation in {}'.format(table_name))
+    return
+
+def default_visible_column_spec(table):
     """
     Create a general visible columns annotation spec that would be consistant with what chaise does by default.
     This spec can then be added to a table and editied for user preference.
@@ -153,7 +167,10 @@ class DerivaModelElementsCLI(BaseCLI):
                             help='Name of table to be configured')
         parser.add_argument('--asset-table', default=None, metavar='KEY_COLUMN',
                             help='Create an asset table linked to table on key_column')
-        parser.add_argument('--config', default=None, help='python script to set up configuration variables)')
+
+        parser.add_argument('--visible-columns', action='store_true',
+                        help='Create a default visible columns annotation')
+
 
     @staticmethod
     def _get_credential(host_name, token=None):
