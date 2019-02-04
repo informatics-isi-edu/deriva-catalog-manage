@@ -23,6 +23,10 @@ from deriva.core.ermrest_config import tag as chaise_tags
 import deriva.core.ermrest_model as em
 from deriva.utils.catalog.manage.dump_catalog import DerivaCatalogToString
 from deriva.utils.catalog.manage.utils import LoopbackCatalog
+from deriva.core.utils import eprint
+from deriva.core.base_cli import BaseCLI
+
+VERSION = '0.1'
 
 IS_PY2 = (sys.version_info[0] == 2)
 IS_PY3 = (sys.version_info[0] == 3)
@@ -728,82 +732,101 @@ class DerivaCSV(Table):
         return mname
 
 
+class DerivaCSVCLI (BaseCLI):
+
+    def __init__(self, description, epilog):
+        super(DerivaCSVCLI, self).__init__(description, epilog, VERSION)
+
+        def python_value(s):
+            return ast.literal_eval(s)
+
+        parser = self.parser
+        parser.add_argument('tabledata', help='Location of tablelike data to be added to catalog')
+        parser.add_argument('server', help='Catalog server name')
+        parser.add_argument('schema', help='Name of the schema to be used for table')
+        parser.add_argument('--catalog', default=1, help='ID number of desired catalog (Default:1)')
+        parser.add_argument('--table', default=None, help='Name of table to be managed (Default:tabledata filename)')
+        parser.add_argument('--key-columns', type=python_value, default=None,
+                            help='List of columns to be used as key when creating table schema. Can be either:'
+                                 '1) just the name of the column to be used as a key or a list of the columns to be '
+                                 'used as keys. Compound keys can be expressed by using list of columns.')
+        parser.add_argument('--rownumber-as-key', action='store_true',
+                            help='Use the row number in the CSV as a unique key'
+                                 'in conjunction with the upload_id')
+        parser.add_argument('--upload-id', default=None, help='Restart the upload')
+        parser.add_argument('--convert', action='store_true',
+                            help='Generate a deriva-py program to create the table [Default:True]')
+        parser.add_argument('--column-map', default=True, type=python_value,
+                            help='Convert column names to cannonical form [Default:True]. A value can be provided to '
+                                 'customize the column mapping.  If the value is of the form [n1,n2,n3] '
+                                 'a column name is split into words, and if there is a case insenitive match on any of the '
+                                 'members of the list, that exact capitalization is used.  Alternatively, a dictionary '
+                                 'can be provided.  In this form, the key value is used to make a case insensitive match '
+                                 'and the value is used.  Matches are checked prior to splitting a column into words, after'
+                                 'the split is done, and after the words are joined back into the complete column name.'
+                            )
+        parser.add_argument('--derivafile', default=None,
+                            help='Filename for deriva-py program. Can be input or output depending on other arguments. '
+                                 '[Default: table name]')
+        parser.add_argument('--schemafile', nargs='?', const=True, default=None,
+                            help='If this argument is used without and arguement, then a schema file is output.'
+                                 'If an argument is provided, then that schema file is used for the table.')
+        parser.add_argument('--chunksize', default=10000, type=int,
+                            help='Number of rows to use in chunked upload [Default:10000]')
+        parser.add_argument('--validate', action='store_true',
+                            help='Validate the table before uploading [Default:False]')
+        parser.add_argument('--create', dest='create_table', action='store_true',
+                            help='Automatically create catalog table based on column type inference [Default:False]')
+        parser.add_argument('--upload', action='store_true', help='Load data into catalog [Default:False]')
+
+    @staticmethod
+    def _get_credential(host_name, token=None):
+        if token:
+            return {"cookie": "webauthn={t}".format(t=token)}
+        else:
+            return get_credential(host_name)
+
+    def main(self):
+
+        args = self.parse_cli()
+
+        if not (args.convert or args.create_table or args.validate or args.upload):
+            args.convert = True
+            if args.derivafile is None:
+                args.derivafile = None
+
+        credential = self._get_credential(args.server)
+
+        try:
+            catalog = ErmrestCatalog('https', args.server, args.catalog_id, credentials=credential)
+
+            table = DerivaCSV(args.tabledata, args.schema,
+                              table_name=args.table, column_map=args.column_map,
+                              key_columns=args.key_columns, row_number_as_key=args.row_number_as_key,
+                              schema=args.schemafile)
+
+            table.create_validate_upload_csv(catalog,
+                                             convert=args.convert, validate=args.validate, create=args.create_table,
+                                             upload=args.upload, upload_id=args.upload_id,
+                                             derivafile=args.derivafile, schemafile=args.schemafile,
+                                             chunk_size=args.chunksize)
+        except DerivaCSVError as err:
+            sys.stderr.write(str(err.msg))
+            return 1
+        except HTTPError as err:
+            sys.stderr.write(str(err.msg))
+            return 1
+        except ValueError as err:
+            sys.stderr.write(str(err.msg))
+            return 1
+        return
+
+
 def main():
-    def python_value(s):
-        return ast.literal_eval(s)
-
-    # Argument parser
-    parser = argparse.ArgumentParser(description="Load CSV and other table formats into deriva catalog")
-
-    parser.add_argument('tabledata', help='Location of tablelike data to be added to catalog')
-    parser.add_argument('server', help='Catalog server name')
-    parser.add_argument('schema', help='Name of the schema to be used for table')
-    parser.add_argument('--catalog-id', default=1, help='ID number of desired catalog (Default:1)')
-    parser.add_argument('--table', default=None, help='Name of table to be managed (Default:tabledata filename)')
-    parser.add_argument('--key-columns', type=python_value, default=None,
-                        help='List of columns to be used as key when creating table schema. Can be either:'
-                             '1) just the name of the column to be used as a key or a list of the columns to be '
-                             'used as keys. Compound keys can be expressed by using list of columns.')
-    parser.add_argument('--rownumber-as-key', action='store_true', help='Use the row number in the CSV as a unique key'
-                                                                         'in conjunction with the upload_id')
-    parser.add_argument('--upload-id', default=None, help='Restart the upload')
-    parser.add_argument('--convert', action='store_true',
-                        help='Generate a deriva-py program to create the table [Default:True]')
-    parser.add_argument('--column-map', default=True, type=python_value,
-                        help='Convert column names to cannonical form [Default:True]. A value can be provided to '
-                             'customize the column mapping.  If the value is of the form [n1,n2,n3] '
-                             'a column name is split into words, and if there is a case insenitive match on any of the '
-                             'members of the list, that exact capitalization is used.  Alternatively, a dictionary '
-                             'can be provided.  In this form, the key value is used to make a case insensitive match '
-                             'and the value is used.  Matches are checked prior to splitting a column into words, after'
-                             'the split is done, and after the words are joined back into the complete column name.'
-                        )
-    parser.add_argument('--derivafile', default=None,
-                        help='Filename for deriva-py program. Can be input or output depending on other arguments. '
-                             '[Default: table name]')
-    parser.add_argument('--schemafile', nargs='?', const=True, default=None,
-                        help='If this argument is used without and arguement, then a schema file is output.'
-                             'If an argument is provided, then that schema file is used for the table.')
-    parser.add_argument('--chunksize', default=10000, type=int,
-                        help='Number of rows to use in chunked upload [Default:10000]')
-    parser.add_argument('--validate', action='store_true',
-                        help='Validate the table before uploading [Default:False]')
-    parser.add_argument('--create', dest='create_table', action='store_true',
-                        help='Automatically create catalog table based on column type inference [Default:False]')
-    parser.add_argument('--upload', action='store_true', help='Load data into catalog [Default:False]')
-
-    args = parser.parse_args()
-
-    if not (args.convert or args.create_table or args.validate or args.upload):
-        args.convert = True
-        if args.derivafile is None:
-            args.derivafile = None
-
-    credential = get_credential(args.server)
-    catalog = ErmrestCatalog('https', args.server, args.catalog_id, credentials=credential)
-
-    table = DerivaCSV(args.tabledata, args.schema,
-                      table_name=args.table, column_map=args.column_map,
-                      key_columns=args.key_columns, row_number_as_key=args.row_number_as_key,
-                      schema=args.schemafile)
-
-    table.create_validate_upload_csv(catalog,
-                                     convert=args.convert, validate=args.validate, create=args.create_table,
-                                     upload=args.upload, upload_id=args.upload_id,
-                                     derivafile=args.derivafile, schemafile=args.schemafile,
-                                     chunk_size=args.chunksize)
-    return
+    DESC = "DERIVA Dump CSV Command-Line Interface"
+    INFO = "For more information see: https://github.com/informatics-isi-edu/deriva-catalog-manage"
+    return DerivaCSVCLI(DESC, INFO).main()
 
 
-if __name__ == "__main__":
-    try:
-        main()
-    except DerivaCSVError as err:
-        print(err.msg)
-        exit(1)
-    except HTTPError as err:
-        print(err)
-        exit(1)
-    except ValueError as err:
-        print(err)
-        exit(1)
+if __name__ == '__main__':
+    sys.exit(main())

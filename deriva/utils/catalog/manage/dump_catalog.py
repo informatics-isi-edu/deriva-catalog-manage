@@ -6,6 +6,16 @@ import logging
 import os
 import re
 import sys
+from requests import exceptions
+import traceback
+import requests
+from requests.exceptions import HTTPError, ConnectionError
+
+import deriva.core.ermrest_model as em
+from deriva.core.ermrest_config import tag as chaise_tags
+from deriva.core import ErmrestCatalog, get_credential, format_exception
+from deriva.core.utils import eprint
+from deriva.core.base_cli import BaseCLI
 
 from yapf.yapflib.yapf_api import FormatCode
 
@@ -20,14 +30,17 @@ from deriva.utils.catalog.manage.graph_catalog import DerivaCatalogToGraph
 IS_PY2 = (sys.version_info[0] == 2)
 IS_PY3 = (sys.version_info[0] == 3)
 
+VERSION = '0.1'
+
 if IS_PY3:
     from urllib.parse import urlparse
 else:
     from urlparse import urlparse
 
-logger = logging.getLogger('Dump Catalog')
+logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 logger.addHandler(logging.StreamHandler())
+
 
 yapf_style = {
     'based_on_style': 'pep8',
@@ -37,6 +50,24 @@ yapf_style = {
     'DEDENT_CLOSING_BRACKETS': True,
     'column_limit': 100
 }
+
+
+class DerivaDumpCatalogException (Exception):
+    """Base exception class for DerivaDumpCatalog.
+    """
+    def __init__(self, message):
+        """Initializes the exception.
+        """
+        super(DerivaDumpCatalogException, self).__init__(message)
+
+
+class UsageException (DerivaDumpCatalogException):
+    """Usage exception.
+    """
+    def __init__(self, message):
+        """Initializes the exception.
+        """
+        super(UsageException, self).__init__(message)
 
 
 class DerivaCatalogToString:
@@ -268,7 +299,6 @@ class DerivaCatalogToString:
         server = urlparse(self._catalog.get_server_uri()).hostname
         catalog_id = self._catalog.get_server_uri().split('/')[-1]
 
-
         column_annotations = self.column_annotations_to_str(table)
         column_defs = self.column_defs_to_str(table)
         table_annotations = self.table_annotations_to_str(table)
@@ -289,100 +319,152 @@ class DerivaCatalogToString:
         return s
 
 
-def main():
-    def python_value(s):
-        try:
-            val = ast.literal_eval(s)
-        except ValueError:
-            val = s
-        return val
+class DerivaDumpCatalogCLI (BaseCLI):
 
-    parser = argparse.ArgumentParser(description='Dump definition for catalog {}:{}')
-    parser.add_argument('server', help='Catalog server name')
-    parser.add_argument('--catalog-id', default=1, help='ID number of desired catalog')
-    parser.add_argument('--dir', default="catalog-configs", help='output directory name)')
-    parser.add_argument('--table', default=None, help='Only dump out the spec for the specified table.  Format is '
-                                                      'schema_name:table_name')
-    parser.add_argument('--schemas', type=python_value, default=None, help='Only dump out the spec for the specified '
-                                                                           'schemas (value or list).')
-    parser.add_argument('--skip-schemas', type=python_value, default=None, help='List of schema so skip over')
-    parser.add_argument('--graph', action='store_true', help='Dump graph of catalog')
-    parser.add_argument('--graph-format', choices=['pdf', 'dot', 'png', 'svg'],
-                        default='pdf', help='Format to use for graph dump')
-    args = parser.parse_args()
+    def __init__(self, description, epilog):
+        super(DerivaDumpCatalogCLI, self).__init__(description, epilog, VERSION)
 
-    dumpdir = args.dir
-    server = args.server
-    catalog_id = args.catalog_id
-    table = args.table
+        def python_value(s):
+            try:
+                val = ast.literal_eval(s)
+            except ValueError:
+                val = s
+            return val
 
-    schemas = args.schemas
-    schemas = [schemas] if schemas is not None and type(schemas) is str else schemas
+        self.dumpdir = ''
+        self.server = None
+        self.catalog_id = 1
+        self.graph_format = None
+        self.catalog = None
 
-    skip_schemas = args.skip_schemas
-    skip_schemas = [skip_schemas] if skip_schemas is not None and type(skip_schemas) is str else skip_schemas
+        # parent arg parser
+        parser = self.parser
+        parser.add_argument('server', help='Catalog server name')
+        parser.add_argument('--catalog', default=1, help='ID number of desired catalog')
+        parser.add_argument('--dir', default="catalog-configs", help='output directory name')
+        parser.add_argument('--table', default=None, help='Only dump out the spec for the specified table.  Format is '
+                                                          'schema_name:table_name')
+        parser.add_argument('--schemas', type=python_value, default=[],
+                            help='Only dump out the spec for the specified '
+                                 'schemas (value or list).')
+        parser.add_argument('--skip-schemas', type=python_value, default=[], help='List of schema so skip over')
+        parser.add_argument('--graph', action='store_true', help='Dump graph of catalog')
+        parser.add_argument('--graph-format', choices=['pdf', 'dot', 'png', 'svg'],
+                            default='pdf', help='Format to use for graph dump')
 
-    try:
-        os.makedirs(dumpdir, exist_ok=True)
-    except OSError:
-        print("Creation of the directory %s failed" % dumpdir)
-        sys.exit(1)
-
-    credential = get_credential(server)
-    catalog = ErmrestCatalog('https', server, catalog_id, credentials=credential)
-    model_root = catalog.getCatalogModel()
-
-    print('Catalog has {} schema and {} tables'.format(len(model_root.schemas),
-                                                       sum([len(v.tables) for k, v in model_root.schemas.items()])))
-    for k, s in model_root.schemas.items():
-        print('    {} has {} tables'.format(k, len(s.tables)))
-
-    if table is not None:
-        if ':' not in table:
-            if args.schema is not None and len(schemas) == 1:
-                schema_name = schemas[0]
-                table_name = table
-            else:
-                print('Table name must be in form of schema:table')
-                exit(1)
+    @staticmethod
+    def _get_credential(host_name, token=None):
+        if token:
+            return {"cookie": "webauthn={t}".format(t=token)}
         else:
-            [schema_name, table_name] = table.split(":")
-        print("Dumping out table def....")
-        stringer = DerivaCatalogToString(catalog)
+            return get_credential(host_name)
+
+    def _dump_table(self, schema_name, table_name, stringer=None, dumpdir='.'):
+        logger.info("Dumping out  table def: {}:{}".format(schema_name,table_name))
+        if not stringer:
+            stringer = DerivaCatalogToString(self.catalog)
+
         table_string = stringer.table_to_str(schema_name, table_name)
-        with open(table_name + '.py', 'w') as f:
+        filename= dumpdir + '/' + table_name + '.py'
+        os.makedirs(os.path.dirname(filename), exist_ok=True)
+        with open(filename, 'w') as f:
             print(table_string, file=f)
-    elif args.graph:
-        graph = DerivaCatalogToGraph(catalog)
-        graphfile = '{}_{}'.format(server, catalog_id)
-        graph.catalog_to_graph(skip_schemas=skip_schemas, schemas=schemas, skip_terms=True, skip_assocation_tables=True)
-        graph.save(filename=graphfile, format=args.graph_format)
-    else:
-        print("Dumping catalog def....")
-        stringer = DerivaCatalogToString(catalog)
+
+    def _dump_catalog(self, model):
+        stringer = DerivaCatalogToString(self.catalog)
         catalog_string = stringer.catalog_to_str()
 
-        with open('{}/{}_{}.py'.format(dumpdir, server, catalog_id), 'w') as f:
+        with open('{}/{}_{}.py'.format(self.dumpdir, self.server, self.catalog_id), 'w') as f:
             print(catalog_string, file=f)
 
-        for schema_name in model_root.schemas:
-            if skip_schemas is not None and schema_name in skip_schemas:
-                continue
-            print("Dumping schema def for {}....".format(schema_name))
+        for schema_name in self.schemas:
+            logger.info("Dumping schema def for {}....".format(schema_name))
             schema_string = stringer.schema_to_str(schema_name)
 
-            with open('{}/{}.schema.py'.format(dumpdir, schema_name), 'w') as f:
+            with open('{}/{}.schema.py'.format(self.dumpdir, schema_name), 'w') as f:
                 print(schema_string, file=f)
 
-        for schema_name, schema in model_root.schemas.items():
-            for i in schema.tables:
-                print('Dumping {}:{}'.format(schema_name, i))
-                table_string = stringer.table_to_str(schema_name, i)
-                filename = '{}/{}/{}.py'.format(dumpdir, schema_name, i)
-                os.makedirs(os.path.dirname(filename), exist_ok=True)
-                with open(filename, 'w') as f:
-                    print(table_string, file=f)
+        for schema_name, schema in model.schemas.items():
+            for table_name in schema.tables:
+                self._dump_table(schema_name, table_name, stringer=stringer,
+                                 dumpdir='{}/{}'.format(self.dumpdir, schema_name))
+
+    def _graph_catalog(self):
+        graph = DerivaCatalogToGraph(self.catalog)
+        graphfile = '{}_{}'.format(self.server, self.catalog_id)
+        graph.catalog_to_graph(schemas=self.schemas, skip_terms=True,
+                               skip_assocation_tables=True)
+        graph.save(filename=graphfile, format=self.graph_format)
+
+    def main(self):
+        args = self.parse_cli()
+
+        self.dumpdir = args.dir
+        self.server = args.server
+        self.catalog_id = args.catalog
+        self.graph_format = args.graph_format
+
+        credential = self._get_credential(self.server)
+        self.catalog = ErmrestCatalog('https', self.server, self.catalog_id, credentials=credential)
+        model_root = self.catalog.getCatalogModel()
+
+        skip_schemas = \
+            [args.skip_schemas] if args.skip_schemas and type(args.skip_schemas) is str else args.skip_schemas
+
+        self.schemas = [s for s in (args.schemas if args.schemas else model_root.schemas)
+                        if s not in skip_schemas
+                        ]
+
+        try:
+            os.makedirs(self.dumpdir, exist_ok=True)
+        except OSError as e:
+            sys.stderr.write(str(e))
+            return 1
 
 
-if __name__ == "__main__":
-    main()
+
+        logger.info('Catalog has {} schema and {} tables'.format(len(model_root.schemas),
+                                                                 sum([len(v.tables) for k, v in
+                                                                      model_root.schemas.items()])))
+        logger.info('\n'.join(['    {} has {} tables'.format(k, len(s.tables))
+                               for k, s in model_root.schemas.items()]))
+        try:
+            if args.table:
+                if ':' not in args.table:
+                        raise DerivaDumpCatalogException('Table name must be in form of schema:table')
+                [schema_name, table_name] = args.table.split(":")
+                self._dump_table(schema_name, table_name)
+            elif args.graph:
+                self._graph_catalog()
+            else:
+                self._dump_catalog(model_root)
+        except DerivaDumpCatalogException as e:
+            print(e.msg)
+        except HTTPError as e:
+            if e.response.status_code == requests.codes.unauthorized:
+                msg = 'Authentication required for {}'.format(args.server)
+            elif e.response.status_code == requests.codes.forbidden:
+                msg = 'Permission denied'
+            else:
+                msg = e
+            logging.debug(format_exception(e))
+            eprint(msg)
+        except RuntimeError as e:
+            sys.stderr.write(str(e))
+            return 1
+        except:
+            traceback.print_exc()
+            return 1
+        finally:
+            sys.stderr.write("\n\n")
+        return
+
+
+def main():
+    DESC = "DERIVA Dump Catalog Command-Line Interface"
+    INFO = "For more information see: https://github.com/informatics-isi-edu/deriva-catalog-manage"
+    return DerivaDumpCatalogCLI(DESC, INFO).main()
+
+
+if __name__ == '__main__':
+    sys.exit(main())

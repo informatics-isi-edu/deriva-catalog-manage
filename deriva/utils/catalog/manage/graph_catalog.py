@@ -78,30 +78,26 @@ class DerivaCatalogToGraph:
             result = False
         return result
 
-    def catalog_to_graph(self, skip_schemas=None, schemas=None, skip_terms=False, skip_assocation_tables=False):
+    def catalog_to_graph(self, schemas=None, skip_terms=False, skip_assocation_tables=False):
         """
         Convert a catalog to a DOT based graph.
-        :param skip_schemas: List of schemas that should not be included in the grap
         :param schemas:  List of schemas that should be included.  Use whole catalog if None.
         :param skip_terms: Do not include term tables in the graph
         :param skip_assocation_tables: Collapse association tables so that only edges between endpoints are used
         :return:
         """
-        skip_schemas = ['_acl_admin', 'public'] + ([] if skip_schemas is None else skip_schemas)
-        schemas = self.model.schemas if schemas is None else schemas
+        schemas = [s for s in self.model.schemas if s not in [['_acl_admin', 'Public', 'WWW']]] \
+            if schemas is None else schemas
 
         for schema in schemas:
-            if schema in skip_schemas:
-                print('Skipping schema {}'.format(schema))
-                continue
-            self.schema_to_graph(schema, skip_terms=skip_terms, skip_schemas=skip_schemas,
+            self.schema_to_graph(schema, skip_terms=skip_terms, schemas=schemas,
                                  skip_assocation_tables=skip_assocation_tables)
 
-    def schema_to_graph(self, schema_name, skip_schemas=None, skip_terms=False, skip_assocation_tables=False):
+    def schema_to_graph(self, schema_name, schemas=[], skip_terms=False, skip_assocation_tables=False):
         """
         Create a graph for the specified schema.
         :param schema_name: Name of the schema in the model to be used.
-        :param skip_schemas:
+        :param schemas: List of additional schemas to include in the graph.
         :param skip_terms:
         :param skip_assocation_tables:
         :return:
@@ -127,11 +123,11 @@ class DerivaCatalogToGraph:
         for table_name in schema.tables:
             self.foreign_key_defs_to_graph(schema.tables[table_name],
                                            skip_terms=skip_terms,
-                                           skip_schemas=skip_schemas,
+                                           schemas=schemas,
                                            skip_association_tables=skip_assocation_tables)
         return
 
-    def foreign_key_defs_to_graph(self, table, skip_terms=False, skip_association_tables=False, skip_schemas=False):
+    def foreign_key_defs_to_graph(self, table, skip_terms=False, skip_association_tables=False, schemas=[]):
         """
         Add edges for each foreign key relationship in the specified table.
         :param table:
@@ -154,7 +150,7 @@ class DerivaCatalogToGraph:
                 table_name = '{}_{}'.format(target_schema, target_table)
 
                 # If the target is a schema we are skipping, do not add an edge.
-                if skip_schemas is not None and (target_schema in skip_schemas or table.sname in skip_schemas):
+                if (target_schema not in schemas or table.sname not in schemas):
                     continue
                 # If the target is a term table, and we are not including terms, do not add an edge.
                 if self.is_term_table(self.model.schemas[target_schema].tables[target_table]) and skip_terms:

@@ -1,12 +1,23 @@
 import argparse
 import sys
+import warnings
+import logging
+from requests import exceptions
+import traceback
+import requests
+from requests.exceptions import HTTPError, ConnectionError
 
 import deriva.core.ermrest_model as em
 from deriva.core.ermrest_config import tag as chaise_tags
-from deriva.core import ErmrestCatalog, get_credential
-from deriva.utils.catalog.components.model_elements import create_asset_table
+from deriva.core import ErmrestCatalog, get_credential, format_exception
+from deriva.core.utils import eprint
+from deriva.core.base_cli import BaseCLI
 
-from requests import exceptions
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
+logger.addHandler(logging.StreamHandler())
+
+VERSION = '0.1'
 
 IS_PY2 = (sys.version_info[0] == 2)
 IS_PY3 = (sys.version_info[0] == 3)
@@ -18,6 +29,9 @@ else:
 
 CATALOG_CONFIG__TAG = 'tag:isrd.isi.edu,2019:catalog-config'
 
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
+logger.addHandler(logging.StreamHandler())
 
 class DerivaConfigError(Exception):
     def __init__(self, msg):
@@ -42,7 +56,7 @@ def configure_ermrest_client(catalog, model, groups):
     # Set table and row name.
     ermrest_client.annotations.update({
         chaise_tags.display: {'name': 'Users'},
-        chaise_tags.visible_columns: {'compact': ['ID', 'Full_Name', 'Display_Name','Email']},
+        chaise_tags.visible_columns: {'compact': ['ID', 'Full_Name', 'Display_Name', 'Email']},
         chaise_tags.table_display: {'row_name': {'row_markdown_pattern': '{{{Full_Name}}}'}}
     })
 
@@ -60,6 +74,13 @@ def configure_ermrest_client(catalog, model, groups):
 
 
 def update_group_table(catalog):
+
+    def group_urls(group):
+        guid = group.split('/')[-1]
+        link = 'https://app.globus.org/groups/' + guid
+        uri = 'https://auth.globus.org/' + guid
+        return link, uri
+
     pb = catalog.getPathBuilder()
     # Attempt to add URL.  This can go away once we have URL entered by ERMrest.
     pb.public.ERMrest_Group.update(
@@ -123,14 +144,6 @@ def get_core_groups(catalog, model, catalog_name=None, admin=None, curator=None,
             raise DerivaConfigError(msg='Group {} not defined'.format(e.args[0]))
     return groups
 
-
-def group_urls(group):
-    guid = group.split('/')[-1]
-    link = 'https://app.globus.org/groups/' + guid
-    uri = 'https://auth.globus.org/' + guid
-    return link, uri
-
-
 def configure_www_schema(catalog, model):
     """
     Set up a new schema and tables to hold web-page like content.  The tables include a page table, and a asset table
@@ -139,7 +152,7 @@ def configure_www_schema(catalog, model):
     :param model:
     :return:
     """
-
+    logging.info('Configuring WWW schema')
     # Create a WWW schema if one doesn't already exist.
     try:
         www_schema_def = em.Schema.define('WWW', comment='Schema for tables that will be displayed as web content')
@@ -189,6 +202,7 @@ def configure_group_table(catalog, model, groups):
     :return:
     """
 
+    logging.info('Configuring groups')
     ermrest_group = model.schemas['public'].tables['ERMrest_Group']
 
     # Make ERMrest_Group table visible to writers, curators, and admins.
@@ -295,6 +309,161 @@ def configure_group_table(catalog, model, groups):
             catalog_group_table = public_schema.tables['Catalog_Group']
 
     configure_table_defaults(catalog, catalog_group_table, set_policy=False)
+
+
+def create_asset_table(catalog, table, key_column,
+                       extensions=[],
+                       file_pattern='.*',
+                       key_column_pattern='[0-9A-Z-]+/',
+                       column_defs=[], key_defs=[], fkey_defs=[],
+                       comment=None, acls={}, acl_bindings={}, annotations={},
+                       set_policy=True):
+    """
+    Create a basic asset table and configures the bulk upload annotation to load the table along with a table of
+    associated metadata. This routine assumes that the metadata table has already been defined, and there is a key
+    column the metadata table that can be used to associate the asset with a row in the table. The default configuration
+    will assumes that the assets are in a directory named with the table name for the metadata and that they either
+    are in a subdirectory named by the key value, or that they are in a file whose name starts with the key value.
+
+    :param catalog:
+    :param table: Table to contain the asset metadata.  Asset will have a foreign key to this table.
+    :param key_column: The column in the metadata table to be used to correlate assets with entries. Assets will be
+                       named using the key column.
+    :param extensions: List file extensions to be matched. Default is to match any extension.
+    :param file_pattern: Regex that identified the files to be considered for upload
+    :param key_column_pattern: Regex to identify the key column in the source directory.
+    :param column_defs: a list of Column.define() results for extra or overridden column definitions
+    :param key_defs: a list of Key.define() results for extra or overridden key constraint definitions
+    :param fkey_defs: a list of ForeignKey.define() results for foreign key definitions
+    :param comment: a comment string for the asset table
+    :param acls: a dictionary of ACLs for specific access modes
+    :param acl_bindings: a dictionary of dynamic ACL bindings
+    :param annotations: a dictionary of annotations
+    :param set_policy: If true, add ACLs for self serve policy to the asset table
+    :return:
+    """
+
+    def create_asset_upload_spec(schema_name, table_name, key_column,
+                                 extensions,
+                                 file_pattern,
+                                 key_column_pattern):
+        extension_pattern = '^.*[.](?P<file_ext>{})$'.format('|'.join(extensions if extensions else ['.*']))
+
+        return [
+            # Any metadata is in a file named assets/records/schema_name/tablename.[csv|json]
+            {
+                'default_columns': ['RID', 'RCB', 'RMB', 'RCT', 'RMT'],
+                'ext_pattern': '^.*[.](?P<file_ext>json|csv)$',
+                'asset_type': 'table',
+                'file_pattern': '^((?!/assets/).)*/records/(?P<schema>.+?)/(?P<table>.+?)[.]'
+            },
+            {
+                'checksum_types': ['md5'],
+                'column_map': {
+                    'URL': '{URI}',
+                    'Length': '{file_size}',
+                    table_name + '_RID': '{table_rid}',
+                    'Filename': '{file_name}',
+                    'MD5': '{md5}',
+                },
+                'dir_pattern': '^.*/(?P<schema>.*)/(?P<table>.*)/(?P<key_column>%s))' % key_column_pattern,
+                'ext_pattern': extension_pattern,
+                'file_pattern': file_pattern,
+                'hatrac_templates': {'hatrac_uri': '/hatrac/{schema}/{table}/{file_name}.{md5}'},
+                # Look for rows in the metadata table with matching key column values.
+                'metadata_query_templates': [
+                    '/attribute/D:={target_table}/%s={key_column}/table_rid:=D:RID' % key_column],
+                # Rows in the asset table should have a FK reference to the RID for the matching metadata row
+                'record_query_template':
+                    '/entity/{schema}:{table}_Asset/{table}_RID={table_rid}/MD5={md5}/URL={URI_urlencoded}',
+                'hatrac_options': {'versioned_uris': True},
+            }
+        ]
+
+    table_name = table.name
+    schema_name = table.sname
+    model = catalog.getCatalogModel()
+    asset_table_name = '{}_Asset'.format(table_name)
+
+    if set_policy and CATALOG_CONFIG__TAG not in model.annotations:
+        raise DerivaConfigError(msg='Attempting to configure table before catalog is configured')
+
+    if key_column not in [i.name for i in table.column_definitions]:
+        raise DerivaConfigError(msg='Key column not found in target table')
+
+    column_defs = [
+        em.Column.define('{}_RID'.format(table_name),
+                         em.builtin_types['text'],
+                         nullok=False,
+                         comment="The {} entry to which this asset is attached".format(table_name)),
+    ]
+
+    # Set up policy so that you can only add an asset to a record that you own.
+    fkey_acls, fkey_acl_bindings = {}, {}
+    if set_policy:
+        groups = get_core_groups(catalog, model)
+
+        fkey_acls = {
+            "insert": [groups['curator']],
+            "update": [groups['curator']],
+        }
+        fkey_acl_bindings = {
+            "self_linkage_creator": {
+                "types": ["insert", "update"],
+                "projection": ["RCB"],
+                "projection_type": "acl",
+            },
+            "self_linkage_owner": {
+                "types": ["insert", "update"],
+                "projection": ["Owner"],
+                "projection_type": "acl",
+            }
+        }
+
+    # Link asset table to metadata table with additional information about assets.
+    asset_fkey_defs = [
+                          em.ForeignKey.define(['{}_RID'.format(table_name)],
+                                               schema_name, table_name, ['RID'],
+                                               acls=fkey_acls, acl_bindings=fkey_acl_bindings,
+                                               constraint_names=[
+                                                   (schema_name, '{}_{}_fkey'.format(asset_table_name, table_name))],
+                                               )
+                      ] + fkey_defs
+    comment = comment if comment else 'Asset table for {}'.format(table_name)
+
+    table_def = em.Table.define_asset(schema_name, asset_table_name, fkey_defs=asset_fkey_defs,
+                                      column_defs=column_defs, key_defs=key_defs, annotations=annotations,
+                                      acls=acls, acl_bindings=acl_bindings,
+                                      comment=comment)
+
+    for i in table_def['column_definitions']:
+        if i['name'] == 'URL':
+            i[chaise_tags.column_display] = {'*': {'markdown_pattern': '[**{{URL}}**]({{{URL}}})'}}
+        if i['name'] == 'Filename':
+            i[chaise_tags.column_display] = {'*': {'markdown_pattern': '[**{{Filename}}**]({{{URL}}})'}}
+
+    asset_table = model.schemas[schema_name].create_table(catalog, table_def)
+    configure_table_defaults(catalog, asset_table)
+
+    # The last thing we should do is update the upload spec to accomidate this new asset table.
+    if chaise_tags.bulk_upload not in model.annotations:
+        model.annotations.update({
+            chaise_tags.bulk_upload: {
+                'asset_mappings': [],
+                'version_update_url': 'https://github.com/informatics-isi-edu/deriva-qt/releases',
+                'version_compatibility': [['>=0.4.3', '<1.0.0']]
+            }
+        }
+        )
+    model.annotations[chaise_tags.bulk_upload]['asset_mappings']. \
+        extend(create_asset_upload_spec(schema_name, table_name, key_column,
+                                        extensions=extensions,
+                                        file_pattern=file_pattern,
+                                        key_column_pattern=key_column_pattern))
+
+    model.apply(catalog)
+    return asset_table
+
 
 
 def configure_self_serve_policy(catalog, table, groups):
@@ -491,47 +660,85 @@ def configure_table_defaults(catalog, table, set_policy=True, public=False):
     return
 
 
+class DerivaConfigureCatalogCLI (BaseCLI):
+
+    def __init__(self, description, epilog):
+        super(DerivaConfigureCatalogCLI, self).__init__(description, epilog, VERSION)
+
+        # parent arg parser
+        parser = self.parser
+        parser.add_argument('server', help='Catalog server name')
+        parser.add_argument('configure', choices=['catalog','table'],
+                            help='Choose between configuring a catalog or a specific table')
+        parser.add_argument('--catalog-name', default=None, help="Name of catalog (Default:hostname)")
+        parser.add_argument('--catalog', default=1, help="ID number of desired catalog (Default:1)")
+        parser.add_argument('--table', default=None, metavar='SCHEMA_NAME:TABLE_NAME',
+                            help='Name of table to be configured')
+        parser.add_argument('--set-policy', default='True', choices=[True, False],
+                            help='Access control policy to be applied to catalog or table')
+        parser.add_argument('--reader-group', dest='reader', default=None,
+                            help='Group name to use for readers. For a catalog named "foo" defaults for foo-reader')
+        parser.add_argument('--writer-group', dest='writer', default=None,
+                            help='Group name to use for writers. For a catalog named "foo" defaults for foo-writer')
+        parser.add_argument('--curator-group', dest='curator', default=None,
+                            help='Group name to use for readers. For a catalog named "foo" defaults for foo-curator')
+        parser.add_argument('--admin-group', dest='admin', default=None,
+                            help='Group name to use for readers. For a catalog named "foo" defaults for foo-admin')
+        parser.add_argument('--publish', default=False, action='store_true',
+                            help='Make the catalog or table accessible for reading without logging in')
+
+    @staticmethod
+    def _get_credential(host_name, token=None):
+        if token:
+            return {"cookie": "webauthn={t}".format(t=token)}
+        else:
+            return get_credential(host_name)
+
+    def main(self):
+
+        args = self.parse_cli()
+        credentials = self._get_credential(args.server)
+        catalog = ErmrestCatalog('https', args.server, args.catalog, credentials=credentials)
+
+        try:
+            if args.configure == 'catalog':
+                logging.info('Configuring catalog {}:{}'.format(args.server, args.catalog))
+                configure_baseline_catalog(catalog, catalog_name=args.catalog_name,
+                                           reader=args.reader, writer=args.writer, curator=args.curator,
+                                           admin=args.admin,
+                                           set_policy=args.set_policy, public=args.publish)
+            if args.table:
+                [schema_name, table_name] = args.table.split(':')
+                table = catalog.getCatalogModel().schemas[schema_name].tables[table_name]
+                configure_table_defaults(catalog, table, set_policy=args.set_policy, public=args.publish)
+        except DerivaConfigError as e:
+            print(e.msg)
+        except HTTPError as e:
+            if e.response.status_code == requests.codes.unauthorized:
+                msg = 'Authentication required for {}'.format(args.server)
+            elif e.response.status_code == requests.codes.forbidden:
+                msg = 'Permission denied'
+            else:
+                msg = e
+            logging.debug(format_exception(e))
+            eprint(msg)
+        except RuntimeError as e:
+            sys.stderr.write(str(e))
+            return 1
+        except:
+            traceback.print_exc()
+            return 1
+        finally:
+            sys.stderr.write("\n\n")
+        return
+
+
+
 def main():
-    parser = argparse.ArgumentParser(description="Configure an Ermrest Catalog")
-    parser.add_argument('server', help='Catalog server name')
-    parser.add_argument('--catalog-id', default=1, help="ID number of desired catalog (Default:1)")
-    parser.add_argument('--catalog-name', default=None, help="Name of catalog (Default:hostname)")
-    parser.add_argument("--catalog", action='store_true', help='Configure a catalog')
-    parser.add_argument("--schema", help='Name of schema to configure'),
-    parser.add_argument('--table', default=None, metavar='SCHEMA_NAME:TABLE_NAME',
-                        help='Name of table to be configured')
-    parser.add_argument('--set-policy', default='True', choices=[True, False],
-                        help='Access control policy to be applied to catalog or table')
-    parser.add_argument('--reader-group', dest='reader', default=None,
-                        help='Group name to use for readers. For a catalog named "foo" defaults for foo-reader')
-    parser.add_argument('--writer-group', dest='writer', default=None,
-                        help='Group name to use for writers. For a catalog named "foo" defaults for foo-writer')
-    parser.add_argument('--curator-group', dest='curator', default=None,
-                        help='Group name to use for readers. For a catalog named "foo" defaults for foo-curator')
-    parser.add_argument('--admin-group', dest='admin', default=None,
-                        help='Group name to use for readers. For a catalog named "foo" defaults for foo-admin')
-    parser.add_argument('--publish', default=False, action='store_true',
-                        help='Make the catalog or table accessible for reading without logging in')
-
-    args = parser.parse_args()
-
-    credentials = get_credential(args.server)
-    catalog = ErmrestCatalog('https', args.server, args.catalog_id, credentials=credentials)
-
-    try:
-        if args.catalog:
-            print('Configuring catalog {}:{}'.format(args.server, args.catalog_id))
-            configure_baseline_catalog(catalog, catalog_name=args.catalog_name,
-                                       reader=args.reader, writer=args.writer, curator=args.curator, admin=args.admin,
-                                       set_policy=args.set_policy, public=args.publish)
-        if args.table:
-            [schema_name, table_name] = args.table.split(':')
-            table = catalog.getCatalogModel().schemas[schema_name].tables[table_name]
-            configure_table_defaults(catalog, table, set_policy=args.set_policy, public=args.publish)
-    except DerivaConfigError as e:
-        print(e.msg)
-    return
+    DESC = "DERIVA Configure Catalog Command-Line Interface"
+    INFO = "For more information see: https://github.com/informatics-isi-edu/deriva-catalog-manage"
+    return DerivaConfigureCatalogCLI(DESC, INFO).main()
 
 
-if __name__ == "__main__":
-    main()
+if __name__ == '__main__':
+    sys.exit(main())
