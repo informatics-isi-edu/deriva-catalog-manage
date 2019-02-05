@@ -68,8 +68,6 @@ def configure_ermrest_client(catalog, model, groups):
     }
     for k, v in column_annotations.items():
         ermrest_client.column_definitions[k].annotations.update(v)
-
-    ermrest_client.apply(catalog)
     return
 
 
@@ -144,6 +142,7 @@ def get_core_groups(catalog, model, catalog_name=None, admin=None, curator=None,
             raise DerivaConfigError(msg='Group {} not defined'.format(e.args[0]))
     return groups
 
+
 def configure_www_schema(catalog, model):
     """
     Set up a new schema and tables to hold web-page like content.  The tables include a page table, and a asset table
@@ -181,11 +180,11 @@ def configure_www_schema(catalog, model):
             raise
         else:
             page_table = www_schema.tables['Page']
-    configure_table_defaults(catalog, page_table)
+    configure_table_defaults(catalog, ('WWW', 'Page'), model=model)
 
     # Now set up the asset table
     try:
-        create_asset_table(catalog, page_table, 'RID')
+        create_asset_table(catalog, ('WWW','Page'), 'RID', model=model)
     except ValueError as e:
         if 'already exists' not in e.args[0]:
             raise
@@ -236,8 +235,6 @@ def configure_group_table(catalog, model, groups):
     except exceptions.HTTPError as e:
         if 'already exists' not in e.args[0]:
             raise
-
-    ermrest_group.apply(catalog)
 
     # Create a catalog groups table
     column_defs = [
@@ -308,10 +305,11 @@ def configure_group_table(catalog, model, groups):
         else:
             catalog_group_table = public_schema.tables['Catalog_Group']
 
-    configure_table_defaults(catalog, catalog_group_table, set_policy=False)
+    configure_table_defaults(catalog, ('public', 'Catalog_Group'), model=model, set_policy=False)
 
 
-def create_asset_table(catalog, table, key_column,
+def create_asset_table(catalog, table_spec, key_column,
+                       model = None,
                        extensions=[],
                        file_pattern='.*',
                        key_column_pattern='[0-9A-Z-]+/',
@@ -328,7 +326,7 @@ def create_asset_table(catalog, table, key_column,
     are in a subdirectory named by the key value, or that they are in a file whose name starts with the key value.
 
     :param catalog:
-    :param table: Table to contain the asset metadata.  Asset will have a foreign key to this table.
+    :param table_spec: Table to contain the asset metadata.  Asset will have a foreign key to this table.
     :param key_column: The column in the metadata table to be used to correlate assets with entries. Assets will be
                        named using the key column.
     :param extensions: List file extensions to be matched. Default is to match any extension.
@@ -365,13 +363,13 @@ def create_asset_table(catalog, table, key_column,
                     'URL': '{URI}',
                     'Length': '{file_size}',
                     table_name + '_RID': '{table_rid}',
-                    'Filename': '{file_name}',
-                    'MD5': '{md5}',
+                    'Filename': '{Filename}',
+                    'MD5': '{MD5}',
                 },
                 'dir_pattern': '^.*/(?P<schema>.*)/(?P<table>.*)/(?P<key_column>%s))' % key_column_pattern,
                 'ext_pattern': extension_pattern,
                 'file_pattern': file_pattern,
-                'hatrac_templates': {'hatrac_uri': '/hatrac/{schema}/{table}/{file_name}.{md5}'},
+                'hatrac_templates': {'hatrac_uri': '/hatrac/{schema}/{table}/{md5}.{file_name}'},
                 # Look for rows in the metadata table with matching key column values.
                 'metadata_query_templates': [
                     '/attribute/D:={target_table}/%s={key_column}/table_rid:=D:RID' % key_column],
@@ -382,10 +380,15 @@ def create_asset_table(catalog, table, key_column,
             }
         ]
 
-    table_name = table.name
-    schema_name = table.sname
-    model = catalog.getCatalogModel()
+    (schema_name, table_name) = table_spec
+
+    flush = False
+    if model is None:
+        flush = True
+        model = catalog.getCatalogModel()
+
     asset_table_name = '{}_Asset'.format(table_name)
+    table = model.schemas[schema_name].tables[table_name]
 
     if set_policy and CATALOG_CONFIG__TAG not in model.annotations:
         raise DerivaConfigError(msg='Attempting to configure table before catalog is configured')
@@ -448,7 +451,7 @@ def create_asset_table(catalog, table, key_column,
             i[chaise_tags.column_display] = {'*': {'markdown_pattern': '[**{{Filename}}**]({{{URL}}})'}}
 
     asset_table = model.schemas[schema_name].create_table(catalog, table_def)
-    configure_table_defaults(catalog, asset_table)
+    configure_table_defaults(catalog, (schema_name, asset_table_name), model=model)
 
     # The last thing we should do is update the upload spec to accomidate this new asset table.
     if chaise_tags.bulk_upload not in model.annotations:
@@ -466,9 +469,9 @@ def create_asset_table(catalog, table, key_column,
                                         file_pattern=file_pattern,
                                         key_column_pattern=key_column_pattern))
 
-    model.apply(catalog)
+    if flush:
+        model.apply(catalog)
     return asset_table
-
 
 
 def configure_self_serve_policy(catalog, table, groups):
@@ -540,24 +543,27 @@ def configure_self_serve_policy(catalog, table, groups):
 
     # Now create the foreign key to the group table.
     table.create_fkey(catalog, fk)
+    return
 
-    table.apply(catalog)
 
 def create_default_visible_columns(catalog, table_spec, model=None, really=False):
+    flush = False
     if not model:
-        model=catalog.getCatalogModel()
+        model = catalog.getCatalogModel()
+        flush = True
 
-    (schema_name,table_name) = table_spec
+    (schema_name, table_name) = table_spec
     table = model.schemas[schema_name].tables[table_name]
 
     if chaise_tags.visible_columns not in table.annotations:
-        table.annotations[chaise_tags.visible_columns] = {'*' : default_visible_column_list(table)}
+        table.annotations[chaise_tags.visible_columns] = {'*': default_visible_column_list(table)}
     elif '*' not in table.annotations[chaise_tags.visible_columns] or really:
         table.annotations[chaise_tags.visible_columns].update({'*': default_visible_column_list(table)})
     else:
         raise DerivaConfigError(msg='Existing visible column annotation in {}'.format(table_name))
 
-    table.apply(catalog)
+    if flush:
+        table.apply(catalog)
     return
 
 
@@ -575,12 +581,9 @@ def default_visible_column_list(table):
 
     # Move Owner column to be right after RMB if they both exist.
     if 'Owner' in column_names and 'RMB' in column_names:
-        columns.insert(column_names.index('RMB')+1, columns.pop(column_names.index('Owner')))
-    print([ i.name for i in columns])
+        columns.insert(column_names.index('RMB') + 1, columns.pop(column_names.index('Owner')))
     return [
-        {'source':
-             [{'outbound': fkeys[i.name][0]}, fkeys[i.name][1]] if i.name in fkeys else i.name
-         }
+        {'source': [{'outbound': fkeys[i.name][0]}, fkeys[i.name][1]] if i.name in fkeys else i.name}
         for i in columns
     ]
 
@@ -614,7 +617,6 @@ def configure_baseline_catalog(catalog, catalog_name=None,
 
     # Record configuration of catalog so we can retrieve when we configure tables later on.
     model.annotations[CATALOG_CONFIG__TAG] = {'name': catalog_name, 'groups': groups}
-    model.apply(catalog)
 
     # Set up default name style for all schemas.
     for s in model.schemas.values():
@@ -640,7 +642,7 @@ def configure_baseline_catalog(catalog, catalog_name=None,
     return
 
 
-def configure_table_defaults(catalog, table, set_policy=True, public=False):
+def configure_table_defaults(catalog, table_spec, set_policy=True, model=None, public=False):
     """
     This function adds the following basic configuration details to an existing table:
     1) Creates a self service modification policy in which creators can update update any row they create.  Optionally,
@@ -649,20 +651,24 @@ def configure_table_defaults(catalog, table, set_policy=True, public=False):
     2) Adds display annotations and foreign key declarations so that system columns RCB, RMB display in a user friendly
        way.
     :param catalog: ERMRest catalog
-    :param table: ERMRest table object which is to be configured.
+    :param table_spec: ERMRest table object which is to be configured in form (schema,table).
     :param set_policy: If true, then configure the table to have a self service policy
+    :param model: ERMrest catalog model
+    :param public: Make table accessable without logging in.
     :return:
     """
-    model_root = catalog.getCatalogModel()
+
+    model_root = catalog.getCatalogModel() if model is None else model
+
     if CATALOG_CONFIG__TAG not in model_root.annotations:
         raise DerivaConfigError(msg='Attempting to configure table before catalog is configured')
 
     # Hack to update description and URL until we get these passed through ermrest....
     update_group_table(catalog)
 
-    table_name = table.name
-    schema_name = table.sname
+    (schema_name, table_name) = table_spec
     schema = model_root.schemas[schema_name]
+    table = schema.tables[table_name]
 
     if public:
         # First copy dver any inherited ACLS.
@@ -702,8 +708,10 @@ def configure_table_defaults(catalog, table, set_policy=True, public=False):
         # Add a display annotation so that we have sensible name for RCB and RMB.
         table.column_definitions[col].annotations.update({chaise_tags.display: {'name': display}})
 
-    create_default_visible_columns(catalog(schema_name,table_name), model_root)
-    table.apply(catalog)
+    create_default_visible_columns(catalog, (schema_name, table_name), model_root)
+    print(table.annotations)
+    if model is None:
+        table.apply(catalog)
     return
 
 
@@ -715,7 +723,7 @@ class DerivaConfigureCatalogCLI (BaseCLI):
         # parent arg parser
         parser = self.parser
         parser.add_argument('server', help='Catalog server name')
-        parser.add_argument('configure', choices=['catalog','table'],
+        parser.add_argument('configure', choices=['catalog', 'table'],
                             help='Choose between configuring a catalog or a specific table')
         parser.add_argument('--catalog-name', default=None, help="Name of catalog (Default:hostname)")
         parser.add_argument('--catalog', default=1, help="ID number of desired catalog (Default:1)")
@@ -756,8 +764,9 @@ class DerivaConfigureCatalogCLI (BaseCLI):
                                            set_policy=args.set_policy, public=args.publish)
             if args.table:
                 [schema_name, table_name] = args.table.split(':')
-                table = catalog.getCatalogModel().schemas[schema_name].tables[table_name]
-                configure_table_defaults(catalog, table, set_policy=args.set_policy, public=args.publish)
+                model = catalog.getCatalogModel()
+                configure_table_defaults(catalog, (schema_name, table_name),
+                                         model= model, set_policy=args.set_policy, public=args.publish)
         except DerivaConfigError as e:
             print(e.msg)
         except HTTPError as e:
@@ -778,7 +787,6 @@ class DerivaConfigureCatalogCLI (BaseCLI):
         finally:
             sys.stderr.write("\n\n")
         return
-
 
 
 def main():

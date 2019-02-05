@@ -21,7 +21,10 @@ table_size = 10
 column_count = 5
 schema_name = 'TestSchema'
 table_name = 'Foo'
+public_table_name = 'Foo_Public'
+
 csv_file = table_name + '.csv'
+csv_file_public = public_table_name + ".csv"
 
 (row, headers) = generate_test_csv(column_count)
 with open(csv_file, 'w', newline='') as f:
@@ -29,20 +32,32 @@ with open(csv_file, 'w', newline='') as f:
     for i, j in zip(range(table_size + 1), row):
         tablewriter.writerow(j)
 
+(row, headers) = generate_test_csv(column_count)
+with open(csv_file_public, 'w', newline='') as f:
+    tablewriter = csv.writer(f)
+    for i, j in zip(range(table_size + 1), row):
+        tablewriter.writerow(j)
+
+
 model_root = catalog.getCatalogModel()
 model_root.create_schema(catalog, em.Schema.define(schema_name))
 
 csvtable = DerivaCSV(csv_file, schema_name, column_map=True, key_columns='id')
 csvtable.create_validate_upload_csv(catalog, convert=True, create=True, upload=True)
 
+csvtable_public = DerivaCSV(csv_file_public, schema_name, column_map=True, key_columns='id')
+csvtable_public.create_validate_upload_csv(catalog, convert=True, create=True, upload=True)
+
+
 model_root = catalog.getCatalogModel()
 table= model_root.schemas[schema_name].tables[table_name]
+table_public= model_root.schemas[schema_name].tables[public_table_name]
 
 configure_catalog.configure_baseline_catalog(catalog, catalog_name='test', admin='isrd-systems')
-configure_catalog.configure_table_defaults(catalog, table, public=True)
+configure_catalog.configure_table_defaults(catalog, (schema_name,table_name))
+configure_catalog.configure_table_defaults(catalog, (schema_name, public_table_name), public=True)
 
-create_asset_table(catalog, table, 'Id')
-create_default_visible_columns(catalog,(schema_name, table_name))
+create_asset_table(catalog, (schema_name, table_name), 'Id')
 
 # mkdir records/TestSchema
 # mkdir assets/TestSchema/Foo/1
@@ -52,6 +67,4 @@ create_default_visible_columns(catalog,(schema_name, table_name))
 
 chaise_url = 'https://{}/chaise/recordset/#{}/{}:{}'.format(server, catalog_id,schema_name,table_name)
 print(chaise_url)
-
-
 

@@ -157,7 +157,7 @@ class DerivaModelElementsCLI(BaseCLI):
             [schema_name, table_name] = args.table.split(':')
             table = catalog.getCatalogModel().schemas[schema_name].tables[table_name]
             if args.asset_table:
-                create_asset_table(catalog, table, args.asset_table)
+                create_asset_table(catalog, (schema_name, table_name), args.asset_table)
             if args.visible_columns:
                 create_default_visible_columns(catalog, (schema_name, table_name), really=args.replace)
 
