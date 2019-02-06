@@ -2,6 +2,7 @@ from attrdict import AttrDict
 import random
 import datetime
 import string
+import os
 from deriva.core import ErmrestCatalog, get_credential, DerivaServer
 import deriva.core.ermrest_model as em
 from deriva.utils.catalog.manage.deriva_csv import DerivaCSV
@@ -110,12 +111,15 @@ dt_public = DerivaTableConfigure(catalog, schema_name, public_table_name)
 dt_public.configure_table_defaults(public=True)
 dt.create_asset_table('ID')
 dt.apply()
-# mkdir records/TestSchema
-# mkdir assets/TestSchema/Foo/1
-# cp test.txt into Foo/1
-# generate CSV to put into Foo.csv
 
+testdir = 'upload-test/records/{}/{}'.format(schema_name,table_name)
+os.makedirs('upload-test/assets', exist_ok=True)
+
+for i in range(1,3):
+    filename = 'upload-test/records/{}/{}/{}/foo.txt'.format(schema_name, table_name, i)
+    os.makedirs(os.path.dirname(filename), exist_ok=True)
+    with open(filename, "w") as f:
+        f.write("FOOBAR\n")
 
 chaise_url = 'https://{}/chaise/recordset/#{}/{}:{}'.format(server, catalog_id,schema_name,table_name)
 print(chaise_url)
-
