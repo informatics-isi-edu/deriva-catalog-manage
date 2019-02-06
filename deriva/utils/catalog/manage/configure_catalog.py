@@ -411,18 +411,18 @@ class DerivaTableConfigure:
 
         def create_asset_upload_spec(key_column,
                                      extensions,
-                                     file_pattern,
-                                     key_column_pattern):
+                                     file_pattern):
             extension_pattern = '^.*[.](?P<file_ext>{})$'.format('|'.join(extensions if extensions else ['.*']))
 
             return [
-                # Any metadata is in a file named assets/records/schema_name/tablename.[csv|json]
+                # Any metadata is in a file named /records/schema_name/tablename.[csv|json]
                 {
                     'default_columns': ['RID', 'RCB', 'RMB', 'RCT', 'RMT'],
                     'ext_pattern': '^.*[.](?P<file_ext>json|csv)$',
                     'asset_type': 'table',
                     'file_pattern': '^((?!/assets/).)*/records/(?P<schema>.+?)/(?P<table>.+?)[.]'
                 },
+                # Assets are in format assets/schema_name/table_name/correlation_key/file.ext
                 {
                     'checksum_types': ['md5'],
                     'column_map': {
@@ -432,7 +432,7 @@ class DerivaTableConfigure:
                         'Filename': '{Filename}',
                         'MD5': '{MD5}',
                     },
-                    'dir_pattern': '^.*/(?P<schema>.*)/(?P<table>.*)/(?P<key_column>%s))' % key_column_pattern,
+                    'dir_pattern': '^.*\/(?P<schema>.*)\/(?P<table>.*)\/(?P<key_column>.*)\/',
                     'ext_pattern': extension_pattern,
                     'file_pattern': file_pattern,
                     'hatrac_templates': {'hatrac_uri': '/hatrac/{schema}/{table}/{md5}.{file_name}'},

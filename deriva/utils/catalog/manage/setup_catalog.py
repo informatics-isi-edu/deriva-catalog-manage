@@ -112,12 +112,18 @@ dt_public.configure_table_defaults(public=True)
 dt.create_asset_table('ID')
 dt.apply()
 
-testdir = 'upload-test/records/{}/{}'.format(schema_name,table_name)
-os.makedirs('upload-test/assets', exist_ok=True)
+def create_upload_dirs(schema_name, table_name, iditer):
+    os.makedirs('records/{}'.format(schema_name), exist_ok=True)
+    for i in iditer:
+        asset_dir = 'assets/{}/{}/{}'.format(schema_name, table_name, i)
+        os.makedirs(asset_dir, exist_ok=True)
+    return
 
-for i in range(1,3):
-    filename = 'upload-test/records/{}/{}/{}/foo.txt'.format(schema_name, table_name, i)
-    os.makedirs(os.path.dirname(filename), exist_ok=True)
+os.chdir('upload_test')
+create_upload_dirs(schema_name, table_name, range(1,3))
+
+for i in os.listdir('assets/{}/{}'.format(schema_name,table_name)):
+    filename = 'assets/{}/{}/{}/{}'.format(schema_name, table_name, i, 'foo.txt')
     with open(filename, "w") as f:
         f.write("FOOBAR\n")
 
