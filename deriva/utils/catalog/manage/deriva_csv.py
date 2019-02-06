@@ -213,7 +213,7 @@ class DerivaCSV(Table):
         :param schema_name: Name of the Deriva Schema in which this table will be located
         :param table_name: Name of the table.  If not provided, use the source file name
         :param column_map: a column name mapping dictionary, of the form [n1,n2,n3] or {n1:v, n2:v}.  In the list form
-                           elements are the exact capitolaization of words to be used in a name.  In the dictionary
+                           elements are the exact capatilization of words to be used in a name.  In the dictionary
                            form, the values are what the name should be replaced with.  All matching is done case
                            insensitive.  Word substitution is only done after column names are split. Other matches are
                            done both before and after the mapping of the name into snake case.

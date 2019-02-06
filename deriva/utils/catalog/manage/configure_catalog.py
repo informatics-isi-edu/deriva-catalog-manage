@@ -27,52 +27,324 @@ if IS_PY3:
 else:
     from urlparse import urlparse
 
-CATALOG_CONFIG__TAG = 'tag:isrd.isi.edu,2019:catalog-config'
+chaise_tags.catalog_config = 'tag:isrd.isi.edu,2019:catalog-config'
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 logger.addHandler(logging.StreamHandler())
+
 
 class DerivaConfigError(Exception):
     def __init__(self, msg):
         self.msg = msg
 
 
-def configure_ermrest_client(catalog, model, groups):
-    """
-    Set up ermrest_client table so that it has readable names and uses the display name of the user as the row name.
-    :param catalog: Ermrest catalog
-    :param model:
-    :param groups:
-    :return:
-    """
+class DerivaCatalogConfigure:
+    def __init__(self, catalog):
+        self.catalog = catalog
+        self.model = catalog.getCatalogModel()
 
-    ermrest_client = model.schemas['public'].tables['ERMrest_Client']
+    def apply(self):
+        self.model.apply(self.catalog)
 
-    # Make ermrest_client table visible.  If the GUID or member name is considered sensitivie, then this needs to be
-    # changed.
-    ermrest_client.acls['select'] = ['*']
+    def configure_ermrest_client(self, groups):
+        """
+        Set up ermrest_client table so that it has readable names and uses the display name of the user as the row name.
+        :param groups:
+        :return:
+        """
 
-    # Set table and row name.
-    ermrest_client.annotations.update({
-        chaise_tags.display: {'name': 'Users'},
-        chaise_tags.visible_columns: {'compact': ['ID', 'Full_Name', 'Display_Name', 'Email']},
-        chaise_tags.table_display: {'row_name': {'row_markdown_pattern': '{{{Full_Name}}}'}}
-    })
+        ermrest_client = self.model.schemas['public'].tables['ERMrest_Client']
 
-    column_annotations = {
-        'RCT': {chaise_tags.display: {'name': 'Creation Time'}},
-        'RMT': {chaise_tags.display: {'name': 'Last Modified Time'}},
-        'RCB': {chaise_tags.display: {'name': 'Created By'}},
-        'RMB': {chaise_tags.display: {'name': 'Modified By'}}
-    }
-    for k, v in column_annotations.items():
-        ermrest_client.column_definitions[k].annotations.update(v)
-    return
+        # Make ermrest_client table visible.  If the GUID or member name is considered sensitivie, then this needs to be
+        # changed.
+        ermrest_client.acls['select'] = ['*']
+
+        # Set table and row name.
+        ermrest_client.annotations.update({
+            chaise_tags.display: {'name': 'Users'},
+            chaise_tags.visible_columns: {'compact': ['ID', 'Full_Name', 'Display_Name', 'Email']},
+            chaise_tags.table_display: {'row_name': {'row_markdown_pattern': '{{{Full_Name}}}'}}
+        })
+
+        column_annotations = {
+            'RCT': {chaise_tags.display: {'name': 'Creation Time'}},
+            'RMT': {chaise_tags.display: {'name': 'Modified Time'}},
+            'RCB': {chaise_tags.display: {'name': 'Created By'}},
+            'RMB': {chaise_tags.display: {'name': 'Modified By'}}
+        }
+        for k, v in column_annotations.items():
+            ermrest_client.column_definitions[k].annotations.update(v)
+        return
+
+    def _configure_www_schema(self):
+        """
+        Set up a new schema and tables to hold web-page like content.  The tables include a page table, and a asset
+        table that can have images that are referred to by the web page.  Pages are written using markdown.
+        :return:
+        """
+        logging.info('Configuring WWW schema')
+        # Create a WWW schema if one doesn't already exist.
+        try:
+            www_schema_def = em.Schema.define('WWW', comment='Schema for tables that will be displayed as web content')
+            www_schema = self.model.create_schema(self.catalog, www_schema_def)
+        except ValueError as e:
+            if 'already exists' not in e.args[0]:
+                raise
+            else:
+                www_schema = self.model.schemas['WWW']
+
+        # Create the page table
+        page_table_def = em.Table.define(
+            'Page',
+            column_defs=[
+                em.Column.define('Title', em.builtin_types['text'], nullok=False, comment='Unique title for the page'),
+                em.Column.define('Content', em.builtin_types['markdown'], comment='Content of the page in markdown')
+            ],
+            key_defs=[em.Key.define(['Title'], [['WWW', 'Page_Title_key']])],
+            annotations={chaise_tags.visible_foreign_keys: {'detailed': {}},
+                         chaise_tags.visible_columns: {'detailed': ['Content']}}
+        )
+        try:
+            www_schema.create_table(self.catalog, page_table_def)
+        except ValueError as e:
+            if 'already exists' not in e.args[0]:
+                raise
+        table = DerivaTableConfigure(self.catalog, 'WWW', 'Page', model=self.model)
+        table.configure_table_defaults()
+
+        # Now set up the asset table
+        try:
+            table = DerivaTableConfigure(self.catalog, 'WWW', 'Page', model=self.model)
+            table.create_asset_table('RID')
+        except ValueError as e:
+            if 'already exists' not in e.args[0]:
+                raise
+
+        return
+
+    def set_core_groups(self, catalog_name=None, admin=None, curator=None, writer=None, reader=None,
+                        replace=False):
+        """
+        Look in the catalog to get the group IDs for the four core groups used in the baseline configuration. There are
+        three options:  1) core group name can be provided explicitly, 2) group name can be formed from a catalog
+        name and a default group name, 3) group name can be formed from the server name and a default group name.
+        :param catalog_name: Name of the catalog to use as a prefix in looking up default name of the group. Default
+               group names are formed by combining the catalog_name with the standard group name: e.g. foo-admin
+               foo-writer, and foo-reader
+        :param admin: Group name to use in place of default
+        :param curator: Group name to use in place of default
+        :param writer: Group name to use in lace of default
+        :param reader: Either '*' for anonymous read access, or the group name to use in place of default
+        :param replace: Ignore existing catalog config and use provided arguements.
+        :return: dictionary with the four group ids.
+        """
+        groups = {}
+        # Get previous catalog configuration values if they exist
+        if chaise_tags.catalog_config in self.model.annotations and not replace:
+            groups.update({
+                'admin': self.model.annotations[chaise_tags.catalog_config]['groups']['admin'],
+                'curator': self.model.annotations[chaise_tags.catalog_configG]['groups']['curator'],
+                'writer': self.model.annotations[chaise_tags.catalog_config]['groups']['writer'],
+                'reader': self.model.annotations[chaise_tags.catalog_config]['groups']['reader']
+            })
+        else:
+            if admin == '*' or curator == '*' or writer == '*':
+                raise DerivaConfigError(msg='Only reader may be anonymous when setting core catalog groups')
+            if not catalog_name and (admin is None or curator is None or writer is None or reader is None):
+                raise DerivaConfigError(msg='Catalog name required to look up group')
+
+            if admin is None:
+                admin = catalog_name + '-admin'
+            if curator is None:
+                curator = catalog_name + '-curator'
+            if writer is None:
+                writer = catalog_name + '-writer'
+            if reader is None:
+                reader = catalog_name + '-reader'
+
+            pb = self.catalog.getPathBuilder()
+            catalog_groups = {i['Display_Name']: i for i in pb.public.ERMrest_Group.entities()}
+            groups = {}
+            try:
+                groups.update({
+                    'admin': catalog_groups[admin]['ID'],
+                    'curator': catalog_groups[curator]['ID'],
+                    'writer': catalog_groups[writer]['ID'],
+                    'reader': catalog_groups[reader]['ID'] if reader is not '*' else '*'
+                })
+            except KeyError as e:
+                raise DerivaConfigError(msg='Group {} not defined'.format(e.args[0]))
+
+        return groups
+
+    def configure_group_table(self, groups):
+        """
+        Create a table in the public schema for tracking mapping of group names.
+        :param groups:
+        :return:
+        """
+
+        logging.info('Configuring groups')
+        ermrest_group = self.model.schemas['public'].tables['ERMrest_Group']
+
+        # Make ERMrest_Group table visible to writers, curators, and admins.
+        ermrest_group.acls['select'] = [groups['writer'], groups['curator'], groups['admin']]
+
+        # Set table and row name.
+        ermrest_group.annotations.update({
+            chaise_tags.display: {'name': 'Globus Group'},
+            chaise_tags.visible_columns: {'*': ['Display_Name', 'Description', 'URL', 'ID']},
+            chaise_tags.table_display: {'row_name': {'row_markdown_pattern': '{{{Display_Name}}}'}}
+        })
+
+        # Set compound key so that we can link up with Visible_Group table.
+        try:
+            ermrest_group.create_key(
+                self.catalog,
+                em.Key.define(['ID', 'URL', 'Display_Name', 'Description'],
+                              constraint_names=[('public', 'Group_Compound_key')],
+                              comment='Compound key to ensure that columns sync up into Visible_Groups on update.'
+
+                              )
+            )
+            ermrest_group.create_key(
+                self.catalog,
+                em.Key.define(['ID'],
+                              constraint_names=[('public', 'Group_ID_key')],
+                              comment='Group ID is unique.'
+
+                              )
+            )
+        except exceptions.HTTPError as e:
+            if 'already exists' not in e.args[0]:
+                raise
+
+        # Create a catalog groups table
+        column_defs = [
+            em.Column.define('Display_Name', em.builtin_types['text']),
+            em.Column.define('URL', em.builtin_types['text'],
+                             annotations={
+                                 chaise_tags.column_display: {
+                                     '*': {'markdown_pattern': '[**{{Display_Name}}**]({{{URL}}})'}},
+                                 chaise_tags.display: {'name': 'Group Management Page'}
+                             }
+                             ),
+            em.Column.define('Description', em.builtin_types['text']),
+            em.Column.define('ID', em.builtin_types['text'], nullok=False)
+        ]
+
+        key_defs = [
+            em.Key.define(['ID'],
+                          constraint_names=[('public', 'Group_ID_key')],
+                          comment='Compound key to ensure that columns sync up into Catalog_Groups on update.'
+
+                          )
+        ]
+
+        # Set up a foreign key to the group table so that the creator of a record can only select
+        # groups of which they are members of for values of the Owners column.
+        fkey_group_policy = {
+            # FKey to group can be created only if you are a member of the group you are referencing
+            'set_owner': {"types": ["insert"],
+                          "projection": ["ID"],
+                          "projection_type": "acl"}
+        }
+
+        # Allow curators to also update the foreign key.
+        fkey_group_acls = {"insert": [groups['curator']], "update": [groups['curator']]}
+
+        # Create a foreign key to the group table. Set update policy to keep group entry in sync.
+        fkey_defs = [
+            em.ForeignKey.define(['ID', 'URL', 'Display_Name', 'Description'],
+                                 'public', 'ERMrest_Group', ['ID', 'URL', 'Display_Name', 'Description'],
+                                 on_update='CASCADE',
+                                 acls=fkey_group_acls,
+                                 acl_bindings=fkey_group_policy,
+                                 )
+        ]
+
+        # Create the visible groups table. Set ACLs so that writers or curators can add entries or edit.  Allow writers
+        # to be able to create new entries.  No one is allowed to update, as this is only done via the CASCADE.
+        catalog_group = em.Table.define(
+            'Catalog_Group',
+            annotations={chaise_tags.table_display: {'row_name': {'row_markdown_pattern': '{{{Display_Name}}}'}}},
+            column_defs=column_defs,
+            fkey_defs=fkey_defs, key_defs=key_defs,
+            acls={
+                # Make ERMrest_Group table visible to members of the group members, curators, and admins.
+                'select': [groups['reader']],
+                'insert': [groups['writer'], groups['curator']]
+            },
+        )
+
+        public_schema = self.model.schemas['public']
+
+        # Get or create Catalog_Group table....
+        try:
+            public_schema.create_table(self.catalog, catalog_group)
+        except ValueError as e:
+            if 'already exists' not in e.args[0]:
+                raise
+        table = DerivaTableConfigure(self.catalog, 'public', 'Catalog_Group', model=self.model)
+        table.configure_table_defaults(set_policy=False)
+        return
+
+    def configure_baseline_catalog(self,
+                                   catalog_name=None,
+                                   admin=None, curator=None, writer=None, reader=None,
+                                   set_policy=True,
+                                   public=False):
+        """
+        Put catalog into standard configuration which includes:
+        1) Setting default display mode to be to turn underscores to spaces.
+        2) Set access control assuming admin, curator, writer, and reader groups.
+        3) Configure ermrest_client to have readable names.
+
+        :param catalog_name:
+        :param admin: Name of the admin group.  Defaults to catalog-admin
+        :param curator: Name of the curator group. Defaults to catalog-curator
+        :param writer: Name of the writer group. Defaults to catalog-writer
+        :param reader: Name of the reader group. Defaults to catalog-reader
+        :param set_policy: Set policy for catalog to support reader/writer/curator/admin groups.
+        :param public: Set to true if anonymous read access should be allowed.
+        :return:
+        """
+
+        if not catalog_name:
+            # If catalog name is not provided, default to the host name of the server.
+            catalog_name = urlparse(self.catalog.get_server_uri()).hostname.split('.')[0]
+        groups = self.set_core_groups(catalog_name=catalog_name,
+                                      admin=admin, curator=curator, writer=writer, reader=reader)
+
+        # Record configuration of catalog so we can retrieve when we configure tables later on.
+        self.model.annotations[chaise_tags.catalog_config] = {'name': catalog_name, 'groups': groups}
+
+        # Set up default name style for all schemas.
+        for s in self.model.schemas.values():
+            s.annotations[chaise_tags.display] = {'name_style': {'underline_space': True}}
+
+        # modify catalog ACL config to support basic admin/curator/writer/reader access.
+        if set_policy:
+            self.model.acls.update({
+                "owner": [groups['admin']],
+                "insert": [groups['curator'], groups['writer']],
+                "update": [groups['curator']],
+                "delete": [groups['curator']],
+                "select": [groups['writer'], groups['reader']] if not public else ['*'],
+                "enumerate": ["*"],
+            })
+
+        self.configure_ermrest_client(groups)
+        self.configure_group_table(groups)
+        self._configure_www_schema()
+
+        self.apply()
+
+        return
 
 
 def update_group_table(catalog):
-
     def group_urls(group):
         guid = group.split('/')[-1]
         link = 'https://app.globus.org/groups/' + guid
@@ -86,636 +358,340 @@ def update_group_table(catalog):
     )
 
 
-def get_core_groups(catalog, model, catalog_name=None, admin=None, curator=None, writer=None, reader=None,
-                    replace=False):
-    """
-    Look in the catalog to get the group IDs for the four core groups used in the baseline configuration. THere are
-    three options:  1) core group name can be provided explicitly, 2) group name can be formed from a catalog
-    name and a default group name, 3) group name can be formed from the server name and a default group name.
-    :param catalog:
-    :param model:
-    :param catalog_name: Name of the catalog to use as a prefix in looking up default name of the group. Default
-           group names are formed by combining the catalog_name with the standard group name: e.g. foo-admin
-           foo-writer, and foo-reader
-    :param admin: Group name to use in place of default
-    :param curator: Group name to use in place of default
-    :param writer: Group name to use in lace of default
-    :param reader: Either '*' for anonymous read access, or the group name to use in place of default
-    :param replace: Ignore existing catalog config and use provided arguements.
-    :return: dictionary with the four group ids.
-    """
-    groups = {}
-    # Get previous catalog configuration values if they exist
-    if CATALOG_CONFIG__TAG in model.annotations and not replace:
-        groups.update({
-            'admin': model.annotations[CATALOG_CONFIG__TAG]['groups']['admin'],
-            'curator': model.annotations[CATALOG_CONFIG__TAG]['groups']['curator'],
-            'writer': model.annotations[CATALOG_CONFIG__TAG]['groups']['writer'],
-            'reader': model.annotations[CATALOG_CONFIG__TAG]['groups']['reader']
-        })
-    else:
-        if admin == '*' or curator == '*' or writer == '*':
-            raise DerivaConfigError(msg='Only reader may be anonymous when setting core catalog groups')
-        if not catalog_name and (admin is None or curator is None or writer is None or reader is None):
-            raise DerivaConfigError(msg='Catalog name required to look up group')
+class DerivaTableConfigure:
+    def __init__(self, catalog, schema_name, table_name, model=None):
+        self.catalog = catalog
+        self.schema_name = schema_name
+        self.table_name = table_name
+        self.model = catalog.getCatalogModel() if model is None else model
+        self.table = self.model.schemas[schema_name].tables[table_name]
+        return
 
-        if admin is None:
-            admin = catalog_name + '-admin'
-        if curator is None:
-            curator = catalog_name + '-curator'
-        if writer is None:
-            writer = catalog_name + '-writer'
-        if reader is None:
-            reader = catalog_name + '-reader'
+    def apply(self):
+        self.model.apply(self.catalog)
 
-        pb = catalog.getPathBuilder()
-        catalog_groups = {i['Display_Name']: i for i in pb.public.ERMrest_Group.entities()}
-        groups = {}
-        try:
-            groups.update({
-                'admin': catalog_groups[admin]['ID'],
-                'curator': catalog_groups[curator]['ID'],
-                'writer': catalog_groups[writer]['ID'],
-                'reader': catalog_groups[reader]['ID'] if reader is not '*' else '*'
-            })
-        except KeyError as e:
-            raise DerivaConfigError(msg='Group {} not defined'.format(e.args[0]))
-    return groups
-
-
-def configure_www_schema(catalog, model):
-    """
-    Set up a new schema and tables to hold web-page like content.  The tables include a page table, and a asset table
-    that can have images that are referred to by the web page.  Pages are written using markdown.
-    :param catalog:
-    :param model:
-    :return:
-    """
-    logging.info('Configuring WWW schema')
-    # Create a WWW schema if one doesn't already exist.
-    try:
-        www_schema_def = em.Schema.define('WWW', comment='Schema for tables that will be displayed as web content')
-        www_schema = model.create_schema(catalog, www_schema_def)
-    except ValueError as e:
-        if 'already exists' not in e.args[0]:
-            raise
+    def get_groups(self):
+        if chaise_tags.catalog_config in self.model.annotations:
+            return self.model.annotations[chaise_tags.catalog_config]['groups']
         else:
-            www_schema = model.schemas['WWW']
+            raise DerivaConfigError(msg='Attempting to configure table before catalog is configured')
 
-    # Create the page table
-    page_table_def = em.Table.define(
-        'Page',
-        column_defs=[
-            em.Column.define('Title', em.builtin_types['text'], nullok=False, comment='Unique title for the page'),
-            em.Column.define('Content', em.builtin_types['markdown'], comment='Content of the page in markdown')
-        ],
-        key_defs=[em.Key.define(['Title'], [['WWW', 'Page_Title_key']])],
-        annotations={chaise_tags.visible_foreign_keys: {'detailed': {}},
-                     chaise_tags.visible_columns: {'detailed': ['Content']}}
-    )
-    try:
-        page_table = www_schema.create_table(catalog, page_table_def)
-    except ValueError as e:
-        if 'already exists' not in e.args[0]:
-            raise
-        else:
-            page_table = www_schema.tables['Page']
-    configure_table_defaults(catalog, ('WWW', 'Page'), model=model)
+    def create_asset_table(self, key_column,
+                           extensions=[],
+                           file_pattern='.*',
+                           key_column_pattern='[0-9A-Z-]+/',
+                           column_defs=[], key_defs=[], fkey_defs=[],
+                           comment=None, acls={},
+                           acl_bindings={},
+                           annotations={},
+                           set_policy=True):
+        """
+        Create a basic asset table and configures the bulk upload annotation to load the table along with a table of
+        associated metadata. This routine assumes that the metadata table has already been defined, and there is a key
+        column the metadata table that can be used to associate the asset with a row in the table. The default
+        configuration assumes that the assets are in a directory named with the table name for the metadata and that
+        they either are in a subdirectory named by the key value, or that they are in a file whose name starts with the
+        key value.
 
-    # Now set up the asset table
-    try:
-        create_asset_table(catalog, ('WWW','Page'), 'RID', model=model)
-    except ValueError as e:
-        if 'already exists' not in e.args[0]:
-            raise
+        :param key_column: The column in the metadata table to be used to correlate assets with entries. Assets will be
+                           named using the key column.
+        :param extensions: List file extensions to be matched. Default is to match any extension.
+        :param file_pattern: Regex that identified the files to be considered for upload
+        :param key_column_pattern: Regex to identify the key column in the source directory.
+        :param column_defs: a list of Column.define() results for extra or overridden column definitions
+        :param key_defs: a list of Key.define() results for extra or overridden key constraint definitions
+        :param fkey_defs: a list of ForeignKey.define() results for foreign key definitions
+        :param comment: a comment string for the asset table
+        :param acls: a dictionary of ACLs for specific access modes
+        :param acl_bindings: a dictionary of dynamic ACL bindings
+        :param annotations: a dictionary of annotations
+        :param set_policy: If true, add ACLs for self serve policy to the asset table
+        :return:
+        """
 
-    return
+        def create_asset_upload_spec(key_column,
+                                     extensions,
+                                     file_pattern,
+                                     key_column_pattern):
+            extension_pattern = '^.*[.](?P<file_ext>{})$'.format('|'.join(extensions if extensions else ['.*']))
 
-
-def configure_group_table(catalog, model, groups):
-    """
-    Create a table in the public schema for tracking mapping of group names.
-    :param catalog:
-    :param model:
-    :param groups:
-    :return:
-    """
-
-    logging.info('Configuring groups')
-    ermrest_group = model.schemas['public'].tables['ERMrest_Group']
-
-    # Make ERMrest_Group table visible to writers, curators, and admins.
-    ermrest_group.acls['select'] = [groups['writer'], groups['curator'], groups['admin']]
-
-    # Set table and row name.
-    ermrest_group.annotations.update({
-        chaise_tags.display: {'name': 'Globus Group'},
-        chaise_tags.visible_columns: {'*': ['Display_Name', 'Description', 'URL', 'ID']},
-        chaise_tags.table_display: {'row_name': {'row_markdown_pattern': '{{{Display_Name}}}'}}
-    })
-
-    # Set compound key so that we can link up with Visible_Group table.
-    try:
-        ermrest_group.create_key(
-            catalog,
-            em.Key.define(['ID', 'URL', 'Display_Name', 'Description'],
-                          constraint_names=[('public', 'Group_Compound_key')],
-                          comment='Compound key to ensure that columns sync up into Visible_Groups on update.'
-
-                          )
-        )
-        ermrest_group.create_key(
-            catalog,
-            em.Key.define(['ID'],
-                          constraint_names=[('public', 'Group_ID_key')],
-                          comment='Group ID is unique.'
-
-                          )
-        )
-    except exceptions.HTTPError as e:
-        if 'already exists' not in e.args[0]:
-            raise
-
-    # Create a catalog groups table
-    column_defs = [
-        em.Column.define('Display_Name', em.builtin_types['text']),
-        em.Column.define('URL', em.builtin_types['text'],
-                         annotations={
-                             chaise_tags.column_display: {
-                                 '*': {'markdown_pattern': '[**{{Display_Name}}**]({{{URL}}})'}},
-                             chaise_tags.display: {'name': 'Group Management Page'}
-                         }
-                         ),
-        em.Column.define('Description', em.builtin_types['text']),
-        em.Column.define('ID', em.builtin_types['text'], nullok=False)
-    ]
-
-    key_defs = [
-        em.Key.define(['ID'],
-                      constraint_names=[('public', 'Group_ID_key')],
-                      comment='Compound key to ensure that columns sync up into Catalog_Groups on update.'
-
-                      )
-    ]
-
-    # Set up a foreign key to the group table so that the creator of a record can only select
-    # groups of which they are members of for values of the Owners column.
-    fkey_group_policy = {
-        # FKey to group can be created only if you are a member of the group you are referencing
-        'set_owner': {"types": ["insert"],
-                      "projection": ["ID"],
-                      "projection_type": "acl"}
-    }
-
-    # Allow curators to also update the foreign key.
-    fkey_group_acls = {"insert": [groups['curator']], "update": [groups['curator']]}
-
-    # Create a foreign key to the group table. Set update policy to keep group entry in sync.
-    fkey_defs = [
-        em.ForeignKey.define(['ID', 'URL', 'Display_Name', 'Description'],
-                             'public', 'ERMrest_Group', ['ID', 'URL', 'Display_Name', 'Description'],
-                             on_update='CASCADE',
-                             acls=fkey_group_acls,
-                             acl_bindings=fkey_group_policy,
-                             )
-    ]
-
-    # Create the visible groups table. Set ACLs so that writers or curators can add entries or edit.  Allow writers
-    # to be able to create new entries.  No one is allowed to update, as this is only done via the CASCADE.
-    catalog_group = em.Table.define(
-        'Catalog_Group',
-        annotations={chaise_tags.table_display: {'row_name': {'row_markdown_pattern': '{{{Display_Name}}}'}}},
-        column_defs=column_defs,
-        fkey_defs=fkey_defs, key_defs=key_defs,
-        acls={
-            # Make ERMrest_Group table visible to members of the group members, curators, and admins.
-            'select': [groups['reader']],
-            'insert': [groups['writer'], groups['curator']]
-        },
-    )
-
-    public_schema = model.schemas['public']
-
-    # Get or create Catalog_Group table....
-    try:
-        catalog_group_table = public_schema.create_table(catalog, catalog_group)
-    except ValueError as e:
-        if 'already exists' not in e.args[0]:
-            raise
-        else:
-            catalog_group_table = public_schema.tables['Catalog_Group']
-
-    configure_table_defaults(catalog, ('public', 'Catalog_Group'), model=model, set_policy=False)
-
-
-def create_asset_table(catalog, table_spec, key_column,
-                       model = None,
-                       extensions=[],
-                       file_pattern='.*',
-                       key_column_pattern='[0-9A-Z-]+/',
-                       column_defs=[], key_defs=[], fkey_defs=[],
-                       comment=None, acls={},
-                       acl_bindings={},
-                       annotations={},
-                       set_policy=True):
-    """
-    Create a basic asset table and configures the bulk upload annotation to load the table along with a table of
-    associated metadata. This routine assumes that the metadata table has already been defined, and there is a key
-    column the metadata table that can be used to associate the asset with a row in the table. The default configuration
-    will assumes that the assets are in a directory named with the table name for the metadata and that they either
-    are in a subdirectory named by the key value, or that they are in a file whose name starts with the key value.
-
-    :param catalog:
-    :param table_spec: Table to contain the asset metadata.  Asset will have a foreign key to this table.
-    :param key_column: The column in the metadata table to be used to correlate assets with entries. Assets will be
-                       named using the key column.
-    :param extensions: List file extensions to be matched. Default is to match any extension.
-    :param file_pattern: Regex that identified the files to be considered for upload
-    :param key_column_pattern: Regex to identify the key column in the source directory.
-    :param column_defs: a list of Column.define() results for extra or overridden column definitions
-    :param key_defs: a list of Key.define() results for extra or overridden key constraint definitions
-    :param fkey_defs: a list of ForeignKey.define() results for foreign key definitions
-    :param comment: a comment string for the asset table
-    :param acls: a dictionary of ACLs for specific access modes
-    :param acl_bindings: a dictionary of dynamic ACL bindings
-    :param annotations: a dictionary of annotations
-    :param set_policy: If true, add ACLs for self serve policy to the asset table
-    :return:
-    """
-
-    def create_asset_upload_spec(schema_name, table_name, key_column,
-                                 extensions,
-                                 file_pattern,
-                                 key_column_pattern):
-        extension_pattern = '^.*[.](?P<file_ext>{})$'.format('|'.join(extensions if extensions else ['.*']))
-
-        return [
-            # Any metadata is in a file named assets/records/schema_name/tablename.[csv|json]
-            {
-                'default_columns': ['RID', 'RCB', 'RMB', 'RCT', 'RMT'],
-                'ext_pattern': '^.*[.](?P<file_ext>json|csv)$',
-                'asset_type': 'table',
-                'file_pattern': '^((?!/assets/).)*/records/(?P<schema>.+?)/(?P<table>.+?)[.]'
-            },
-            {
-                'checksum_types': ['md5'],
-                'column_map': {
-                    'URL': '{URI}',
-                    'Length': '{file_size}',
-                    table_name + '_RID': '{table_rid}',
-                    'Filename': '{Filename}',
-                    'MD5': '{MD5}',
+            return [
+                # Any metadata is in a file named assets/records/schema_name/tablename.[csv|json]
+                {
+                    'default_columns': ['RID', 'RCB', 'RMB', 'RCT', 'RMT'],
+                    'ext_pattern': '^.*[.](?P<file_ext>json|csv)$',
+                    'asset_type': 'table',
+                    'file_pattern': '^((?!/assets/).)*/records/(?P<schema>.+?)/(?P<table>.+?)[.]'
                 },
-                'dir_pattern': '^.*/(?P<schema>.*)/(?P<table>.*)/(?P<key_column>%s))' % key_column_pattern,
-                'ext_pattern': extension_pattern,
-                'file_pattern': file_pattern,
-                'hatrac_templates': {'hatrac_uri': '/hatrac/{schema}/{table}/{md5}.{file_name}'},
-                # Look for rows in the metadata table with matching key column values.
-                'metadata_query_templates': [
-                    '/attribute/D:={target_table}/%s={key_column}/table_rid:=D:RID' % key_column],
-                # Rows in the asset table should have a FK reference to the RID for the matching metadata row
-                'record_query_template':
-                    '/entity/{schema}:{table}_Asset/{table}_RID={table_rid}/MD5={md5}/URL={URI_urlencoded}',
-                'hatrac_options': {'versioned_uris': True},
+                {
+                    'checksum_types': ['md5'],
+                    'column_map': {
+                        'URL': '{URI}',
+                        'Length': '{file_size}',
+                        self.table_name + '_RID': '{table_rid}',
+                        'Filename': '{Filename}',
+                        'MD5': '{MD5}',
+                    },
+                    'dir_pattern': '^.*/(?P<schema>.*)/(?P<table>.*)/(?P<key_column>%s))' % key_column_pattern,
+                    'ext_pattern': extension_pattern,
+                    'file_pattern': file_pattern,
+                    'hatrac_templates': {'hatrac_uri': '/hatrac/{schema}/{table}/{md5}.{file_name}'},
+                    # Look for rows in the metadata table with matching key column values.
+                    'metadata_query_templates': [
+                        '/attribute/D:={target_table}/%s={key_column}/table_rid:=D:RID' % key_column],
+                    # Rows in the asset table should have a FK reference to the RID for the matching metadata row
+                    'record_query_template':
+                        '/entity/{schema}:{table}_Asset/{table}_RID={table_rid}/MD5={md5}/URL={URI_urlencoded}',
+                    'hatrac_options': {'versioned_uris': True},
+                }
+            ]
+
+        asset_table_name = '{}_Asset'.format(self.table_name)
+
+        if set_policy and chaise_tags.catalog_config not in self.model.annotations:
+            raise DerivaConfigError(msg='Attempting to configure table before catalog is configured')
+
+        if key_column not in [i.name for i in self.table.column_definitions]:
+            raise DerivaConfigError(msg='Key column not found in target table')
+
+        column_defs = [
+                          em.Column.define('{}_RID'.format(self.table_name),
+                                           em.builtin_types['text'],
+                                           nullok=False,
+                                           comment="The {} entry to which this asset is attached".format(
+                                               self.table_name)),
+                      ] + column_defs
+
+        # Set up policy so that you can only add an asset to a record that you own.
+        fkey_acls, fkey_acl_bindings = {}, {}
+        if set_policy:
+            groups = self.get_groups()
+
+            fkey_acls = {
+                "insert": [groups['curator']],
+                "update": [groups['curator']],
             }
-        ]
+            fkey_acl_bindings = {
+                "self_linkage_creator": {
+                    "types": ["insert", "update"],
+                    "projection": ["RCB"],
+                    "projection_type": "acl",
+                },
+                "self_linkage_owner": {
+                    "types": ["insert", "update"],
+                    "projection": ["Owner"],
+                    "projection_type": "acl",
+                }
+            }
 
-    (schema_name, table_name) = table_spec
+        # Link asset table to metadata table with additional information about assets.
+        asset_fkey_defs = [
+                              em.ForeignKey.define(['{}_RID'.format(self.table_name)],
+                                                   self.schema_name, self.table_name, ['RID'],
+                                                   acls=fkey_acls, acl_bindings=fkey_acl_bindings,
+                                                   constraint_names=[
+                                                       (self.schema_name,
+                                                        '{}_{}_fkey'.format(asset_table_name, self.table_name))],
+                                                   )
+                          ] + fkey_defs
+        comment = comment if comment else 'Asset table for {}'.format(self.table_name)
 
-    flush = False
-    if model is None:
-        flush = True
-        model = catalog.getCatalogModel()
+        if chaise_tags.table_display not in annotations:
+            annotations[chaise_tags.table_display] = {'row_name': {'row_markdown_pattern': '{{{Filename}}}'}}
 
-    asset_table_name = '{}_Asset'.format(table_name)
-    table = model.schemas[schema_name].tables[table_name]
+        table_def = em.Table.define_asset(self.schema_name, asset_table_name, fkey_defs=asset_fkey_defs,
+                                          column_defs=column_defs, key_defs=key_defs, annotations=annotations,
+                                          acls=acls, acl_bindings=acl_bindings,
+                                          comment=comment)
 
-    if set_policy and CATALOG_CONFIG__TAG not in model.annotations:
-        raise DerivaConfigError(msg='Attempting to configure table before catalog is configured')
+        for i in table_def['column_definitions']:
+            if i['name'] == 'URL':
+                i[chaise_tags.column_display] = {'*': {'markdown_pattern': '[**{{URL}}**]({{{URL}}})'}}
+            if i['name'] == 'Filename':
+                i[chaise_tags.column_display] = {'*': {'markdown_pattern': '[**{{Filename}}**]({{{URL}}})'}}
 
-    if key_column not in [i.name for i in table.column_definitions]:
-        raise DerivaConfigError(msg='Key column not found in target table')
+        asset_table = self.model.schemas[self.schema_name].create_table(self.catalog, table_def)
+        DerivaTableConfigure(self.catalog, self.schema_name, asset_table_name, model=self.model).configure_table_defaults()
 
-    column_defs = [
-        em.Column.define('{}_RID'.format(table_name),
-                         em.builtin_types['text'],
-                         nullok=False,
-                         comment="The {} entry to which this asset is attached".format(table_name)),
-    ]
+        # The last thing we should do is update the upload spec to accomidate this new asset table.
+        if chaise_tags.bulk_upload not in self.model.annotations:
+            self.model.annotations.update({
+                chaise_tags.bulk_upload: {
+                    'asset_mappings': [],
+                    'version_update_url': 'https://github.com/informatics-isi-edu/deriva-qt/releases',
+                    'version_compatibility': [['>=0.4.3', '<1.0.0']]
+                }
+            }
+            )
+        self.model.annotations[chaise_tags.bulk_upload]['asset_mappings']. \
+            extend(create_asset_upload_spec(key_column,
+                                            extensions=extensions,
+                                            file_pattern=file_pattern,
+                                            key_column_pattern=key_column_pattern))
 
-    # Set up policy so that you can only add an asset to a record that you own.
-    fkey_acls, fkey_acl_bindings = {}, {}
-    if set_policy:
-        groups = get_core_groups(catalog, model)
+        return asset_table
 
-        fkey_acls = {
-            "insert": [groups['curator']],
-            "update": [groups['curator']],
-        }
-        fkey_acl_bindings = {
-            "self_linkage_creator": {
-                "types": ["insert", "update"],
+    def configure_self_serve_policy(self, groups):
+        """
+        Set up a table so it has a self service policy.  Add an owner column if one is not present, and set the acl binding
+        so that it follows the self service policy.
+
+        :param groups: dictionary of core catalog groups
+        :return:
+        """
+
+        # Configure table so that access can be assigned to a group.  This requires that we create a column and establish
+        # a foreign key to an entry in the group table.  We will set the access control on the foreign key so that you
+        # are only able to delagate access to a the creator of the entity belongs to.
+        if 'Owner' not in [i.name for i in self.table.column_definitions]:
+            col_def = em.Column.define('Owner', em.builtin_types['text'], comment='Group that can update the record.')
+            self.table.create_column(self.catalog, col_def)
+
+        # Now configure the policy on the table...
+        self_service_policy = {
+            # Set up a policy for the table that allows the creator of the record to update and delete the record.
+            "self_service_creator": {
+                "types": ["update", 'delete'],
                 "projection": ["RCB"],
-                "projection_type": "acl",
+                "projection_type": "acl"
             },
-            "self_linkage_owner": {
-                "types": ["insert", "update"],
+            # Set up a policy for the table that allows members of the group referenced by the Owner column to update
+            # and delete the record.
+            'self_service_group': {
+                "types": ["update", "delete"],
                 "projection": ["Owner"],
-                "projection_type": "acl",
+                "projection_type": "acl"
             }
         }
 
-    # Link asset table to metadata table with additional information about assets.
-    asset_fkey_defs = [
-                          em.ForeignKey.define(['{}_RID'.format(table_name)],
-                                               schema_name, table_name, ['RID'],
-                                               acls=fkey_acls, acl_bindings=fkey_acl_bindings,
-                                               constraint_names=[
-                                                   (schema_name, '{}_{}_fkey'.format(asset_table_name, table_name))],
-                                               )
-                      ] + fkey_defs
-    comment = comment if comment else 'Asset table for {}'.format(table_name)
+        # Make table policy be self service, creators and owners can update.
+        self.table.acl_bindings.update(self_service_policy)
 
-    if chaise_tags.table_display not in annotations:
-        annotations[chaise_tags.table_display] = {'row_name': {'row_markdown_pattern': '{{{Filename}}}'}}
-
-    table_def = em.Table.define_asset(schema_name, asset_table_name, fkey_defs=asset_fkey_defs,
-                                      column_defs=column_defs, key_defs=key_defs, annotations=annotations,
-                                      acls=acls, acl_bindings=acl_bindings,
-                                      comment=comment)
-
-    for i in table_def['column_definitions']:
-        if i['name'] == 'URL':
-            i[chaise_tags.column_display] = {'*': {'markdown_pattern': '[**{{URL}}**]({{{URL}}})'}}
-        if i['name'] == 'Filename':
-            i[chaise_tags.column_display] = {'*': {'markdown_pattern': '[**{{Filename}}**]({{{URL}}})'}}
-
-    asset_table = model.schemas[schema_name].create_table(catalog, table_def)
-    configure_table_defaults(catalog, (schema_name, asset_table_name), model=model)
-
-    # The last thing we should do is update the upload spec to accomidate this new asset table.
-    if chaise_tags.bulk_upload not in model.annotations:
-        model.annotations.update({
-            chaise_tags.bulk_upload: {
-                'asset_mappings': [],
-                'version_update_url': 'https://github.com/informatics-isi-edu/deriva-qt/releases',
-                'version_compatibility': [['>=0.4.3', '<1.0.0']]
-            }
+        # Set up a foreign key to the group table on the owners column so that the creator of a record can only select
+        # groups of which they are members of for values of the Owners column.
+        fkey_group_policy = {
+            # FKey to group can be created only if you are a member of the group you are referencing
+            'set_owner': {"types": ["update", "insert"],
+                          "projection": ["ID"],
+                          "projection_type": "acl"}
         }
-        )
-    model.annotations[chaise_tags.bulk_upload]['asset_mappings']. \
-        extend(create_asset_upload_spec(schema_name, table_name, key_column,
-                                        extensions=extensions,
-                                        file_pattern=file_pattern,
-                                        key_column_pattern=key_column_pattern))
 
-    if flush:
-        model.apply(catalog)
-    return asset_table
+        # Allow curators to also update the foreign key.
+        fkey_group_acls = {"insert": [groups['curator']], "update": [groups['curator']]}
 
+        owner_fkey_name = '{}_Catalog_Group_fkey'.format(self.table_name)
+        fk = em.ForeignKey.define(['Owner'],
+                                  'public', 'Catalog_Group', ['ID'],
 
-def configure_self_serve_policy(catalog, table, groups):
-    """
-    Set up a table so it has a self service policy.  Add an owner column if one is not present, and set the acl binding
-    so that it follows the self service policy.
-
-    :param catalog:
-    :param table: An ermrest model table object on which the policy is to be set.
-    :param groups: dictionary of core catalog groups
-
-    :return:
-    """
-    table_name = table.name
-    schema_name = table.sname
-
-    # Configure table so that access can be assigned to a group.  This requires that we create a column and establish
-    # a foreign key to an entry in the group table.  We will set the access control on the foreign key so that you
-    # are only able to delagate access to a the creator of the entity belongs to.
-    if 'Owner' not in [i.name for i in table.column_definitions]:
-        col_def = em.Column.define('Owner', em.builtin_types['text'], comment='Group that can update the record.')
-        table.create_column(catalog, col_def)
-
-    # Now configure the policy on the table...
-    self_service_policy = {
-        # Set up a policy for the table that allows the creator of the record to update and delete the record.
-        "self_service_creator": {
-            "types": ["update", 'delete'],
-            "projection": ["RCB"],
-            "projection_type": "acl"
-        },
-        # Set up a policy for the table that allows members of the group referenced by the Owner column to update
-        # and delete the record.
-        'self_service_group': {
-            "types": ["update", "delete"],
-            "projection": ["Owner"],
-            "projection_type": "acl"
-        }
-    }
-
-    # Make table policy be self service, creators and owners can update.
-    table.acl_bindings.update(self_service_policy)
-
-    # Set up a foreign key to the group table on the owners column so that the creator of a record can only select
-    # groups of which they are members of for values of the Owners column.
-    fkey_group_policy = {
-        # FKey to group can be created only if you are a member of the group you are referencing
-        'set_owner': {"types": ["update", "insert"],
-                      "projection": ["ID"],
-                      "projection_type": "acl"}
-    }
-
-    # Allow curators to also update the foreign key.
-    fkey_group_acls = {"insert": [groups['curator']], "update": [groups['curator']]}
-
-    owner_fkey_name = '{}_Catalog_Group_fkey'.format(table_name)
-    fk = em.ForeignKey.define(['Owner'],
-                              'public', 'Catalog_Group', ['ID'],
-
-                              acls=fkey_group_acls, acl_bindings=fkey_group_policy,
-                              constraint_names=[(schema_name, owner_fkey_name)],
-                              )
-    try:
-        # Delete old fkey if there is one laying around....
-        f = table.foreign_keys[(schema_name, owner_fkey_name)]
-        f.delete(catalog, table)
-    except KeyError:
-        pass
-
-    # Now create the foreign key to the group table.
-    table.create_fkey(catalog, fk)
-    return
-
-
-def create_default_visible_columns(catalog, table_spec, model=None, really=False):
-    flush = False
-    if not model:
-        model = catalog.getCatalogModel()
-        flush = True
-
-    (schema_name, table_name) = table_spec
-    table = model.schemas[schema_name].tables[table_name]
-
-    if chaise_tags.visible_columns not in table.annotations:
-        table.annotations[chaise_tags.visible_columns] = {'*': default_visible_column_list(table)}
-    elif '*' not in table.annotations[chaise_tags.visible_columns] or really:
-        table.annotations[chaise_tags.visible_columns].update({'*': default_visible_column_list(table)})
-    else:
-        raise DerivaConfigError(msg='Existing visible column annotation in {}'.format(table_name))
-
-    if flush:
-        table.apply(catalog)
-    return
-
-
-def default_visible_column_list(table):
-    """
-    Create a general visible columns annotation spec that would be consistant with what chaise does by default.
-    This spec can then be added to a table and editied for user preference.
-    :param table:
-    :return:
-    """
-    fkeys = {i.foreign_key_columns[0]['column_name']: [i.names[0], i.referenced_columns[0]['column_name']]
-             for i in table.foreign_keys}
-    columns = [i for i in table.column_definitions]
-    column_names = [i.name for i in columns]
-
-    # Move Owner column to be right after RMB if they both exist.
-    if 'Owner' in column_names and 'RMB' in column_names:
-        columns.insert(column_names.index('RMB') + 1, columns.pop(column_names.index('Owner')))
-    return [
-        {'source': [{'outbound': fkeys[i.name][0]}, fkeys[i.name][1]] if i.name in fkeys else i.name}
-        for i in columns
-    ]
-
-
-def configure_baseline_catalog(catalog, catalog_name=None,
-                               admin=None, curator=None, writer=None, reader=None,
-                               set_policy=True, public=False):
-    """
-    Put catalog into standard configuration which includes:
-    1) Setting default display mode to be to turn underscores to spaces.
-    2) Set access control assuming admin, curator, writer, and reader groups.
-    3) Configure ermrest_client to have readable names.
-
-    :param catalog: Ermrest catalog
-    :param catalog_name:
-    :param admin: Name of the admin group.  Defaults to catalog-admin
-    :param curator: Name of the curator group. Defaults to catalog-curator
-    :param writer: Name of the writer group. Defaults to catalog-writer
-    :param reader: Name of the reader group. Defaults to catalog-reader
-    :param set_policy: Set policy for catalog to support reader/writer/curator/admin groups.
-    :param public: Set to true if anonymous read access should be allowed.
-    :return:
-    """
-
-    model = catalog.getCatalogModel()
-    if not catalog_name:
-        # If catalog name is not provided, default to the host name of the server.
-        catalog_name = urlparse(catalog.get_server_uri()).hostname.split('.')[0]
-    groups = get_core_groups(catalog, model, catalog_name=catalog_name,
-                             admin=admin, curator=curator, writer=writer, reader=reader)
-
-    # Record configuration of catalog so we can retrieve when we configure tables later on.
-    model.annotations[CATALOG_CONFIG__TAG] = {'name': catalog_name, 'groups': groups}
-
-    # Set up default name style for all schemas.
-    for s in model.schemas.values():
-        s.annotations[chaise_tags.display] = {'name_style': {'underline_space': True}}
-
-    # modify catalog ACL config to support basic admin/curator/writer/reader access.
-    if set_policy:
-        model.acls.update({
-            "owner": [groups['admin']],
-            "insert": [groups['curator'], groups['writer']],
-            "update": [groups['curator']],
-            "delete": [groups['curator']],
-            "select": [groups['writer'], groups['reader']] if not public else ['*'],
-            "enumerate": ["*"],
-        })
-
-    configure_ermrest_client(catalog, model, groups)
-    configure_group_table(catalog, model, groups)
-    configure_www_schema(catalog, model)
-
-    model.apply(catalog)
-
-    return
-
-
-def configure_table_defaults(catalog, table_spec, set_policy=True, model=None, public=False):
-    """
-    This function adds the following basic configuration details to an existing table:
-    1) Creates a self service modification policy in which creators can update update any row they create.  Optionally,
-       an Owner column can be provided, which allows the creater of a row to delegate row ownership to a specific
-       group.
-    2) Adds display annotations and foreign key declarations so that system columns RCB, RMB display in a user friendly
-       way.
-    :param catalog: ERMRest catalog
-    :param table_spec: ERMRest table object which is to be configured in form (schema,table).
-    :param set_policy: If true, then configure the table to have a self service policy
-    :param model: ERMrest catalog model
-    :param public: Make table accessable without logging in.
-    :return:
-    """
-
-    model_root = catalog.getCatalogModel() if model is None else model
-
-    if CATALOG_CONFIG__TAG not in model_root.annotations:
-        raise DerivaConfigError(msg='Attempting to configure table before catalog is configured')
-
-    # Hack to update description and URL until we get these passed through ermrest....
-    update_group_table(catalog)
-
-    (schema_name, table_name) = table_spec
-    schema = model_root.schemas[schema_name]
-    table = schema.tables[table_name]
-
-    if public:
-        # First copy dver any inherited ACLS.
-        if schema.acls:
-            table.acls.update(schema.acls)
-        elif model_root.acls:
-            table.acls.update(model_root.acls)
-        table.acls.pop("create", None)
-        # Now add permision for anyone to read.
-        table.acls['select'] = ['*']
-
-    if set_policy:
-        configure_self_serve_policy(catalog, table, get_core_groups(catalog, model_root))
-
-    # Configure schema if not already done so.
-    if chaise_tags.display not in schema.annotations:
-        schema.annotations[chaise_tags.display] = {}
-    if 'name_style' not in schema.annotations[chaise_tags.display]:
-        schema.annotations[chaise_tags.display].update({'name_style': {'underline_space': True}})
-
-    # Set up foreign key to ermrest_client on RCB, RMB and Owner. If ermrest_client is configured, the
-    # full name of the user will be used for the FK value.
-    for col, display in [('RCB', 'Created By'), ('RMB', 'Modified By')]:
-        fk_name = '{}_{}_fkey'.format(table_name, col)
+                                  acls=fkey_group_acls, acl_bindings=fkey_group_policy,
+                                  constraint_names=[(self.schema_name, owner_fkey_name)],
+                                  )
         try:
             # Delete old fkey if there is one laying around....
-            f = table.foreign_keys[(schema_name, fk_name)]
-            f.delete(catalog, table)
+            f = self.table.foreign_keys[(self.schema_name, owner_fkey_name)]
+            f.delete(self.catalog, self.table)
         except KeyError:
             pass
-        fk = em.ForeignKey.define([col],
-                                  'public', 'ERMrest_Client', ['ID'],
-                                  constraint_names=[(schema_name, fk_name)],
-                                  )
-        table.create_fkey(catalog, fk)
 
-        # Add a display annotation so that we have sensible name for RCB and RMB.
-        table.column_definitions[col].annotations.update({chaise_tags.display: {'name': display}})
+        # Now create the foreign key to the group table.
+        self.table.create_fkey(self.catalog, fk)
+        return
 
-    create_default_visible_columns(catalog, (schema_name, table_name), model_root)
-    print(table.annotations)
-    if model is None:
-        table.apply(catalog)
-    return
+    def create_default_visible_columns(self, really=False):
+        if chaise_tags.visible_columns not in self.table.annotations:
+            self.table.annotations[chaise_tags.visible_columns] = {'*': self.default_visible_column_list()}
+        elif '*' not in self.table.annotations[chaise_tags.visible_columns] or really:
+            self.table.annotations[chaise_tags.visible_columns].update({'*': self.default_visible_column_list()})
+        else:
+            raise DerivaConfigError(msg='Existing visible column annotation in {}'.format(self.table_name))
+        return
+
+    def default_visible_column_list(self):
+        """
+        Create a general visible columns annotation spec that would be consistant with what chaise does by default.
+        This spec can then be added to a table and editied for user preference.
+        :return:
+        """
+        fkeys = {i.foreign_key_columns[0]['column_name']: [i.names[0], i.referenced_columns[0]['column_name']]
+                 for i in self.table.foreign_keys}
+        columns = [i for i in self.table.column_definitions]
+        column_names = [i.name for i in columns]
+
+        # Move Owner column to be right after RMB if they both exist.
+        if 'Owner' in column_names and 'RMB' in column_names:
+            columns.insert(column_names.index('RMB') + 1, columns.pop(column_names.index('Owner')))
+        return [
+            {'source': [{'outbound': fkeys[i.name][0]}, fkeys[i.name][1]] if i.name in fkeys else i.name}
+            for i in columns
+        ]
+
+    def configure_table_defaults(self, set_policy=True, public=False):
+        """
+        This function adds the following basic configuration details to an existing table:
+        1) Creates a self service modification policy in which creators can update update any row they create.
+           Optionally, an Owner column can be provided, which allows the creater of a row to delegate row ownership to
+           a specific group.
+        2) Adds display annotations and foreign key declarations so that system columns RCB, RMB display in a user
+           friendly way.
+        :param set_policy: If true, then configure the table to have a self service policy
+        :param public: Make table acessible without logging in.
+        :return:
+        """
+
+        if chaise_tags.catalog_config not in self.model.annotations:
+            raise DerivaConfigError(msg='Attempting to configure table before catalog is configured')
+
+        # Hack to update description and URL until we get these passed through ermrest....
+        update_group_table(self.catalog)
+
+        schema = self.model.schemas[self.schema_name]
+
+        if public:
+            # First copy dver any inherited ACLS.
+            if schema.acls:
+                self.table.acls.update(schema.acls)
+            elif self.model.acls:
+                self.table.acls.update(self.model.acls)
+            self.table.acls.pop("create", None)
+            # Now add permision for anyone to read.
+            self.table.acls['select'] = ['*']
+
+        if set_policy:
+            self.configure_self_serve_policy(self.get_groups())
+
+        # Configure schema if not already done so.
+        if chaise_tags.display not in schema.annotations:
+            schema.annotations[chaise_tags.display] = {}
+        if 'name_style' not in schema.annotations[chaise_tags.display]:
+            schema.annotations[chaise_tags.display].update({'name_style': {'underline_space': True}})
+
+        # Set up foreign key to ermrest_client on RCB, RMB and Owner. If ermrest_client is configured, the
+        # full name of the user will be used for the FK value.
+        for col, display in [('RCB', 'Created By'), ('RMB', 'Modified By')]:
+            fk_name = '{}_{}_fkey'.format(self.table_name, col)
+            try:
+                # Delete old fkey if there is one laying around....
+                f = self.table.foreign_keys[(self.schema_name, fk_name)]
+                f.delete(self.catalog, self.table)
+            except KeyError:
+                pass
+            fk = em.ForeignKey.define([col],
+                                      'public', 'ERMrest_Client', ['ID'],
+                                      constraint_names=[(self.schema_name, fk_name)],
+                                      )
+            self.table.create_fkey(self.catalog, fk)
+
+            # Add a display annotation so that we have sensible name for RCB and RMB.
+            self.table.column_definitions[col].annotations.update({chaise_tags.display: {'name': display}})
+
+        self.table.column_definitions['RCT'].annotations.update({chaise_tags.display: {'name': 'Creation Time'}})
+        self.table.column_definitions['RMT'].annotations.update({chaise_tags.display: {'name': 'Modified Time'}})
+
+        self.create_default_visible_columns()
+        return
 
 
-class DerivaConfigureCatalogCLI (BaseCLI):
+class DerivaConfigureCatalogCLI(BaseCLI):
 
     def __init__(self, description, epilog):
         super(DerivaConfigureCatalogCLI, self).__init__(description, epilog, VERSION)
@@ -758,15 +734,17 @@ class DerivaConfigureCatalogCLI (BaseCLI):
         try:
             if args.configure == 'catalog':
                 logging.info('Configuring catalog {}:{}'.format(args.server, args.catalog))
-                configure_baseline_catalog(catalog, catalog_name=args.catalog_name,
-                                           reader=args.reader, writer=args.writer, curator=args.curator,
-                                           admin=args.admin,
-                                           set_policy=args.set_policy, public=args.publish)
+                cfg = DerivaCatalogConfigure(catalog)
+                cfg.configure_baseline_catalog(catalog_name=args.catalog_name,
+                                               reader=args.reader, writer=args.writer, curator=args.curator,
+                                               admin=args.admin,
+                                               set_policy=args.set_policy, public=args.publish)
+                cfg.apply()
             if args.table:
                 [schema_name, table_name] = args.table.split(':')
-                model = catalog.getCatalogModel()
-                configure_table_defaults(catalog, (schema_name, table_name),
-                                         model= model, set_policy=args.set_policy, public=args.publish)
+                table = DerivaTableConfigure(catalog, schema_name, table_name)
+                table.configure_table_defaults(set_policy=args.set_policy, public=args.publish)
+                table.apply()
         except DerivaConfigError as e:
             print(e.msg)
         except HTTPError as e:
