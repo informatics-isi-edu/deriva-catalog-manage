@@ -60,8 +60,10 @@ def generate_test_csv(columncnt):
 
     return row_generator(), [{'name': i[0], 'type': i[1]} for i in zip(column_headings, column_types)]
 
+
 catalog = DerivaServer('https', server, credentials).create_ermrest_catalog()
 catalog_id = catalog._catalog_id
+
 #catalog = ErmrestCatalog('https',server, catalog_id, credentials=credentials)
 print('Catalog_id is', catalog_id)
 
@@ -98,10 +100,10 @@ csvtable_public.create_validate_upload_csv(catalog, convert=True, create=True, u
 
 
 model_root = catalog.getCatalogModel()
-table= model_root.schemas[schema_name].tables[table_name]
-table_public= model_root.schemas[schema_name].tables[public_table_name]
+table = model_root.schemas[schema_name].tables[table_name]
+table_public = model_root.schemas[schema_name].tables[public_table_name]
 
-dc =DerivaCatalogConfigure(catalog)
+dc = DerivaCatalogConfigure(catalog)
 dc.configure_baseline_catalog(catalog_name='test', admin='isrd-systems')
 dc.apply()
 
@@ -112,6 +114,7 @@ dt_public.configure_table_defaults(public=True)
 dt.create_asset_table('ID')
 dt.apply()
 
+
 def create_upload_dirs(schema_name, table_name, iditer):
     os.makedirs('records/{}'.format(schema_name), exist_ok=True)
     for i in iditer:
@@ -119,13 +122,15 @@ def create_upload_dirs(schema_name, table_name, iditer):
         os.makedirs(asset_dir, exist_ok=True)
     return
 
-os.chdir('upload_test')
-create_upload_dirs(schema_name, table_name, range(1,3))
 
-for i in os.listdir('assets/{}/{}'.format(schema_name,table_name)):
+os.makedirs('upload_test', exist_ok=True)
+os.chdir('upload_test')
+create_upload_dirs(schema_name, table_name, range(1, 3))
+
+for i in os.listdir('assets/{}/{}'.format(schema_name, table_name)):
     filename = 'assets/{}/{}/{}/{}'.format(schema_name, table_name, i, 'foo.txt')
     with open(filename, "w") as f:
         f.write("FOOBAR\n")
 
-chaise_url = 'https://{}/chaise/recordset/#{}/{}:{}'.format(server, catalog_id,schema_name,table_name)
+chaise_url = 'https://{}/chaise/recordset/#{}/{}:{}'.format(server, catalog_id, schema_name,table_name)
 print(chaise_url)

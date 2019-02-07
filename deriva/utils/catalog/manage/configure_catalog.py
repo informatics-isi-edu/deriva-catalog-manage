@@ -379,7 +379,6 @@ class DerivaTableConfigure:
     def create_asset_table(self, key_column,
                            extensions=[],
                            file_pattern='.*',
-                           key_column_pattern='[0-9A-Z-]+/',
                            column_defs=[], key_defs=[], fkey_defs=[],
                            comment=None, acls={},
                            acl_bindings={},
@@ -397,7 +396,6 @@ class DerivaTableConfigure:
                            named using the key column.
         :param extensions: List file extensions to be matched. Default is to match any extension.
         :param file_pattern: Regex that identified the files to be considered for upload
-        :param key_column_pattern: Regex to identify the key column in the source directory.
         :param column_defs: a list of Column.define() results for extra or overridden column definitions
         :param key_defs: a list of Key.define() results for extra or overridden key constraint definitions
         :param fkey_defs: a list of ForeignKey.define() results for foreign key definitions
@@ -409,9 +407,7 @@ class DerivaTableConfigure:
         :return:
         """
 
-        def create_asset_upload_spec(key_column,
-                                     extensions,
-                                     file_pattern):
+        def create_asset_upload_spec():
             extension_pattern = '^.*[.](?P<file_ext>{})$'.format('|'.join(extensions if extensions else ['.*']))
 
             return [
@@ -420,7 +416,9 @@ class DerivaTableConfigure:
                     'default_columns': ['RID', 'RCB', 'RMB', 'RCT', 'RMT'],
                     'ext_pattern': '^.*[.](?P<file_ext>json|csv)$',
                     'asset_type': 'table',
-                    'file_pattern': '^((?!/assets/).)*/records/(?P<schema>.+?)/(?P<table>.+?)[.]'
+                    'file_pattern': '^((?!/assets/).)*/records/(?P<schema>%s?)/(?P<table>%s)[.]' %
+                                    (self.schema_name, self.table_name),
+                    'target_table': [self.schema_name, self.table_name],
                 },
                 # Assets are in format assets/schema_name/table_name/correlation_key/file.ext
                 {
@@ -429,16 +427,18 @@ class DerivaTableConfigure:
                         'URL': '{URI}',
                         'Length': '{file_size}',
                         self.table_name + '_RID': '{table_rid}',
-                        'Filename': '{Filename}',
-                        'MD5': '{MD5}',
+                        'Filename': '{file_name}',
+                        'MD5': '{md5}',
                     },
-                    'dir_pattern': '^.*\/(?P<schema>.*)\/(?P<table>.*)\/(?P<key_column>.*)\/',
+                    'dir_pattern': '^.*/(?P<schema>%s)/(?P<table>%s)/(?P<key_column>.*)/' %
+                                   (self.schema_name, self.table_name),
                     'ext_pattern': extension_pattern,
                     'file_pattern': file_pattern,
                     'hatrac_templates': {'hatrac_uri': '/hatrac/{schema}/{table}/{md5}.{file_name}'},
+                    'target_table': [self.schema_name, asset_table_name],
                     # Look for rows in the metadata table with matching key column values.
                     'metadata_query_templates': [
-                        '/attribute/D:={target_table}/%s={key_column}/table_rid:=D:RID' % key_column],
+                        '/attribute/D:={schema}:{table}/%s={key_column}/table_rid:=D:RID' % key_column],
                     # Rows in the asset table should have a FK reference to the RID for the matching metadata row
                     'record_query_template':
                         '/entity/{schema}:{table}_Asset/{table}_RID={table_rid}/MD5={md5}/URL={URI_urlencoded}',
@@ -521,13 +521,22 @@ class DerivaTableConfigure:
                     'version_update_url': 'https://github.com/informatics-isi-edu/deriva-qt/releases',
                     'version_compatibility': [['>=0.4.3', '<1.0.0']]
                 }
-            }
-            )
-        self.model.annotations[chaise_tags.bulk_upload]['asset_mappings']. \
-            extend(create_asset_upload_spec(key_column,
-                                            extensions=extensions,
-                                            file_pattern=file_pattern,
-                                            key_column_pattern=key_column_pattern))
+            })
+
+        # Clean out any old upload specs if there are any and add the new specs.
+        upload_annotations = self.model.annotations[chaise_tags.bulk_upload]
+        upload_annotations['asset_mappings'] = \
+            [i for i in upload_annotations['asset_mappings'] if
+             not (
+                     i.get('target_table', []) == [self.schema_name, asset_table_name]
+                     or
+                     (
+                             i.get('target_table', []) == [self.schema_name, self.table_name]
+                             and
+                             i.get('asset_type', '') == 'table'
+                     )
+             )
+             ] + create_asset_upload_spec()
 
         return asset_table
 
