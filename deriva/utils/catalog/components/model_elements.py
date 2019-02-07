@@ -10,8 +10,7 @@ from deriva.core.base_cli import BaseCLI
 from deriva.core.ermrest_config import tag as chaise_tags
 from deriva.core import ErmrestCatalog, get_credential, urlquote, format_exception
 from deriva.core.utils import eprint
-from deriva.utils.catalog.manage.configure_catalog import create_asset_table, configure_table_defaults, \
-    create_default_visible_columns
+from deriva.utils.catalog.manage.configure_catalog import DerivaTableConfigure
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
@@ -155,11 +154,11 @@ class DerivaModelElementsCLI(BaseCLI):
         try:
             catalog = ErmrestCatalog('https', args.host, args.catalog, credentials=self._get_credential(args.host))
             [schema_name, table_name] = args.table.split(':')
-            table = catalog.getCatalogModel().schemas[schema_name].tables[table_name]
+            table = DerivaTableConfigure(catalog, schema_name, table_name)
             if args.asset_table:
-                create_asset_table(catalog, (schema_name, table_name), args.asset_table)
+                table.create_asset_table(args.asset_table)
             if args.visible_columns:
-                create_default_visible_columns(catalog, (schema_name, table_name), really=args.replace)
+                table.create_default_visible_columns(really=args.replace)
 
         except HTTPError as e:
             if e.response.status_code == requests.codes.unauthorized:
