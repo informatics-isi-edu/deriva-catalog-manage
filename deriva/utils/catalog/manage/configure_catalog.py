@@ -144,7 +144,7 @@ class DerivaCatalogConfigure:
         if chaise_tags.catalog_config in self.model.annotations and not replace:
             groups.update({
                 'admin': self.model.annotations[chaise_tags.catalog_config]['groups']['admin'],
-                'curator': self.model.annotations[chaise_tags.catalog_configG]['groups']['curator'],
+                'curator': self.model.annotations[chaise_tags.catalog_config]['groups']['curator'],
                 'writer': self.model.annotations[chaise_tags.catalog_config]['groups']['writer'],
                 'reader': self.model.annotations[chaise_tags.catalog_config]['groups']['reader']
             })
