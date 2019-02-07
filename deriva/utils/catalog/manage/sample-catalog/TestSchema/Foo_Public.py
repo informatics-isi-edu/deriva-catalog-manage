@@ -7,28 +7,16 @@ from deriva.utils.catalog.manage.update_catalog import CatalogUpdater, parse_arg
 
 groups = {
     'isrd-systems': 'https://auth.globus.org/3938e0d0-ed35-11e5-8641-22000ab4b42b',
-    'test-reader': 'https://auth.globus.org/4966c7fe-16f6-11e9-8bb8-0ee7d80087ee',
     'test-writer': 'https://auth.globus.org/646933ac-16f6-11e9-b9af-0edc9bdd56a6',
-    'test-curator': 'https://auth.globus.org/86cd6ee0-16f6-11e9-b9af-0edc9bdd56a6'
+    'test-curator': 'https://auth.globus.org/86cd6ee0-16f6-11e9-b9af-0edc9bdd56a6',
+    'test-reader': 'https://auth.globus.org/4966c7fe-16f6-11e9-8bb8-0ee7d80087ee'
 }
 
 table_name = 'Foo_Public'
 
 schema_name = 'TestSchema'
 
-column_annotations = {
-    'RCB': {
-        chaise_tags.display: {
-            'name': 'Created By'
-        }
-    },
-    'RMB': {
-        chaise_tags.display: {
-            'name': 'Modified By'
-        }
-    },
-    'Owner': {}
-}
+column_annotations = {'Owner': {}}
 
 column_comment = {'Owner': 'Group that can update the record.'}
 
@@ -55,72 +43,13 @@ column_defs = [
                      ),
 ]
 
-visible_columns = {
-    '*': [
-        {
-            'source': 'RID'
-        }, {
-            'source': 'RCT'
-        }, {
-            'source': 'RMT'
-        }, {
-            'source': [{
-                'outbound': ['TestSchema', 'Foo_Public_RCB_fkey']
-            }, 'ID']
-        }, {
-            'source': [{
-                'outbound': ['TestSchema', 'Foo_Public_RMB_fkey']
-            }, 'ID']
-        }, {
-            'source': [{
-                'outbound': ['TestSchema', 'Foo_Public_Catalog_Group_fkey']
-            }, 'ID']
-        }, {
-            'source': 'Id'
-        }, {
-            'source': 'Field_0'
-        }, {
-            'source': 'Field_1'
-        }, {
-            'source': 'Field_2'
-        }, {
-            'source': 'Field_3'
-        }, {
-            'source': 'Field_4'
-        }, {
-            'source': 'Field_5'
-        }
-    ]
-}
-
-table_annotations = {chaise_tags.visible_columns: visible_columns, }
+table_annotations = {}
 
 table_comment = None
 
-table_acls = {
-    'owner': [groups['isrd-systems']],
-    'write': [],
-    'delete': [groups['test-curator']],
-    'insert': [groups['test-curator'], groups['test-writer']],
-    'select': ['*'],
-    'update': [groups['test-curator']],
-    'enumerate': ['*']
-}
+table_acls = {}
 
-table_acl_bindings = {
-    'self_service_group': {
-        'types': ['update', 'delete'],
-        'projection': ['Owner'],
-        'projection_type': 'acl',
-        'scope_acl': ['*']
-    },
-    'self_service_creator': {
-        'types': ['update', 'delete'],
-        'projection': ['RCB'],
-        'projection_type': 'acl',
-        'scope_acl': ['*']
-    }
-}
+table_acl_bindings = {}
 
 key_defs = [
     em.Key.define(['RID'], constraint_names=[('TestSchema', 'Foo_Public_RIDkey1')],
@@ -190,7 +119,7 @@ def main(catalog, mode, replace=False):
 
 if __name__ == "__main__":
     server = 'dev.isrd.isi.edu'
-    catalog_id = 55522
+    catalog_id = 55674
     mode, replace, server, catalog_id = parse_args(server, catalog_id, is_table=True)
     credential = get_credential(server)
     catalog = ErmrestCatalog('https', server, catalog_id, credentials=credential)

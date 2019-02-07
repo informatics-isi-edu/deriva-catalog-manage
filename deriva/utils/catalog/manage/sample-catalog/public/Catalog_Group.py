@@ -7,9 +7,9 @@ from deriva.utils.catalog.manage.update_catalog import CatalogUpdater, parse_arg
 
 groups = {
     'isrd-systems': 'https://auth.globus.org/3938e0d0-ed35-11e5-8641-22000ab4b42b',
-    'test-reader': 'https://auth.globus.org/4966c7fe-16f6-11e9-8bb8-0ee7d80087ee',
     'test-writer': 'https://auth.globus.org/646933ac-16f6-11e9-b9af-0edc9bdd56a6',
-    'test-curator': 'https://auth.globus.org/86cd6ee0-16f6-11e9-b9af-0edc9bdd56a6'
+    'test-curator': 'https://auth.globus.org/86cd6ee0-16f6-11e9-b9af-0edc9bdd56a6',
+    'test-reader': 'https://auth.globus.org/4966c7fe-16f6-11e9-8bb8-0ee7d80087ee'
 }
 
 table_name = 'Catalog_Group'
@@ -17,6 +17,16 @@ table_name = 'Catalog_Group'
 schema_name = 'public'
 
 column_annotations = {
+    'RCT': {
+        chaise_tags.display: {
+            'name': 'Creation Time'
+        }
+    },
+    'RMT': {
+        chaise_tags.display: {
+            'name': 'Modified Time'
+        }
+    },
     'RCB': {
         chaise_tags.display: {
             'name': 'Created By'
@@ -80,7 +90,7 @@ visible_columns = {
             'source': 'Description'
         }, {
             'source': [{
-                'outbound': ['public', 'Catalog_Group_Description1']
+                'outbound': ['public', 'Catalog_Group_ID1']
             }, 'ID']
         }
     ]
@@ -114,10 +124,10 @@ key_defs = [
 
 fkey_defs = [
     em.ForeignKey.define(
-        ['Description', 'ID', 'Display_Name', 'URL'],
+        ['ID', 'Description', 'URL', 'Display_Name'],
         'public',
-        'ERMrest_Group', ['Description', 'ID', 'Display_Name', 'URL'],
-        constraint_names=[('public', 'Catalog_Group_Description1')],
+        'ERMrest_Group', ['ID', 'Description', 'URL', 'Display_Name'],
+        constraint_names=[('public', 'Catalog_Group_ID1')],
         acls={
             'insert': [groups['test-curator']],
             'update': [groups['test-curator']]
@@ -174,7 +184,7 @@ def main(catalog, mode, replace=False):
 
 if __name__ == "__main__":
     server = 'dev.isrd.isi.edu'
-    catalog_id = 55522
+    catalog_id = 55674
     mode, replace, server, catalog_id = parse_args(server, catalog_id, is_table=True)
     credential = get_credential(server)
     catalog = ErmrestCatalog('https', server, catalog_id, credentials=credential)

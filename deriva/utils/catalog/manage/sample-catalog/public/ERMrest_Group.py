@@ -7,9 +7,9 @@ from deriva.utils.catalog.manage.update_catalog import CatalogUpdater, parse_arg
 
 groups = {
     'isrd-systems': 'https://auth.globus.org/3938e0d0-ed35-11e5-8641-22000ab4b42b',
-    'test-reader': 'https://auth.globus.org/4966c7fe-16f6-11e9-8bb8-0ee7d80087ee',
     'test-writer': 'https://auth.globus.org/646933ac-16f6-11e9-b9af-0edc9bdd56a6',
-    'test-curator': 'https://auth.globus.org/86cd6ee0-16f6-11e9-b9af-0edc9bdd56a6'
+    'test-curator': 'https://auth.globus.org/86cd6ee0-16f6-11e9-b9af-0edc9bdd56a6',
+    'test-reader': 'https://auth.globus.org/4966c7fe-16f6-11e9-8bb8-0ee7d80087ee'
 }
 
 table_name = 'ERMrest_Group'
@@ -65,7 +65,7 @@ key_defs = [
     em.Key.define(['ID'], constraint_names=[('public', 'ERMrest_Group_ID_key')],
                   ),
     em.Key.define(
-        ['Display_Name', 'ID', 'Description', 'URL'],
+        ['Display_Name', 'Description', 'URL', 'ID'],
         constraint_names=[('public', 'Group_Compound_key')],
         comment='Compound key to ensure that columns sync up into Visible_Groups on update.',
     ),
@@ -93,7 +93,7 @@ def main(catalog, mode, replace=False):
 
 if __name__ == "__main__":
     server = 'dev.isrd.isi.edu'
-    catalog_id = 55522
+    catalog_id = 55674
     mode, replace, server, catalog_id = parse_args(server, catalog_id, is_table=True)
     credential = get_credential(server)
     catalog = ErmrestCatalog('https', server, catalog_id, credentials=credential)

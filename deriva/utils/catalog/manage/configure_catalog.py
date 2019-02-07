@@ -294,7 +294,8 @@ class DerivaCatalogConfigure:
                                    catalog_name=None,
                                    admin=None, curator=None, writer=None, reader=None,
                                    set_policy=True,
-                                   public=False):
+                                   public=False,
+                                   apply=True):
         """
         Put catalog into standard configuration which includes:
         1) Setting default display mode to be to turn underscores to spaces.
@@ -339,7 +340,8 @@ class DerivaCatalogConfigure:
         self.configure_group_table(groups)
         self._configure_www_schema()
 
-        self.apply()
+        if apply:
+            self.apply()
 
         return
 
@@ -634,7 +636,7 @@ class DerivaTableConfigure:
             for i in columns
         ]
 
-    def configure_table_defaults(self, set_policy=True, public=False):
+    def configure_table_defaults(self, set_policy=True, public=False, apply=True):
         """
         This function adds the following basic configuration details to an existing table:
         1) Creates a self service modification policy in which creators can update update any row they create.
@@ -697,6 +699,8 @@ class DerivaTableConfigure:
         self.table.column_definitions['RMT'].annotations.update({chaise_tags.display: {'name': 'Modified Time'}})
 
         self.create_default_visible_columns()
+        if apply:
+            self.apply()
         return
 
 
