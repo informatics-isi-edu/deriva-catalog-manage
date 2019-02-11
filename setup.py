@@ -10,6 +10,12 @@ from setuptools import setup, find_packages
 import re
 import io
 
+__version__ = re.search(
+    r'__version__\s*=\s*[\'"]([^\'"]*)[\'"]',
+    io.open('deriva/utils/catalog/version.py', encoding='utf_8_sig').read()
+    ).group(1)
+
+
 setup(
     name="deriva-catalog-manage",
     description="Deriva catalog management using deriva-py",

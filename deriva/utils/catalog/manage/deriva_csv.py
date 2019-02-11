@@ -25,8 +25,7 @@ from deriva.utils.catalog.manage.dump_catalog import DerivaCatalogToString
 from deriva.utils.catalog.manage.utils import LoopbackCatalog
 from deriva.core.utils import eprint
 from deriva.core.base_cli import BaseCLI
-
-VERSION = '0.1'
+from deriva.utils.catalog.version import __version__ as VERSION
 
 IS_PY2 = (sys.version_info[0] == 2)
 IS_PY3 = (sys.version_info[0] == 3)
@@ -742,7 +741,6 @@ class DerivaCSVCLI (BaseCLI):
 
         parser = self.parser
         parser.add_argument('tabledata', help='Location of tablelike data to be added to catalog')
-        parser.add_argument('server', help='Catalog server name')
         parser.add_argument('schema', help='Name of the schema to be used for table')
         parser.add_argument('--catalog', default=1, help='ID number of desired catalog (Default:1)')
         parser.add_argument('--table', default=None, help='Name of table to be managed (Default:tabledata filename)')
@@ -798,7 +796,7 @@ class DerivaCSVCLI (BaseCLI):
         credential = self._get_credential(args.server)
 
         try:
-            catalog = ErmrestCatalog('https', args.server, args.catalog_id, credentials=credential)
+            catalog = ErmrestCatalog('https', args.host, args.catalog_id, credentials=credential)
 
             table = DerivaCSV(args.tabledata, args.schema,
                               table_name=args.table, column_map=args.column_map,

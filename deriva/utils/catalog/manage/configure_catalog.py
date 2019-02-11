@@ -12,12 +12,11 @@ from deriva.core.ermrest_config import tag as chaise_tags
 from deriva.core import ErmrestCatalog, get_credential, format_exception
 from deriva.core.utils import eprint
 from deriva.core.base_cli import BaseCLI
+from deriva.utils.catalog.version import __version__ as VERSION
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 logger.addHandler(logging.StreamHandler())
-
-VERSION = '0.1'
 
 IS_PY2 = (sys.version_info[0] == 2)
 IS_PY3 = (sys.version_info[0] == 3)
@@ -46,6 +45,7 @@ class DerivaCatalogConfigure:
 
     def apply(self):
         self.model.apply(self.catalog)
+        return self
 
     def configure_ermrest_client(self, groups):
         """
@@ -121,7 +121,7 @@ class DerivaCatalogConfigure:
             if 'already exists' not in e.args[0]:
                 raise
 
-        return
+        return self
 
     def set_core_groups(self, catalog_name=None, admin=None, curator=None, writer=None, reader=None,
                         replace=False):
@@ -309,6 +309,7 @@ class DerivaCatalogConfigure:
         :param reader: Name of the reader group. Defaults to catalog-reader
         :param set_policy: Set policy for catalog to support reader/writer/curator/admin groups.
         :param public: Set to true if anonymous read access should be allowed.
+        :param apply: If true then applyt the changes from the model to the catalog
         :return:
         """
 
@@ -385,9 +386,11 @@ class DerivaTableConfigure:
                            comment=None, acls={},
                            acl_bindings={},
                            annotations={},
-                           set_policy=True):
+                           set_policy=True,
+                           apply=True):
         """
         Create a basic asset table and configures the bulk upload annotation to load the table along with a table of
+        associated metadata. This routine assumes that the metadata table has already been defined, and there is a key
         associated metadata. This routine assumes that the metadata table has already been defined, and there is a key
         column the metadata table that can be used to associate the asset with a row in the table. The default
         configuration assumes that the assets are in a directory named with the table name for the metadata and that
@@ -539,21 +542,23 @@ class DerivaTableConfigure:
                      )
              )
              ] + create_asset_upload_spec()
+        if apply:
+            self.apply()
 
         return asset_table
 
     def configure_self_serve_policy(self, groups):
         """
-        Set up a table so it has a self service policy.  Add an owner column if one is not present, and set the acl binding
-        so that it follows the self service policy.
+        Set up a table so it has a self service policy.  Add an owner column if one is not present, and set the acl
+        binding so that it follows the self service policy.
 
         :param groups: dictionary of core catalog groups
         :return:
         """
 
-        # Configure table so that access can be assigned to a group.  This requires that we create a column and establish
-        # a foreign key to an entry in the group table.  We will set the access control on the foreign key so that you
-        # are only able to delagate access to a the creator of the entity belongs to.
+        # Configure table so that access can be assigned to a group.  This requires that we create a column and
+        # establish a foreign key to an entry in the group table.  We will set the access control on the foreign key
+        # so that you are only able to delagate access to a the creator of the entity belongs to.
         if 'Owner' not in [i.name for i in self.table.column_definitions]:
             col_def = em.Column.define('Owner', em.builtin_types['text'], comment='Group that can update the record.')
             self.table.create_column(self.catalog, col_def)
@@ -608,14 +613,16 @@ class DerivaTableConfigure:
         self.table.create_fkey(self.catalog, fk)
         return
 
-    def create_default_visible_columns(self, really=False):
+    def create_default_visible_columns(self, really=False, apply=True):
         if chaise_tags.visible_columns not in self.table.annotations:
             self.table.annotations[chaise_tags.visible_columns] = {'*': self.default_visible_column_list()}
         elif '*' not in self.table.annotations[chaise_tags.visible_columns] or really:
             self.table.annotations[chaise_tags.visible_columns].update({'*': self.default_visible_column_list()})
         else:
             raise DerivaConfigError(msg='Existing visible column annotation in {}'.format(self.table_name))
-        return
+        if apply:
+            self.apply()
+        return self
 
     def default_visible_column_list(self):
         """
@@ -698,10 +705,10 @@ class DerivaTableConfigure:
         self.table.column_definitions['RCT'].annotations.update({chaise_tags.display: {'name': 'Creation Time'}})
         self.table.column_definitions['RMT'].annotations.update({chaise_tags.display: {'name': 'Modified Time'}})
 
-        self.create_default_visible_columns()
+        self.create_default_visible_columns(apply=False)
         if apply:
             self.apply()
-        return
+        return self
 
 
 class DerivaConfigureCatalogCLI(BaseCLI):
@@ -711,7 +718,6 @@ class DerivaConfigureCatalogCLI(BaseCLI):
 
         # parent arg parser
         parser = self.parser
-        parser.add_argument('server', help='Catalog server name')
         parser.add_argument('configure', choices=['catalog', 'table'],
                             help='Choose between configuring a catalog or a specific table')
         parser.add_argument('--catalog-name', default=None, help="Name of catalog (Default:hostname)")
@@ -741,8 +747,8 @@ class DerivaConfigureCatalogCLI(BaseCLI):
     def main(self):
 
         args = self.parse_cli()
-        credentials = self._get_credential(args.server)
-        catalog = ErmrestCatalog('https', args.server, args.catalog, credentials=credentials)
+        credentials = self._get_credential(args.host)
+        catalog = ErmrestCatalog('https', args.host, args.catalog, credentials=credentials)
 
         try:
             if args.configure == 'catalog':

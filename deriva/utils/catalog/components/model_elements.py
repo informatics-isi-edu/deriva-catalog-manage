@@ -11,14 +11,13 @@ from deriva.core.ermrest_config import tag as chaise_tags
 from deriva.core import ErmrestCatalog, get_credential, urlquote, format_exception
 from deriva.core.utils import eprint
 from deriva.utils.catalog.manage.configure_catalog import DerivaTableConfigure
+from deriva.utils.catalog.version import __version__ as VERSION
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 logger.addHandler(logging.StreamHandler())
 
 from requests import exceptions
-
-VERSION = '0.1'
 
 IS_PY2 = (sys.version_info[0] == 2)
 IS_PY3 = (sys.version_info[0] == 3)
@@ -36,54 +35,65 @@ class DerivaConfigError(Exception):
         self.msg = msg
 
 
-def link_tables(catalog, t1, t2, model=None, schema=None):
-    """
-    Create a pure binary association table that connects rows in table one to rows in table 2.  Assume that RIDs are
-    used for linking
-    :param catalog:
-    :param model:
-    :param t1: table spec
-    :param t2:
-    :return:
-    """
+class DerivaTable(DerivaTableConfigure):
+    def __init__(self, catalog, schema_name, table_name, model=None):
+        super(DerivaTable, self).__init__(catalog, schema_name, table_name, model=model)
 
-    if model is None:
-        model = catalog.getCatalogModel()
-    (left_schema, left_table) = t1
-    (right_schema, right_table) = t2
+    def link_tables(self, column_name, target_schema, target_table, target_column='RID'):
+        self.table.create_fkey(self.catalog,
+                               em.ForeignKey.define([column_name],
+                                                    target_schema, target_table, [target_column],
+                                                    constraint_names=[(self.schema_name,
+                                                                       '{}_{}_fkey'.format(self.table_name,
+                                                                                           target_table))],
+                                                    )
+                               )
 
-    if schema is None:
-        schema = left_schema
+    def link_vocabulary(self, column_name, term_schema, term_table):
+        self.link_tables(column_name, term_schema, term_table, target_column='ID')
 
-    association_table_name = '{}_{}'.format(left_table, right_table)
+    def associate_tables(self, target_schema, target_table, table_column='RID', target_column='RID'):
+        """
+        Create a pure binary association table that connects rows in table one to rows in table 2.  Assume that RIDs are
+        used for linking
+        :param target_schema:
+        :param target_table:
+        :param table_column
+        :param target_column
+        :return:
+        """
 
-    columun_defs = [
-        em.Column.define('{}_RID'.format(left_table), em.builtin_types['text'], nullok=False),
-        em.Column.define('{}_RID'.format(right_table), em.builtin_types['text'], nullok=False)
-    ]
+        association_table_name = '{}_{}'.format(self.table_name, target_table)
 
-    key_defs = [
-        em.Key.define(['%s_RID' % left_table, '%s_RID' % right_table],
-                      constraint_names=[
-                          (schema, '{}_{}_{}_key'.format(association_table_name, left_table, right_table))],
-                      )
-    ]
+        column_defs = [
+            em.Column.define('{}'.format(self.table_name), em.builtin_types['text'], nullok=False),
+            em.Column.define('{}'.format(target_table), em.builtin_types['text'], nullok=False)
+        ]
 
-    fkey_defs = [
-        em.ForeignKey.define(['{}_RID'.format(left_table)],
-                             left_schema, left_table, ['RID'],
-                             constraint_names=[(schema, '{}_{}_fkey'.format(association_table_name, left_table))],
-                             ),
-        em.ForeignKey.define(['{}_RID'.format(right_table)],
-                             right_schema, right_table, ['RID'],
-                             constraint_names=[(schema, '{}_{}_fkey'.format(association_table_name, right_table))])
-    ]
-    table_def = em.Table.define(association_table_name, column_defs=columun_defs,
-                                key_defs=key_defs, fkey_defs=fkey_defs,
-                                comment='Association table for {}'.format(association_table_name))
-    print(table_def)
-    association_table = model.schemas[schema].create_table(catalog, table_def)
-    return association_table
+        key_defs = [
+            em.Key.define([self.table_name, target_table],
+                          constraint_names=[
+                              (self.schema_name,
+                               '{}_{}_{}_key'.format(association_table_name, self.table_name, target_table))],
+                          )
+        ]
+
+        fkey_defs = [
+            em.ForeignKey.define([self.table_name],
+                                 self.schema_name, self.table_name, [table_column],
+                                 constraint_names=[
+                                     (self.schema_name, '{}_{}_fkey'.format(association_table_name, self.table_name))],
+                                 ),
+            em.ForeignKey.define([target_table],
+                                 target_schema, target_table, [target_column],
+                                 constraint_names=[
+                                     (self.schema_name, '{}_{}_fkey'.format(association_table_name, target_table))])
+        ]
+        table_def = em.Table.define(association_table_name, column_defs=column_defs,
+                                    key_defs=key_defs, fkey_defs=fkey_defs,
+                                    comment='Association table for {}'.format(association_table_name))
+        association_table = self.model.schemas[self.schema_name].create_table(self.catalog, table_def)
+        return association_table
 
 
 def rename_column(catalog, table, from_column, to_column, delete=False):
@@ -129,14 +139,13 @@ class DerivaModelElementsCLI(BaseCLI):
 
         # parent arg parser
         parser = self.parser
-        parser.add_argument('server', help='Catalog server name')
         parser.add_argument('table', default=None, metavar='SCHEMA_NAME:TABLE_NAME',
                             help='Name of table to be configured')
         parser.add_argument('--catalog', default=1, help="ID number of desired catalog (Default:1)")
         parser.add_argument('--asset-table', default=None, metavar='KEY_COLUMN',
                             help='Create an asset table linked to table on key_column')
         parser.add_argument('--visible-columns', action='store_true',
-                        help='Create a default visible columns annotation')
+                            help='Create a default visible columns annotation')
         parser.add_argument('--replace', action='store_true', help='Overwrite existing value')
 
     @staticmethod
@@ -154,7 +163,7 @@ class DerivaModelElementsCLI(BaseCLI):
         try:
             catalog = ErmrestCatalog('https', args.host, args.catalog, credentials=self._get_credential(args.host))
             [schema_name, table_name] = args.table.split(':')
-            table = DerivaTableConfigure(catalog, schema_name, table_name)
+            table = DerivaTable(catalog, schema_name, table_name)
             if args.asset_table:
                 table.create_asset_table(args.asset_table)
             if args.visible_columns:
