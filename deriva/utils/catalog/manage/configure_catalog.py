@@ -752,7 +752,7 @@ class DerivaConfigureCatalogCLI(BaseCLI):
 
         try:
             if args.configure == 'catalog':
-                logging.info('Configuring catalog {}:{}'.format(args.server, args.catalog))
+                logging.info('Configuring catalog {}:{}'.format(args.host, args.catalog))
                 cfg = DerivaCatalogConfigure(catalog)
                 cfg.configure_baseline_catalog(catalog_name=args.catalog_name,
                                                reader=args.reader, writer=args.writer, curator=args.curator,
@@ -768,7 +768,7 @@ class DerivaConfigureCatalogCLI(BaseCLI):
             print(e.msg)
         except HTTPError as e:
             if e.response.status_code == requests.codes.unauthorized:
-                msg = 'Authentication required for {}'.format(args.server)
+                msg = 'Authentication required for {}'.format(args.host)
             elif e.response.status_code == requests.codes.forbidden:
                 msg = 'Permission denied'
             else:
