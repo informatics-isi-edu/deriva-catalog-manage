@@ -159,7 +159,7 @@ class DerivaCatalogToString:
 
     def schema_to_str(self, schema_name):
         schema = self._model.schemas[schema_name]
-        server = urlparse(self._catalog.get_server_uri()).hostname
+        host = urlparse(self._catalog.get_server_uri()).hostname
         catalog_id = self._catalog.get_server_uri().split('/')[-1]
 
         annotations = self.variable_to_str('annotations', schema.annotations)
@@ -167,7 +167,7 @@ class DerivaCatalogToString:
         comments = self.variable_to_str('comment', schema.comment)
         groups = self.variable_to_str('groups', self._referenced_groups, substitute=False)
 
-        s = schema_file_template.format(server=server, catalog_id=catalog_id, schema_name=schema_name,
+        s = schema_file_template.format(host=host, catalog_id=catalog_id, schema_name=schema_name,
                                         annotations=annotations, acls=acls, comments=comments, groups=groups,
                                         table_names='table_names = [\n{}]\n'.format(
                                             str.join('', ['{!r},\n'.format(i) for i in schema.tables])))
@@ -175,7 +175,7 @@ class DerivaCatalogToString:
         return s
 
     def catalog_to_str(self):
-        server = urlparse(self._catalog.get_server_uri()).hostname
+        host = urlparse(self._catalog.get_server_uri()).hostname
         catalog_id = self._catalog.get_server_uri().split('/')[-1]
 
         tag_variables = self.tag_variables_to_str(self._model.annotations)
@@ -183,7 +183,7 @@ class DerivaCatalogToString:
         acls = self.variable_to_str('acls', self._model.acls)
         groups = self.variable_to_str('groups', self._referenced_groups, substitute=False)
 
-        s = catalog_file_template.format(server=server, catalog_id=catalog_id, groups=groups,
+        s = catalog_file_template.format(host=host, catalog_id=catalog_id, groups=groups,
                                          tag_variables=tag_variables,
                                          annotations=annotations,
                                          acls=acls)
@@ -296,7 +296,7 @@ class DerivaCatalogToString:
         schema = self._model.schemas[schema_name]
         table = schema.tables[table_name]
 
-        server = urlparse(self._catalog.get_server_uri()).hostname
+        host = urlparse(self._catalog.get_server_uri()).hostname
         catalog_id = self._catalog.get_server_uri().split('/')[-1]
 
         column_annotations = self.column_annotations_to_str(table)
@@ -307,7 +307,7 @@ class DerivaCatalogToString:
         table_def = self.table_def_to_str()
         groups = self.variable_to_str('groups', self._referenced_groups, substitute=False)
 
-        s = table_file_template.format(server=server, catalog_id=catalog_id,
+        s = table_file_template.format(host=host, catalog_id=catalog_id,
                                        table_name=table_name, schema_name=schema_name, groups=groups,
                                        column_annotations=column_annotations,
                                        column_defs=column_defs,
