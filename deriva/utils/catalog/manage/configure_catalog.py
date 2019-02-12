@@ -128,7 +128,7 @@ class DerivaCatalogConfigure:
         """
         Look in the catalog to get the group IDs for the four core groups used in the baseline configuration. There are
         three options:  1) core group name can be provided explicitly, 2) group name can be formed from a catalog
-        name and a default group name, 3) group name can be formed from the server name and a default group name.
+        name and a default group name, 3) group name can be formed from the host name and a default group name.
         :param catalog_name: Name of the catalog to use as a prefix in looking up default name of the group. Default
                group names are formed by combining the catalog_name with the standard group name: e.g. foo-admin
                foo-writer, and foo-reader
@@ -314,7 +314,7 @@ class DerivaCatalogConfigure:
         """
 
         if not catalog_name:
-            # If catalog name is not provided, default to the host name of the server.
+            # If catalog name is not provided, default to the host name of the host.
             catalog_name = urlparse(self.catalog.get_server_uri()).hostname.split('.')[0]
         groups = self.set_core_groups(catalog_name=catalog_name,
                                       admin=admin, curator=curator, writer=writer, reader=reader)

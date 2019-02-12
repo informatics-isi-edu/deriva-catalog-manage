@@ -332,14 +332,13 @@ class DerivaDumpCatalogCLI (BaseCLI):
             return val
 
         self.dumpdir = ''
-        self.server = None
+        self.host = None
         self.catalog_id = 1
         self.graph_format = None
         self.catalog = None
 
         # parent arg parser
         parser = self.parser
-        parser.add_argument('server', help='Catalog server name')
         parser.add_argument('--catalog', default=1, help='ID number of desired catalog')
         parser.add_argument('--dir', default="catalog-configs", help='output directory name')
         parser.add_argument('--table', default=None, help='Only dump out the spec for the specified table.  Format is '
@@ -374,7 +373,7 @@ class DerivaDumpCatalogCLI (BaseCLI):
         stringer = DerivaCatalogToString(self.catalog)
         catalog_string = stringer.catalog_to_str()
 
-        with open('{}/{}_{}.py'.format(self.dumpdir, self.server, self.catalog_id), 'w') as f:
+        with open('{}/{}_{}.py'.format(self.dumpdir, self.host, self.catalog_id), 'w') as f:
             print(catalog_string, file=f)
 
         for schema_name in self.schemas:
@@ -391,7 +390,7 @@ class DerivaDumpCatalogCLI (BaseCLI):
 
     def _graph_catalog(self):
         graph = DerivaCatalogToGraph(self.catalog)
-        graphfile = '{}_{}'.format(self.server, self.catalog_id)
+        graphfile = '{}_{}'.format(self.host, self.catalog_id)
         graph.catalog_to_graph(schemas=self.schemas, skip_terms=True,
                                skip_assocation_tables=True)
         graph.save(filename=graphfile, format=self.graph_format)
@@ -400,12 +399,12 @@ class DerivaDumpCatalogCLI (BaseCLI):
         args = self.parse_cli()
 
         self.dumpdir = args.dir
-        self.server = args.server
+        self.host = args.host
         self.catalog_id = args.catalog
         self.graph_format = args.graph_format
 
-        credential = self._get_credential(self.server)
-        self.catalog = ErmrestCatalog('https', self.server, self.catalog_id, credentials=credential)
+        credential = self._get_credential(self.host)
+        self.catalog = ErmrestCatalog('https', self.host, self.catalog_id, credentials=credential)
         model_root = self.catalog.getCatalogModel()
 
         skip_schemas = \
