@@ -10,7 +10,7 @@ from deriva.core.deriva_server import DerivaServer
 class LoopbackCatalog:
     class LoopbackResult:
         """
-        Class to simulate interactions with a catalog server.
+        Class to simulate interactions with a catalog host.
         """
 
         def __init__(self, uri, json=None):
@@ -69,7 +69,7 @@ class TempErmrestCatalog(ErmrestCatalog):
 
 def create_new_catalog(scheme, server, **kwargs):
     """
-    FUnction to create a new catalog in the specified server
+    FUnction to create a new catalog in the specified host
     :param scheme: URL scheme to be used
     :param server: Server on which the catalog is to be created
     :param kwargs:  Other DerivaServer arguments

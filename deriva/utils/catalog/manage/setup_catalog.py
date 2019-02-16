@@ -65,7 +65,7 @@ def generate_test_csv(columncnt):
 catalog = DerivaServer('https', server, credentials).create_ermrest_catalog()
 catalog_id = catalog._catalog_id
 
-#catalog = ErmrestCatalog('https',server, catalog_id, credentials=credentials)
+#catalog = ErmrestCatalog('https',host, catalog_id, credentials=credentials)
 print('Catalog_id is', catalog_id)
 
 table_size = 10
