@@ -38,9 +38,6 @@ else:
     from urlparse import urlparse
 
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
-logger.addHandler(logging.StreamHandler())
-
 
 yapf_style = {
     'based_on_style': 'pep8',
