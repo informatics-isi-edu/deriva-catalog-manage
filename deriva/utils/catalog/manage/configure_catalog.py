@@ -102,8 +102,11 @@ class DerivaCatalogConfigure:
                 em.Column.define('Content', em.builtin_types['markdown'], comment='Content of the page in markdown')
             ],
             key_defs=[em.Key.define(['Title'], [['WWW', 'Page_Title_key']])],
-            annotations={chaise_tags.visible_foreign_keys: {'detailed': {}},
-                         chaise_tags.visible_columns: {'detailed': ['Content']}}
+            annotations={
+                chaise_tags.table_display: { 'detailed': {'hide_column_headers': True, 'collapse_toc_panel': True}
+            },
+                chaise_tags.visible_foreign_keys: {'detailed': {}},
+                chaise_tags.visible_columns: {'detailed': ['Content']}}
         )
         try:
             www_schema.create_table(self.catalog, page_table_def)
