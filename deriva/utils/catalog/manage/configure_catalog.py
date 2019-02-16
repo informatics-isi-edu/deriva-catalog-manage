@@ -29,9 +29,6 @@ else:
 chaise_tags.catalog_config = 'tag:isrd.isi.edu,2019:catalog-config'
 
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
-logger.addHandler(logging.StreamHandler())
-
 
 class DerivaConfigError(Exception):
     def __init__(self, msg):
