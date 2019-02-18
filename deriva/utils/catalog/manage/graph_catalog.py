@@ -86,7 +86,7 @@ class DerivaCatalogToGraph:
         :param skip_assocation_tables: Collapse association tables so that only edges between endpoints are used
         :return:
         """
-        schemas = [s for s in self.model.schemas if s not in [['_acl_admin', 'Public', 'WWW']]] \
+        schemas = [s for s in self.model.schemas if s not in ['_acl_admin', 'Public', 'WWW']] \
             if schemas is None else schemas
 
         for schema in schemas:

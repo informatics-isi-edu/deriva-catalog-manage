@@ -340,10 +340,9 @@ class DerivaDumpCatalogCLI (BaseCLI):
         parser.add_argument('--dir', default="catalog-configs", help='output directory name')
         parser.add_argument('--table', default=None, help='Only dump out the spec for the specified table.  Format is '
                                                           'schema_name:table_name')
-        parser.add_argument('--schemas', type=python_value, default=[],
-                            help='Only dump out the spec for the specified '
-                                 'schemas (value or list).')
-        parser.add_argument('--skip-schemas', type=python_value, default=[], help='List of schema so skip over')
+        parser.add_argument('--schemas', nargs='*', default=[],
+                            help='Only dump out the spec for the specified schemas.')
+        parser.add_argument('--skip-schemas', nargs='*', default=[], help='List of schema so skip over')
         parser.add_argument('--graph', action='store_true', help='Dump graph of catalog')
         parser.add_argument('--graph-format', choices=['pdf', 'dot', 'png', 'svg'],
                             default='pdf', help='Format to use for graph dump')
@@ -388,7 +387,9 @@ class DerivaDumpCatalogCLI (BaseCLI):
     def _graph_catalog(self):
         graph = DerivaCatalogToGraph(self.catalog)
         graphfile = '{}_{}'.format(self.host, self.catalog_id)
-        graph.catalog_to_graph(schemas=self.schemas, skip_terms=True,
+        graph.catalog_to_graph(schemas=
+                               [s for s in self.schemas if s not in ['_acl_admin', 'public', 'WWW']],
+                               skip_terms=True,
                                skip_assocation_tables=True)
         graph.save(filename=graphfile, format=self.graph_format)
 
@@ -400,15 +401,16 @@ class DerivaDumpCatalogCLI (BaseCLI):
         self.catalog_id = args.catalog
         self.graph_format = args.graph_format
 
+        if self.host is None:
+            eprint('Host name must be provided')
+            return 1
+
         credential = self._get_credential(self.host)
         self.catalog = ErmrestCatalog('https', self.host, self.catalog_id, credentials=credential)
         model_root = self.catalog.getCatalogModel()
 
-        skip_schemas = \
-            [args.skip_schemas] if args.skip_schemas and type(args.skip_schemas) is str else args.skip_schemas
-
         self.schemas = [s for s in (args.schemas if args.schemas else model_root.schemas)
-                        if s not in skip_schemas
+                        if s not in args.skip_schemas
                         ]
 
         try:
