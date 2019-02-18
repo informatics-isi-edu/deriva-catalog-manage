@@ -94,18 +94,16 @@ class DerivaTable(DerivaTableConfigure):
         return association_table
 
     def drop_column(self, column_name, composite_ok=False):
-        def delete_from_visible_columns():
-            pass
-
         # Remove keys...
         for i in self.table.keys:
             if column_name in i.unique_columns and len(i.unique_columns) != 1:
                 if len(i.unique_columns) != 1 and not composite_ok:
                     raise DerivaConfigError(msg='Cannot delete column that is part of composite key')
         for i in self.table.keys:
-                self.table.keys.delete(self.catalog, self.table)
+            if column_name in i.unique_columns:
+                i.delete(self.catalog, self.table)
 
-        self._delete_from_visible_columns()
+        self.table.annotations[chaise_tags.visible_columns] = self._delete_from_visible_columns(column_name)
         self.table.column_definitions[column_name].delete(self.catalog, self.table)
 
     def _delete_from_visible_columns(self, column_name):
@@ -125,7 +123,7 @@ class DerivaTable(DerivaTableConfigure):
                 annotations[k] = [i for i in v if not column_match(i)]
         return annotations
 
-    def _revise_visible_columns(self, from_column, to_column, op='insert'):
+    def _insert_visible_column(self, from_column, to_column):
         def map_column_spec(spec):
             if type(spec) is str and spec == from_column:
                 return to_column
@@ -137,12 +135,12 @@ class DerivaTable(DerivaTableConfigure):
                 return spec
                 
         annotations = {}
-        # Update annotations where the old spec was being used
+        # Insert new visible column in front of old one.
         for k, v in self.table.annotations[chaise_tags.visible_columns].items():
-            annotations[k] = [map_column_spec(i) for i in v]
+            annotations[k] = [j for i in v for j in ([i] if map_column_spec(i) == i else [map_column_spec(i), i])]
         return annotations
 
-    def rename_column(self, from_column, to_column, delete=False):
+    def copy_column(self, from_column, to_column):
 
         # Check to make sure that this column is not part of a FK.
         column_ref = {'schema_name': self.schema_name, 'table_name': self.table_name, 'column_name': from_column}
@@ -165,20 +163,21 @@ class DerivaTable(DerivaTableConfigure):
                 self.table.create_key(
                     em.Key.define(
                         [to_column if c == from_column else c for c in i.unique_columns],
-                        constraint_name=[
+                        constraint_names=[
                             i.constraint_name.replace('_{}_'.format(from_column), '_{}_'.format(to_column))
                         ],
                         comment=i.comment,
                         annotations=i.annotations
+                    )
                 )
-            )
 
         # Update annotations where the old spec was being used
-        self.table.annotations[chaise_tags.visible_columns] = self._revise_visible_columns(from_column, to_column)
+        self.table.annotations[chaise_tags.visible_columns] = self._insert_visible_column(from_column, to_column)
+        return
 
-        # Delete old column
-        if delete:
-            self.table.column_definitions[from_column].delete(self.catalog, self.table)
+    def rename_column(self, from_column, to_column):
+        self.copy_column(from_column, to_column)
+        self.drop_column(from_column)
         return
 
     def delete_column(self, column_name):
