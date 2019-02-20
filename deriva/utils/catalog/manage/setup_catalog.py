@@ -10,6 +10,7 @@ from deriva.utils.catalog.manage.configure_catalog import DerivaCatalogConfigure
 import deriva.utils.catalog.components.model_elements as model_elements
 from deriva.core.ermrest_config import tag as chaise_tags
 import configure_catalog
+import deriva.utils.catalog.components.model_elements
 import csv
 
 server = 'dev.isrd.isi.edu'
@@ -159,3 +160,6 @@ for i in os.listdir('assets/{}/{}'.format(schema_name, table_name)):
 model_root = catalog.getCatalogModel()
 chaise_url = 'https://{}/chaise/recordset/#{}/{}:{}'.format(server, catalog_id, schema_name,table_name)
 print(chaise_url)
+
+foo_table = model_elements.DerivaTable(catalog, schema_name, "Foo")
+
