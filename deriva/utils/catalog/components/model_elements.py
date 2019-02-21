@@ -284,6 +284,9 @@ class DerivaTable(DerivaTableConfigure):
                     name = name.replace(k, v)
             return schema_name, name
 
+        def ktup(k):
+            return tuple(k['unique_columns'])
+
         new_table_def = em.Table.define(
             schema_name,
             table_name,
@@ -298,8 +301,8 @@ class DerivaTable(DerivaTableConfigure):
                     acls=i.acls, acl_bindings=i.acl_bindings,
                     annotations=i.annotations
                 )
-                for i in self.table.column_definitions
-            ],
+                for i in self.table.column_definitions if i['name'] not in {c['name']: c for c in column_defs}
+            ] + column_defs,
 
             # Update the keys using the new column names.
             key_defs=[
@@ -309,8 +312,8 @@ class DerivaTable(DerivaTableConfigure):
                     comment=i['comment'],
                     annotations=i.annotations
                 )
-                for i in self.table.keys
-            ],
+                for i in self.table.keys if ktup(i) not in { ktup(kdef): kdef for kdef in key_defs }
+            ] + key_defs,
 
             fkey_defs=[
                 em.ForeignKey.define(
@@ -322,7 +325,7 @@ class DerivaTable(DerivaTableConfigure):
                     annotations=i.annotations
                 )
                 for i in self.table.foreign_keys
-            ],
+            ] + fkey_defs,
             comment=comment if comment else self.table.comment,
             acls=self.table.acls, acl_bindings=self.table.acl_bindings,
 
@@ -346,6 +349,7 @@ class DerivaTable(DerivaTableConfigure):
         return new_table
 
     def move_table(self, schema_name, table_name,
+                   delete_table=False,
                    column_map={},
                    column_defs=[],
                    key_defs=[],
@@ -392,7 +396,8 @@ class DerivaTable(DerivaTableConfigure):
             )
             fk.delete(self.catalog, referring_table)
 
-        self.table.delete(self.catalog, schema=self.model.schemas[schema_name])
+        if delete_table:
+            self.table.delete(self.catalog, schema=self.model.schemas[schema_name])
         self.table = new_table
         self.schema_name = schema_name
         self.table_name = table_name
