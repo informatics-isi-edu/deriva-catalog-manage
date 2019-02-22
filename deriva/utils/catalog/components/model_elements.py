@@ -1,27 +1,18 @@
-import argparse
 import sys
 import logging
 import traceback
 import requests
-from requests.exceptions import HTTPError, ConnectionError
-
+from requests import HTTPError
 import deriva.core.ermrest_model as em
 from deriva.core.base_cli import BaseCLI
 from deriva.core.ermrest_config import tag as chaise_tags
-from deriva.core import ErmrestCatalog, get_credential, urlquote, format_exception
+from deriva.core import ErmrestCatalog, get_credential, format_exception
 from deriva.core.utils import eprint
 from deriva.utils.catalog.manage.configure_catalog import DerivaTableConfigure
 from deriva.utils.catalog.version import __version__ as VERSION
-from requests import exceptions
 
 IS_PY2 = (sys.version_info[0] == 2)
 IS_PY3 = (sys.version_info[0] == 3)
-
-if IS_PY3:
-    from urllib.parse import urlparse
-else:
-    from urlparse import urlparse
-
 
 logger = logging.getLogger(__name__)
 
@@ -116,9 +107,8 @@ class DerivaTable(DerivaTableConfigure):
         association_table = self.model.schemas[self.schema_name].create_table(self.catalog, table_def)
         return DerivaTable(self.catalog, association_table.sname, association_table.name, model=self.model)
 
-    def _delete_from_visible_columns(self, column_name):
-        if chaise_tags.visible_columns not in self.table.annotations:
-            return {}
+    @staticmethod
+    def _delete_from_visible_columns(vcols, column_name):
         def column_match(spec):
             # Helper function that determines if column is in the spec.
             if type(spec) is str and spec == column_name:
@@ -132,10 +122,11 @@ class DerivaTable(DerivaTableConfigure):
 
         return {
             k: [i for i in v if not column_match(i)]
-            for k, v in self.table.annotations[chaise_tags.visible_columns].items()
+            for k, v in vcols.items()
         }
 
-    def _rename_columns_in_visible_columns(self, column_map):
+    @staticmethod
+    def _rename_columns_in_visible_columns(vcols, column_map):
         def map_column_spec(spec):
             if type(spec) is str and spec in column_map:
                 return column_map[spec]
@@ -152,24 +143,41 @@ class DerivaTable(DerivaTableConfigure):
                     [i] if (map_column_spec(i) == i)
                     else [map_column_spec(i)]
                 )
-            ] for k, v in self.table.annotations[chaise_tags.visible_columns].items()
+            ] for k, v in vcols.items()
         }
 
-    def _insert_column_in_visible_columns(self, column_name):
+    @staticmethod
+    def _insert_column_in_visible_columns(vcols, column_name):
         return {
             k: v.append({'source': column_name})
-            for k, v in self.table.annotations[chaise_tags.visible_columns].items()
+            for k, v in vcols.items()
+        }
+
+    @staticmethod
+    def _rename_columns_in_display(dval, column_map):
+        def rename_markdown_pattern(pattern):
+            # Look for column names {{columnname}} in the templace and update.
+            for k, v in column_map:
+                pattern = pattern.replace('{{{}}}'.format(k), '{{{}}}'.format(v))
+            return pattern
+
+        return {
+            k: rename_markdown_pattern(v) if k == 'markdown_name' else v
+            for k, v in dval.items()
         }
 
     def _rename_columns_in_annotations(self, column_map):
         return {
-            k: self._rename_columns_in_visible_columns(column_map) if k == chaise_tags.visible_columns else v
+            k:
+                self._rename_columns_in_visible_columns(v, column_map) if k == chaise_tags.visible_columns else
+                self._rename_columns_in_display(v, column_map) if k == chaise_tags.display else
+                v
             for k, v in self.table.annotations.items()
         }
 
     def _delete_column_from_annotations(self, column_name):
         return {
-            k: self._delete_from_visible_columns(column_name) if k == chaise_tags.visible_columns else v
+            k: self._delete_from_visible_columns(v, column_name) if k == chaise_tags.visible_columns else v
             for k, v in self.table.annotations.items()
         }
 
@@ -189,7 +197,7 @@ class DerivaTable(DerivaTableConfigure):
 
         # TODO Need to check acl_bindings and display annotations
 
-        self.table.annotations[chaise_tags.visible_columns] = self._delete_column_from_annotations(column_name)
+        self.table.annotations = self._delete_column_from_annotations(column_name)
         self.table.column_definitions[column_name].delete(self.catalog, self.table)
         return
 
@@ -375,13 +383,6 @@ class DerivaTable(DerivaTableConfigure):
                    annotations={}
                    ):
 
-        def update_key_name(name):
-            # Helper function that creates a new constrain name by replacing table and column names.
-            name = name[1].replace('{}_'.format(self.table_name), '{}_'.format(table_name))
-            for k, v in column_map.items():
-                    name = name.replace(k, v)
-            return schema_name, name
-
         new_table = self.copy_table(schema_name, table_name, clone=True,
                                     column_map=column_map,
                                     column_defs=column_defs,
@@ -395,21 +396,19 @@ class DerivaTable(DerivaTableConfigure):
         # Now patch up incoming FKs.
         for fk in self.table.referenced_by:
             referring_table = self.model.schemas[fk.sname].tables[fk.tname]
-            referring_table.create_fkey(
-                self.catalog,
-                em.ForeignKey.define(
-                    [column_map.get(i['column_name'], i['column_name']) for i in fk.foreign_key_columns],
+            fk_def = em.ForeignKey.define(
+                    [i['column_name'] for i in fk.foreign_key_columns],
                     schema_name, table_name,
                     [column_map.get(i['column_name'], i['column_name']) for i in fk.referenced_columns],
                     on_update=fk.on_update, on_delete=fk.on_delete,
-                    constraint_names=[update_key_name(n) for n in fk.names],
+                    constraint_names=fk.names,
                     comment=fk.comment,
                     acls=fk.acls,
                     acl_bindings=fk.acl_bindings,
                     annotations=fk.annotations
                 )
-            )
             fk.delete(self.catalog, referring_table)
+            referring_table.create_fkey(self.catalog, fk_def)
 
         if delete_table:
             self.table.delete(self.catalog, schema=self.model.schemas[schema_name])
@@ -417,6 +416,9 @@ class DerivaTable(DerivaTableConfigure):
         self.schema_name = schema_name
         self.table_name = table_name
         return
+
+    def refresh(self):
+        self.model = self.catalog.getCatalogModel()
 
     def display(self):
         for i in self.table.column_definitions:
