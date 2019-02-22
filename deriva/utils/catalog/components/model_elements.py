@@ -117,6 +117,8 @@ class DerivaTable(DerivaTableConfigure):
         return DerivaTable(self.catalog, association_table.sname, association_table.name, model=self.model)
 
     def _delete_from_visible_columns(self, column_name):
+        if chaise_tags.visible_columns not in self.table.annotations:
+            return {}
         def column_match(spec):
             # Helper function that determines if column is in the spec.
             if type(spec) is str and spec == column_name:
@@ -166,7 +168,10 @@ class DerivaTable(DerivaTableConfigure):
         }
 
     def _delete_column_from_annotations(self, column_name):
-        return self._delete_from_visible_columns(column_name)
+        return {
+            k: self._delete_from_visible_columns(column_name) if k == chaise_tags.visible_columns else v
+            for k, v in self.table.annotations.items()
+        }
 
     def delete_column(self, column_name):
         """
