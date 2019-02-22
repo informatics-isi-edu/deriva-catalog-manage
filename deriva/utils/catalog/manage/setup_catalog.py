@@ -163,3 +163,8 @@ print(chaise_url)
 
 foo_table = model_elements.DerivaTable(catalog, schema_name, "Foo")
 
+foo_table.rename_column('Field_0','FooField')
+foo_table.delete_column('Field_1')
+foo_table.move_table('WWW','Fun',
+                     column_defs=[em.Column.define('NewColumn', em.builtin_types['text'])],
+                     column_map={'ID':'NewID'})

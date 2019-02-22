@@ -39,19 +39,24 @@ class DerivaTable(DerivaTableConfigure):
 
     def link_tables(self, column_name, target_schema, target_table, target_column='RID'):
         """
-        Create a foreign key link from the specified column to the target table and colun.
-        :param column_name: Column in current table which will hold the FK
+        Create a foreign key link from the specified column to the target table and column.
+        :param column_name: Column or list of columns in current table which will hold the FK
         :param target_schema:
         :param target_table:
         :param target_column:
         :return:
         """
+
+        if type(column_name) is str:
+            column_name = [column_name]
         self.table.create_fkey(self.catalog,
-                               em.ForeignKey.define([column_name],
-                                                    target_schema, target_table, [target_column],
+                               em.ForeignKey.define(column_name,
+                                                    target_schema, target_table,
+                                                    target_column if type(target_column) is list else [target_column],
                                                     constraint_names=[(self.schema_name,
-                                                                       '{}_{}_fkey'.format(self.table_name,
-                                                                                           column_name))],
+                                                                       '_'.join([self.table_name] +
+                                                                                column_name +
+                                                                                ['_fkey']))],
                                                     )
                                )
         return
@@ -111,15 +116,6 @@ class DerivaTable(DerivaTableConfigure):
         association_table = self.model.schemas[self.schema_name].create_table(self.catalog, table_def)
         return DerivaTable(self.catalog, association_table.sname, association_table.name, model=self.model)
 
-    def _rename_columns_in_annotations(self, column_map):
-        return {
-            k: self._rename_columns_in_visible_columns(v) if k == chaise_tags.visible_columns else v
-            for k, v in self.table.annotations.items()
-        }
-
-    def _delete_column_from_annotations(self, column_name):
-        self._delete_from_visible_columns(column_name)
-
     def _delete_from_visible_columns(self, column_name):
         def column_match(spec):
             # Helper function that determines if column is in the spec.
@@ -163,11 +159,19 @@ class DerivaTable(DerivaTableConfigure):
             for k, v in self.table.annotations[chaise_tags.visible_columns].items()
         }
 
+    def _rename_columns_in_annotations(self, column_map):
+        return {
+            k: self._rename_columns_in_visible_columns(column_map) if k == chaise_tags.visible_columns else v
+            for k, v in self.table.annotations.items()
+        }
+
+    def _delete_column_from_annotations(self, column_name):
+        return self._delete_from_visible_columns(column_name)
+
     def delete_column(self, column_name):
         """
         Drop a column from a table, cleaning up visible columns and keys.
         :param column_name:
-        :param composite_ok:
         :return:
         """
         # Remove keys...
@@ -205,6 +209,7 @@ class DerivaTable(DerivaTableConfigure):
         self.table.create_column(self.catalog,
                                  em.Column.define(
                                      to_column,
+                                     from_def.type,
                                      nullok=from_def.nullok,
                                      default=from_def.default,
                                      comment=from_def.comment,
@@ -215,7 +220,8 @@ class DerivaTable(DerivaTableConfigure):
 
         # Copy over the old values
         table_path = self.catalog.getPathBuilder().schemas[self.schema_name].tables[self.table_name]
-        table_path.update(table_path.entities(table_path.RID, **{to_column: table_path.column_definitions[from_column]}))
+        table_path.update(table_path.entities(table_path.RID,
+                                              **{to_column: table_path.column_definitions[from_column]}))
         
         # Copy over the keys.
         for i in self.table.keys:
@@ -232,12 +238,12 @@ class DerivaTable(DerivaTableConfigure):
                 )
 
         # Update annotations where the old spec was being used
-        self.table.annotations = self._rename_columns_in_annotations({from_column:to_column})
+        self.table.annotations = self._rename_columns_in_annotations({from_column: to_column})
         return
 
     def rename_column(self, from_column, to_column):
         """
-        Retname a column by copying it and then deleting the origional column.
+        Rename a column by copying it and then deleting the origional column.
         :param from_column:
         :param to_column:
         :return:
@@ -278,56 +284,61 @@ class DerivaTable(DerivaTableConfigure):
         :return:
         """
         def update_key_name(name):
-            # Helper function that creates a new constrain name by replacing table and column names.
+            # Helper function that creates a new constraint name by replacing table and column names.
             name = name[1].replace('{}_'.format(self.table_name), '{}_'.format(table_name))
             for k, v in column_map.items():
                     name = name.replace(k, v)
             return schema_name, name
 
         def ktup(k):
-            return tuple(k['unique_columns'])
+            return tuple(k.unique_columns)
 
         new_table_def = em.Table.define(
-            schema_name,
             table_name,
 
             # Use column_map to change the name of columns in the new table.
-            column_definitions=[
+            column_defs=[
                 em.Column.define(
                     column_map.get(i.name, i.name),
+                    i.type,
                     nullok=i.nullok,
                     default=i.default,
                     comment=i.comment,
                     acls=i.acls, acl_bindings=i.acl_bindings,
                     annotations=i.annotations
                 )
-                for i in self.table.column_definitions if i['name'] not in {c['name']: c for c in column_defs}
+                for i in self.table.column_definitions if i.name not in {c['name']: c for c in column_defs}
             ] + column_defs,
 
             # Update the keys using the new column names.
             key_defs=[
                 em.Key.define(
                     [column_map.get(c, c) for c in i.unique_columns],
-                    constraint_names=[update_key_name(i) for n in i.names],
-                    comment=i['comment'],
+                    constraint_names=[update_key_name(n) for n in i.names],
+                    comment=i.comment,
                     annotations=i.annotations
                 )
-                for i in self.table.keys if ktup(i) not in { ktup(kdef): kdef for kdef in key_defs }
+                for i in self.table.keys if ktup(i) not in {ktup(kdef): kdef for kdef in key_defs}
             ] + key_defs,
 
             fkey_defs=[
                 em.ForeignKey.define(
                     [column_map.get(c['column_name'], c['column_name']) for c in i.foreign_key_columns],
+                    i.referenced_columns[0]['schema_name'],
+                    i.referenced_columns[0]['table_name'],
+                    [c['column_name'] for c in i.referenced_columns],
                     constraint_names=[update_key_name(n) for n in i.names],
                     comment=i.comment,
                     on_update=i.on_update, on_delete=i.on_delete,
-                    acls=i['acls'], acl_binding=i.acl_bindings,
+                    acls=i.acls, acl_bindings=i.acl_bindings,
                     annotations=i.annotations
                 )
                 for i in self.table.foreign_keys
             ] + fkey_defs,
+
             comment=comment if comment else self.table.comment,
-            acls=self.table.acls, acl_bindings=self.table.acl_bindings,
+            acls=self.table.acls,
+            acl_bindings=self.table.acl_bindings,
 
             # Update visible columns to account for column_map
             annotations=self._rename_columns_in_annotations(column_map)
@@ -343,7 +354,6 @@ class DerivaTable(DerivaTableConfigure):
         rows = from_path.entities(**{column_map.get(i, i): getattr(from_path, i) for i in from_path.column_definitions})
         if clone:
             self.catalog.post("/entity/%s:%s?nondefaults=RID,RCT,RCB" % (schema_name, table_name), json=list(rows))
-            pass
         else:
             to_path.insert(rows)
         return new_table
