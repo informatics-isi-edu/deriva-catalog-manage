@@ -201,7 +201,12 @@ class DerivaTable(DerivaTableConfigure):
         self.table.column_definitions[column_name].delete(self.catalog, self.table)
         return
 
-    def _rename_column(self, from_column, to_column):
+    def _rename_column(self, from_column, to_column,
+                       nullok=None, default=None,
+                       comment=None,
+                       acls = {},
+                       acl_bindings = {},
+                       annotations = {}):
         """
         Copy a column, updating visible columns list and keys to mirror source column.
         :param from_column:
@@ -223,9 +228,9 @@ class DerivaTable(DerivaTableConfigure):
                                  em.Column.define(
                                      to_column,
                                      from_def.type,
-                                     nullok=from_def.nullok,
-                                     default=from_def.default,
-                                     comment=from_def.comment,
+                                     nullok=from_def.nullok if nullok is None else nullok,
+                                     default=from_def.default if default is None else default,
+                                     comment= comment if comment else from_def.comment,
                                      acls=from_def.acls,
                                      acl_bindings=from_def.acl_bindings,
                                      annotations=from_def.annotations
@@ -254,14 +259,14 @@ class DerivaTable(DerivaTableConfigure):
         self.table.annotations = self._rename_columns_in_annotations({from_column: to_column})
         return
 
-    def rename_column(self, from_column, to_column):
+    def rename_column(self, from_column, to_column, default=None, nullok=None):
         """
         Rename a column by copying it and then deleting the origional column.
         :param from_column:
         :param to_column:
         :return:
         """
-        self._rename_column(from_column, to_column)
+        self._rename_column(from_column, to_column, default=default, nullok=nullok)
         self.delete_column(from_column)
         return
 
