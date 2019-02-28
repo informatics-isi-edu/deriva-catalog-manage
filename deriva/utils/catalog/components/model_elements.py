@@ -47,7 +47,7 @@ class DerivaTable(DerivaTableConfigure):
                                                     constraint_names=[(self.schema_name,
                                                                        '_'.join([self.table_name] +
                                                                                 column_name +
-                                                                                ['_fkey']))],
+                                                                                ['fkey']))],
                                                     )
                                )
         return
