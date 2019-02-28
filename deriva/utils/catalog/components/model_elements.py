@@ -429,6 +429,9 @@ class DerivaTable(DerivaTableConfigure):
         for i in self.table.column_definitions:
             print('{}\t{}'.format(i.name, i.type.typename))
 
+    def datapath(self):
+        return self.catalog.getPathBuilder().schemas[self.schema_name].tables[self.table_name]
+
 
 class DerivaModelElementsCLI(BaseCLI):
 

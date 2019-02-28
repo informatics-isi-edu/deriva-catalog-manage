@@ -139,6 +139,10 @@ collection.associate_tables(schema_name, table_name)
 collection.associate_tables(schema_name, public_table_name)
 collection.link_vocabulary('Status', schema_name, 'Collection_Status')
 collection.create_default_visible_columns(really=True)
+collection.apply()
+collection.datapath().insert({'Name': 'Foo', 'Description':'My collection'})
+collection.rename_column('Status','MyStatus')
+collection.apply()
 
 # Create directories for testing upload spec.
 def create_upload_dirs(schema_name, table_name, iditer):
@@ -163,7 +167,7 @@ print(chaise_url)
 
 foo_table = model_elements.DerivaTable(catalog, schema_name, "Foo")
 
-foo_table.rename_column('Field_0','FooField')
+foo_table.apply()
 foo_table.delete_column('Field_1')
 foo_table.move_table('WWW','Fun',
                     column_defs=[em.Column.define('NewColumn', em.builtin_types['text'])],
