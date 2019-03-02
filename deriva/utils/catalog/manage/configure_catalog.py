@@ -714,7 +714,7 @@ class DerivaTableConfigure:
 class DerivaConfigureCatalogCLI(BaseCLI):
 
     def __init__(self, description, epilog):
-        super(DerivaConfigureCatalogCLI, self).__init__(description, epilog, VERSION)
+        super(DerivaConfigureCatalogCLI, self).__init__(description, epilog, VERSION, hostname_required=True)
 
         # parent arg parser
         parser = self.parser
