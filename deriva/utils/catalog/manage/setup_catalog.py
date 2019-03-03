@@ -126,13 +126,15 @@ dc.configure_baseline_catalog(catalog_name='test', admin='isrd-systems')
 dc.apply()
 
 # Mess with tables:
-
+print('Creating collection')
 dt = DerivaTableConfigure(catalog, schema_name, table_name, model=dc.model)
 dt.configure_table_defaults()
 
+print('Creating asset table')
 dt_public = DerivaTableConfigure(catalog, schema_name, public_table_name, model=dc.model)
 dt_public.configure_table_defaults(public=True)
 dt.create_asset_table('ID')
+
 
 collection = model_elements.DerivaTable(catalog, schema_name, 'Collection').configure_table_defaults()
 collection.associate_tables(schema_name, table_name)
@@ -140,9 +142,15 @@ collection.associate_tables(schema_name, public_table_name)
 collection.link_vocabulary('Status', schema_name, 'Collection_Status')
 collection.create_default_visible_columns(really=True)
 collection.apply()
-collection.datapath().insert({'Name': 'Foo', 'Description':'My collection'})
+
+print('Adding element to collection')
+collection.datapath().insert([{'Name': 'Foo', 'Description':'My collection'}])
+
+print('Renaming column')
 collection.rename_column('Status','MyStatus')
+print('Rename done')
 collection.apply()
+print('Apply done')
 
 # Create directories for testing upload spec.
 def create_upload_dirs(schema_name, table_name, iditer):
