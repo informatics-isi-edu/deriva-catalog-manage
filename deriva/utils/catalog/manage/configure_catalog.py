@@ -431,7 +431,7 @@ class DerivaTableConfigure:
                     'column_map': {
                         'URL': '{URI}',
                         'Length': '{file_size}',
-                        self.table_name + '_RID': '{table_rid}',
+                        self.table_name : '{table_rid}',
                         'Filename': '{file_name}',
                         'MD5': '{md5}',
                     },
@@ -446,7 +446,7 @@ class DerivaTableConfigure:
                         '/attribute/D:={schema}:{table}/%s={key_column}/table_rid:=D:RID' % key_column],
                     # Rows in the asset table should have a FK reference to the RID for the matching metadata row
                     'record_query_template':
-                        '/entity/{schema}:{table}_Asset/{table}_RID={table_rid}/MD5={md5}/URL={URI_urlencoded}',
+                        '/entity/{schema}:{table}_Asset/{table}={table_rid}/MD5={md5}/URL={URI_urlencoded}',
                     'hatrac_options': {'versioned_uris': True},
                 }
             ]
@@ -460,7 +460,7 @@ class DerivaTableConfigure:
             raise DerivaConfigError(msg='Key column not found in target table')
 
         column_defs = [
-                          em.Column.define('{}_RID'.format(self.table_name),
+                          em.Column.define('{}'.format(self.table_name),
                                            em.builtin_types['text'],
                                            nullok=False,
                                            comment="The {} entry to which this asset is attached".format(
@@ -491,7 +491,7 @@ class DerivaTableConfigure:
 
         # Link asset table to metadata table with additional information about assets.
         asset_fkey_defs = [
-                              em.ForeignKey.define(['{}_RID'.format(self.table_name)],
+                              em.ForeignKey.define(['{}'.format(self.table_name)],
                                                    self.schema_name, self.table_name, ['RID'],
                                                    acls=fkey_acls, acl_bindings=fkey_acl_bindings,
                                                    constraint_names=[
