@@ -286,6 +286,9 @@ class DerivaTable(DerivaTableConfigure):
                 fk.delete(self.catalog, referring_table)
                 referring_table.create_fkey(self.catalog, fk_def)
 
+    def _rename_columns_in_acl_bindings(self, column_name_map):
+        return self.table.acl_bindings
+
     def delete_columns(self, columns):
         """
         Drop a column from a table, cleaning up visible columns and keys.
@@ -367,6 +370,10 @@ class DerivaTable(DerivaTableConfigure):
 
         # Copy over the keys.
         self._rename_columns_in_keys(columns, column_name_map, dest_sname, dest_tname)
+
+        # Update column name in ACL bindings....
+        self.table['acl_bindings'] = self._rename_columns_in_acl_bindings(column_name_map)
+
         # Update annotations where the old spec was being used
         self.table.annotations = self._rename_columns_in_annotations(column_name_map)
         self.apply()
