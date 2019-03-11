@@ -36,9 +36,9 @@ class DerivaConfigError(Exception):
 
 
 class DerivaCatalogConfigure:
-    def __init__(self, catalog):
+    def __init__(self, catalog, model=None):
         self.catalog = catalog
-        self.model = catalog.getCatalogModel()
+        self.model = model if model else catalog.getCatalogModel()
 
     def apply(self):
         self.model.apply(self.catalog)

@@ -10,7 +10,7 @@ from deriva.utils.catalog.manage.configure_catalog import DerivaCatalogConfigure
 import deriva.utils.catalog.components.model_elements as model_elements
 from deriva.core.ermrest_config import tag as chaise_tags
 import configure_catalog
-import deriva.utils.catalog.components.model_elements
+from deriva.utils.catalog.components.model_elements import DerivaCatalog, DerivaSchema, DerivaTable
 import csv
 
 server = 'dev.isrd.isi.edu'
@@ -62,12 +62,23 @@ def generate_test_csv(columncnt):
 
     return row_generator(), [{'name': i[0], 'type': i[1]} for i in zip(column_headings, column_types)]
 
+# Create directories for testing upload spec.
+def upload_test():
+    os.makedirs('upload_test', exist_ok=True)
+    os.chdir('upload_test')
+    create_upload_dirs(schema_name, table_name, range(1, 3))
 
-catalog = DerivaServer('https', server, credentials).create_ermrest_catalog()
-catalog_id = catalog._catalog_id
+    for i in os.listdir('assets/{}/{}'.format(schema_name, table_name)):
+        filename = 'assets/{}/{}/{}/{}'.format(schema_name, table_name, i, 'foo.txt')
+        with open(filename, "w") as f:
+            f.write("FOOBAR {}\n".format(i))
 
-#catalog = ErmrestCatalog('https',host, catalog_id, credentials=credentials)
-print('Catalog_id is', catalog_id)
+def create_upload_dirs(schema_name, table_name, iditer):
+    os.makedirs('records/{}'.format(schema_name), exist_ok=True)
+    for i in iditer:
+        asset_dir = 'assets/{}/{}/{}'.format(schema_name, table_name, i)
+        os.makedirs(asset_dir, exist_ok=True)
+    return
 
 table_size = 10
 column_count = 5
@@ -75,6 +86,7 @@ schema_name = 'TestSchema'
 table_name = 'Foo'
 public_table_name = 'Foo_Public'
 
+# Create test datasets
 csv_file = table_name + '.csv'
 csv_file_public = public_table_name + ".csv"
 
@@ -90,58 +102,61 @@ with open(csv_file_public, 'w', newline='') as f:
     for i, j in zip(range(table_size + 1), row):
         tablewriter.writerow(j)
 
+# Create a test catalog
 
-model_root = catalog.getCatalogModel()
-model_root.create_schema(catalog, em.Schema.define(schema_name))
+new_catalog = DerivaServer('https', server, credentials).create_ermrest_catalog()
+catalog_id = new_catalog._catalog_id
+#new_catalog = ErmrestCatalog('https',host, catalog_id, credentials=credentials)
+print('Catalog_id is', catalog_id)
 
+# Create a new schema and upload the CSVs into it.
+catalog = DerivaCatalog(server, catalog_id=catalog_id)
+
+# Set up catalog into standard configuration
+catalog.configure_baseline_catalog(catalog_name='test', admin='isrd-systems')
+
+schema = catalog.create_schema(schema_name)
+test_schema = schema
+
+# Upload CSVs into catalog, creating two new tables....
 csvtable = DerivaCSV(csv_file, schema_name, column_map=['ID'], key_columns='id')
 csvtable.create_validate_upload_csv(catalog, convert=True, create=True, upload=True)
 
 csvtable_public = DerivaCSV(csv_file_public, schema_name, column_map=True, key_columns='id')
 csvtable_public.create_validate_upload_csv(catalog, convert=True, create=True, upload=True)
 
-model_root = catalog.getCatalogModel()
-table = model_root.schemas[schema_name].tables[table_name]
-table_public = model_root.schemas[schema_name].tables[public_table_name]
+# Now get the two tables we just created from the CSVs.  Do this two different ways, just for fun.
+table = DerivaTable(catalog, schema_name,table_name)
+table_public = catalog.schema(schema_name).table(public_table_name)
+
+table.configure_table_defaults(public=True)
+table.create_default_visible_columns(really=True)
+
+table_public.configure_table_defaults(public=True)
+table_public.create_default_visible_columns(really=True)
 
 # Mess with tables:
-table.annotations[chaise_tags.visible_columns] = {'detailed':['RMT']}
-
-model_root.schemas[schema_name].create_table(catalog,
-                                             em.Table.define('Collection',
-                                                             [em.Column.define('Name',
-                                                                               em.builtin_types['text']),
-                                                              em.Column.define('Description',
-                                                                               em.builtin_types['markdown']),
-                                                              em.Column.define('Status', em.builtin_types['text'])]
-                                                             )
-                                             )
-model_root.schemas[schema_name].create_table(catalog,
-                                             em.Table.define_vocabulary('Collection_Status', 'TESTCATALOG:{RID}'))
-
-model_root.apply(catalog)
-
-dc = DerivaCatalogConfigure(catalog)
-dc.configure_baseline_catalog(catalog_name='test', admin='isrd-systems')
-dc.apply()
-
-# Mess with tables:
-print('Creating collection')
-dt = DerivaTableConfigure(catalog, schema_name, table_name, model=dc.model)
-dt.configure_table_defaults()
+table.table.annotations[chaise_tags.visible_columns] = {'detailed':['RMT']}
 
 print('Creating asset table')
-dt_public = DerivaTableConfigure(catalog, schema_name, public_table_name, model=dc.model)
-dt_public.configure_table_defaults(public=True)
-dt.create_asset_table('ID')
+table.create_asset_table('ID')
 
+print('Creating collection')
+collection = test_schema.create_table('Collection',
+                         [em.Column.define('Name',
+                                           em.builtin_types['text']),
+                          em.Column.define('Description',
+                                           em.builtin_types['markdown']),
+                          em.Column.define('Status', em.builtin_types['text'])]
+                         )
+collection.configure_table_defaults()
+collection.create_default_visible_columns(really=True)
 
-collection = model_elements.DerivaTable(catalog, schema_name, 'Collection').configure_table_defaults()
 collection.associate_tables(schema_name, table_name)
 collection.associate_tables(schema_name, public_table_name)
+
+test_schema.create_vocabulary('Collection_Status', 'TESTCATALOG:{RID}')
 collection.link_vocabulary('Status', schema_name, 'Collection_Status')
-collection.create_default_visible_columns(really=True)
-collection.apply()
 
 print('Adding element to collection')
 collection.datapath().insert([{'Name': 'Foo', 'Description':'My collection'}])
@@ -153,32 +168,12 @@ collection.apply()
 
 print('Apply done')
 
-# Create directories for testing upload spec.
-def create_upload_dirs(schema_name, table_name, iditer):
-    os.makedirs('records/{}'.format(schema_name), exist_ok=True)
-    for i in iditer:
-        asset_dir = 'assets/{}/{}/{}'.format(schema_name, table_name, i)
-        os.makedirs(asset_dir, exist_ok=True)
-    return
 
-os.makedirs('upload_test', exist_ok=True)
-os.chdir('upload_test')
-create_upload_dirs(schema_name, table_name, range(1, 3))
-
-for i in os.listdir('assets/{}/{}'.format(schema_name, table_name)):
-    filename = 'assets/{}/{}/{}/{}'.format(schema_name, table_name, i, 'foo.txt')
-    with open(filename, "w") as f:
-        f.write("FOOBAR {}\n".format(i))
-
-model_root = catalog.getCatalogModel()
 chaise_url = 'https://{}/chaise/recordset/#{}/{}:{}'.format(server, catalog_id, schema_name,table_name)
 print(chaise_url)
 
-foo_table = model_elements.DerivaTable(catalog, schema_name, "Foo")
-
-foo_table.apply()
+foo_table = DerivaTable(catalog, schema_name, "Foo")
 foo_table.delete_columns(['Field_1'])
 foo_table.move_table('WWW','Fun',
                     column_defs=[em.Column.define('NewColumn', em.builtin_types['text'])],
                      column_map={'ID':'NewID'})
-foo_table.apply()

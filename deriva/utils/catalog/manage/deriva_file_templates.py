@@ -2,6 +2,7 @@ table_file_template="""
 import argparse
 from attrdict import AttrDict
 from deriva.core import ErmrestCatalog, get_credential, DerivaPathError
+from deriva.utils.catalog.components.model_elements import DerivaCatalog
 import deriva.core.ermrest_model as em
 from deriva.core.ermrest_config import tag as chaise_tags
 from deriva.utils.catalog.manage.update_catalog import CatalogUpdater, parse_args
@@ -34,8 +35,7 @@ if __name__ == "__main__":
     host = {host!r}
     catalog_id = {catalog_id}
     mode, replace, host, catalog_id = parse_args(host, catalog_id, is_table=True)
-    credential = get_credential(host)
-    catalog = ErmrestCatalog('https', host, catalog_id, credentials=credential)
+    catalog = DerivaCatalog(host, catalog_id)
     main(catalog, mode, replace)
 """
 
@@ -44,6 +44,7 @@ schema_file_template = """
 import argparse
 from attrdict import AttrDict
 from deriva.core import ErmrestCatalog, get_credential, DerivaPathError
+from deriva.utils.catalog.components.model_elements import DerivaCatalog
 import deriva.core.ermrest_model as em
 from deriva.core.ermrest_config import tag as chaise_tags
 from deriva.utils.catalog.manage.update_catalog import CatalogUpdater, parse_args
@@ -76,8 +77,7 @@ if __name__ == "__main__":
     host = {host!r}
     catalog_id = {catalog_id}
     mode, replace, host, catalog_id = parse_args(host, catalog_id, is_catalog=True)
-    credential = get_credential(host)
-    catalog = ErmrestCatalog('https', host, catalog_id, credentials=credential)
+    catalog = DerivaCatalog(host, catalog_id)
     main(catalog, mode, replace)
 """
 
@@ -85,6 +85,7 @@ catalog_file_template = """
 import argparse
 from attrdict import AttrDict
 from deriva.core import ErmrestCatalog, get_credential, DerivaPathError
+from deriva.utils.catalog.components.model_elements import DerivaCatalog
 from deriva.utils.catalog.manage.update_catalog import CatalogUpdater, parse_args
 from deriva.core.ermrest_config import tag as chaise_tags
 import deriva.core.ermrest_model as em
@@ -108,7 +109,6 @@ if __name__ == "__main__":
     host = {host!r}
     catalog_id = {catalog_id}
     mode, replace, host, catalog_id = parse_args(host, catalog_id, is_catalog=True)
-    credential = get_credential(host)
-    catalog = ErmrestCatalog('https', host, catalog_id, credentials=credential)
+    catalog = DerivaCatalog(host, catalog_id)
     main(catalog, mode, replace)
 """

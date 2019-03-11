@@ -23,6 +23,7 @@ from deriva.core.ermrest_config import tag as chaise_tags
 import deriva.core.ermrest_model as em
 from deriva.utils.catalog.manage.dump_catalog import DerivaCatalogToString
 from deriva.utils.catalog.manage.utils import LoopbackCatalog
+from deriva.utils.catalog.components.model_elements import DerivaCatalog
 from deriva.core.utils import eprint
 from deriva.core.base_cli import BaseCLI
 from deriva.utils.catalog.version import __version__ as VERSION
@@ -450,7 +451,8 @@ class DerivaCSV(Table):
         :return: table schema representation of the model
         """
 
-        model_root = catalog.getCatalogModel()
+
+        model_root = catalog.model
         schema = model_root.schemas[self.schema_name]
         table = schema.tables[self.map_name(self.table_name)]
         fields = []
@@ -516,8 +518,7 @@ class DerivaCSV(Table):
         :return:
         """
 
-        pb = catalog.getPathBuilder()
-        target_table = pb.schemas[self.schema_name].tables[self.table_name].alias('target_table')
+        target_table = catalog.table(self.schema_name, self.table_name).datapath()
         catalog_schema = self.table_schema_from_catalog(catalog)
 
         # Sanity check columns.

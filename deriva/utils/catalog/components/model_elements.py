@@ -8,7 +8,7 @@ from deriva.core.base_cli import BaseCLI
 from deriva.core.ermrest_config import tag as chaise_tags
 from deriva.core import ErmrestCatalog, get_credential, format_exception
 from deriva.core.utils import eprint
-from deriva.utils.catalog.manage.configure_catalog import DerivaTableConfigure
+from deriva.utils.catalog.manage.configure_catalog import DerivaTableConfigure, DerivaCatalogConfigure
 from deriva.utils.catalog.version import __version__ as VERSION
 
 IS_PY2 = (sys.version_info[0] == 2)
@@ -23,9 +23,94 @@ class DerivaConfigError(Exception):
     def __init__(self, msg):
         self.msg = msg
 
+class DerivaModel():
+    def __init__(self):
+        pass
+
+    def __enter__(self):
+        pass
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        pass
+
+class DerivaCatalog(DerivaCatalogConfigure):
+    def __init__(self, catalog_or_host, scheme='https', catalog_id=1):
+        """
+        Initialize a DerivaCatalog.  This can be done one of two ways: by passing in an Ermrestcatalog object, or
+        specifying the host and catalog id of the desired catalog.
+        :param host:
+        :param id:
+        :param scheme:
+        :param catalog_id:
+        """
+
+        catalog = ErmrestCatalog(scheme, catalog_or_host, catalog_id, credentials=get_credential(catalog_or_host)) \
+                 if type(catalog_or_host) is str else catalog_or_host
+        super(DerivaCatalog, self).__init__(catalog)
+
+    def schema(self, schema_name):
+        return DerivaSchema(self.catalog, schema_name, model=self.model)
+
+    def create_schema(self, schema_name, comment=None, acls={}, annotations={}):
+        schema = self.model.create_schema(self.catalog,
+                                 em.Schema.define(
+                                     schema_name,
+                                     comment=comment,
+                                     acls=acls,
+                                     annotations=annotations
+                                 )
+                                 )
+        return self.schema(schema_name)
+
+    def schema(self, schema_name):
+        return DerivaSchema(self.catalog, schema_name)
+
+    def table(self, schema_name, table_name):
+        return DerivaTable(self.catalog, schema_name, table_name, model=self.model)
+
+
+class DerivaSchema:
+    def __init__(self, catalog, schema):
+
+        self.catalog = DerivaCatalog(catalog) if type(catalog) is not DerivaCatalog else catalog
+        self.schema_name = self.schema.name
+
+    def create_table(self, table_name, column_defs,
+                     key_defs=[], fkey_defs=[],
+                     comment=None,
+                     acls={},
+                     acl_bindings={},
+                     annotations={}):
+        self.schema.create_table(self.catalog, em.Table.define(
+            table_name, column_defs,
+            key_defs=key_defs, fkey_defs=fkey_defs,
+            comment=comment,
+            acls=acls, acl_bindings=acl_bindings,
+            annotations=annotations))
+        return self.table(table_name)
+
+    def create_vocabulary(self, vocab_name, curie_template, uri_template='/id/{RID}', column_defs=[],
+                        key_defs=[], fkey_defs=[],
+                        comment=None,
+                        acls={}, acl_bindings={},
+                        annotations={}
+                        ):
+        return self.schema.create_table(
+            self.catalog,
+            em.Table.define_vocabulary(vocab_name, curie_template, uri_template=uri_template,
+                                       column_defs=column_defs,
+                                       key_defs=key_defs, fkey_defs=fkey_defs, comment=comment,
+                                       acls=acls, acl_bindings=acl_bindings,
+                                       annotations=annotations)
+        )
+
+    def table(self, table_name):
+        return DerivaTable(self.catalog, self.schema_name, table_name, self.model)
 
 class DerivaTable(DerivaTableConfigure):
     def __init__(self, catalog, schema_name, table_name, model=None):
+        if type(catalog) is DerivaCatalog:
+            catalog = catalog.catalog
         super(DerivaTable, self).__init__(catalog, schema_name, table_name, model=model)
 
     def link_tables(self, column_name, target_schema, target_table, target_column='RID'):
@@ -261,6 +346,7 @@ class DerivaTable(DerivaTableConfigure):
                                       )
                 i.delete(self.catalog, self.table)
 
+        # Rename the columns that appear in foreign keys...
         for fk in self.table.foreign_keys:
             fk_columns = [i['column_name'] for i in fk.foreign_key_columns]
             if self._key_match(columns, fk_columns, column_rename):  # We are renaming one of the foreign key columns
@@ -271,9 +357,14 @@ class DerivaTable(DerivaTableConfigure):
                                   [i['column_name'] for i in fk.referenced_columns],
                                   [update_key_name(n) for n in fk.names]
                                   )
-                dest_table.create_fkey(self.catalog, fk_def)
+                new_fkey = dest_table.create_fkey(self.catalog, fk_def)
                 fk.delete(self.catalog, self.table)
+                # Now patch up referenced_by that was associated with this key.
+                referring_table = self.model.schemas[new_fkey.sname].tables[new_fk.tname]
+                del self.table.referenced_by[fk]
+                self.table.referenced_by.append(new_fk)
 
+        # Now look through incoming foreign keys to make sure none of them changed.
         for fk in self.table.referenced_by:
             referenced_columns = [i['column_name'] for i in fk.referenced_columns]
             if self._key_match(columns, referenced_columns,
@@ -285,9 +376,29 @@ class DerivaTable(DerivaTableConfigure):
                 referring_table = self.model.schemas[fk.sname].tables[fk.tname]
                 fk.delete(self.catalog, referring_table)
                 referring_table.create_fkey(self.catalog, fk_def)
+                del self.table.referenced_by[fk]
+                self.table.referenced_by.append(fk)
 
     def _rename_columns_in_acl_bindings(self, column_name_map):
         return self.table.acl_bindings
+
+    def _add_fkeys(self,fkeys):
+        for fkey in self.table.foreign_keys:
+            referenced = self.schemas[
+                fkey.referenced_columns[0]['schema_name']
+            ].tables[
+                fkey.referenced_columns[0]['table_name']
+            ]
+            referenced.referenced_by.append(fkey)
+
+    def _delete_fkeys(self,fkeys):
+        for fkey in fkeys:
+            referenced = self.schemas[
+                fkey.referenced_columns[0]['schema_name']
+            ].tables[
+                fkey.referenced_columns[0]['table_name']
+        ]
+        del referenced.referenced_by[fkey]
 
     def delete_columns(self, columns):
         """
@@ -372,7 +483,7 @@ class DerivaTable(DerivaTableConfigure):
         self._rename_columns_in_keys(columns, column_name_map, dest_sname, dest_tname)
 
         # Update column name in ACL bindings....
-        self.table['acl_bindings'] = self._rename_columns_in_acl_bindings(column_name_map)
+        self.table.annotations['acl_bindings'] = self._rename_columns_in_acl_bindings(column_name_map)
 
         # Update annotations where the old spec was being used
         self.table.annotations = self._rename_columns_in_annotations(column_name_map)
@@ -412,6 +523,8 @@ class DerivaTable(DerivaTableConfigure):
         self._rename_columns(columns, dest_schema, dest_table, column_map=column_map)
         if delete:
             self.delete_columns(columns)
+        self.apply()
+        self.refresh()
         return
 
     def delete_table(self):
@@ -495,7 +608,7 @@ class DerivaTable(DerivaTableConfigure):
         to_path = pb.schemas[schema_name].tables[table_name]
         rows = from_path.entities(**{column_map.get(i, i): getattr(from_path, i) for i in from_path.column_definitions})
         to_path.insert(rows, **({'nondefaults': {'RID', 'RCT', 'RCB'}} if clone else {}))
-
+        self.apply()
         return new_table
 
     def move_table(self, schema_name, table_name,

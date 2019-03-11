@@ -2,6 +2,7 @@ import argparse
 from requests.exceptions import HTTPError
 
 from deriva.core import ErmrestCatalog, get_credential
+from deriva.utils.catalog.components.model_elements import DerivaCatalog
 
 def parse_args(server, catalog_id, is_table=False, is_catalog=False):
     parser = argparse.ArgumentParser(description='Update catalog configuration')
@@ -35,19 +36,22 @@ class CatalogUpdaterException(Exception):
 
 class CatalogUpdater:
     def __init__(self, catalog):
-        self._catalog = catalog  # type: ErmrestCatalog
+        self._catalog = catalog if type(catalog) is DerivaCatalog else DerivaCatalog(catalog)
 
-    def update_annotations(self, o, annotations, replace=False):
+    @staticmethod
+    def update_annotations(o, annotations, replace=False):
         if replace:
             o.annotations.clear()
         o.annotations.update(annotations)
 
-    def update_acls(self, o, acls, replace=False):
+    @staticmethod
+    def update_acls(o, acls, replace=False):
         if replace:
             o.acls.clear()
         o.acls.update(acls)
 
-    def update_acl_bindings(self, o, acl_bindings, replace=False):
+    @staticmethod
+    def update_acl_bindings(o, acl_bindings, replace=False):
         if replace:
             o.acls_binding.clear()
         o.acl_bindings.update(acl_bindings)
@@ -56,12 +60,11 @@ class CatalogUpdater:
         if mode not in ['annotations', 'acls']:
             raise CatalogUpdaterException(msg="Unknown mode {}".format(mode))
 
-        model = self._catalog.getCatalogModel()
         if mode == 'annotations':
-            self.update_annotations(model, annotations, replace=replace)
+            self.update_annotations(self._catalog.model, annotations, replace=replace)
         elif mode == 'acls':
-            self.update_acls(model, acls, replace=replace)
-        model.apply(self._catalog)
+            self.update_acls(self._catalog.model, acls, replace=replace)
+        self.catalog.model.apply(self._catalog.catalog)
 
     def update_schema(self, mode, schema_def, replace=False):
         schema_name = schema_def['schema_name']
@@ -72,17 +75,16 @@ class CatalogUpdater:
         if mode not in ['schema', 'annotations', 'comment', 'acls']:
             raise CatalogUpdaterException(msg="Unknown mode {}".format(mode))
 
-        model = self._catalog.getCatalogModel()
         if mode == 'schema':
             if replace:
-                schema = model.schemas[schema_name]
+                schema = self._catalog.model.schemas[schema_name]
                 print('Deleting schema ', schema.name)
                 ok = input('Type YES to confirm:')
                 if ok == 'YES':
-                    schema.delete(self._catalog, model)
-            schema = model.create_schema(self._catalog, schema_def)
+                    schema.delete(self._catalog.catalog, self._catalog.model)
+            schema = self._catalog.model.create_schema(self._catalog, schema_def)
         else:
-            schema = model.schemas[schema_name]
+            schema = self._catalog.model.schemas[schema_name]
             if mode == 'annotations':
                 self.update_annotations(schema, annotations, replace=replace)
             elif mode == 'acls':
@@ -95,7 +97,7 @@ class CatalogUpdater:
 
     def update_table(self, mode, schema_name, table_def, replace=False):
 
-        schema = self._catalog.getCatalogModel().schemas[schema_name]
+        schema = self._catalog.model.schemas[schema_name]
         table_name = table_def['table_name']
         column_defs = table_def['column_definitions']
         table_acls = table_def['acls']
@@ -118,11 +120,11 @@ class CatalogUpdater:
                 ok = input('Type YES to confirm:')
                 if ok == 'YES':
                     table.delete(self._catalog, schema)
-                schema = self._catalog.getCatalogModel().schemas[schema_name]
+                schema = self._catalog.model.schemas[schema_name]
             if skip_fkeys:
                 table_def.fkey_defs = []
             print('Creating table...', table_name)
-            table = schema.create_table(self._catalog, table_def)
+            table = schema.create_table(self._catalog.catalog, table_def)
             return table
 
         table = schema.tables[table_name]
