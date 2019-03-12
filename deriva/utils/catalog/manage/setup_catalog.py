@@ -110,7 +110,7 @@ catalog_id = new_catalog._catalog_id
 print('Catalog_id is', catalog_id)
 
 # Create a new schema and upload the CSVs into it.
-catalog = DerivaCatalog(server, catalog_id=catalog_id)
+catalog = DerivaCatalogConfigure(server, catalog_id=catalog_id)
 
 # Set up catalog into standard configuration
 catalog.configure_baseline_catalog(catalog_name='test', admin='isrd-systems')
@@ -126,7 +126,7 @@ csvtable_public = DerivaCSV(csv_file_public, schema_name, column_map=True, key_c
 csvtable_public.create_validate_upload_csv(catalog, convert=True, create=True, upload=True)
 
 # Now get the two tables we just created from the CSVs.  Do this two different ways, just for fun.
-table = DerivaTable(catalog, schema_name,table_name)
+table = catalog.schema(schema_name).table(table_name)
 table_public = catalog.schema(schema_name).table(public_table_name)
 
 table.configure_table_defaults(public=True)
@@ -136,7 +136,7 @@ table_public.configure_table_defaults(public=True)
 table_public.create_default_visible_columns(really=True)
 
 # Mess with tables:
-table.table.annotations[chaise_tags.visible_columns] = {'detailed':['RMT']}
+table.set_annotation(chaise_tags.visible_columns,{'detailed':['RMT']})
 
 print('Creating asset table')
 table.create_asset_table('ID')

@@ -11,6 +11,7 @@ import json
 import ast
 import dateutil
 import datetime
+import logging
 
 from requests import HTTPError
 from tableschema import Table, Schema, exceptions
@@ -30,6 +31,8 @@ from deriva.utils.catalog.version import __version__ as VERSION
 
 IS_PY2 = (sys.version_info[0] == 2)
 IS_PY3 = (sys.version_info[0] == 3)
+
+logger = logging.getLogger(__name__)
 
 # We should get range info in there....
 table_schema_type_map = {
@@ -131,7 +134,7 @@ class DerivaCSVError(Exception):
         self.msg = msg
 
 
-class DerivaModel:
+class DerivaCSVModel:
     """
     Class to represent a CSV schema as a dervia catalog model. This class takes a table schema, performs name
     mapping of column names and generates a deriva-py model.
@@ -518,7 +521,7 @@ class DerivaCSV(Table):
         :return:
         """
 
-        target_table = catalog.table(self.schema_name, self.table_name).datapath()
+        target_table = catalog.schema(self.schema_name).table(self.table_name).datapath()
         catalog_schema = self.table_schema_from_catalog(catalog)
 
         # Sanity check columns.
@@ -635,7 +638,7 @@ class DerivaCSV(Table):
         if schemafile is True:
             self.schema.save(outname + '.json')
 
-        deriva_model = DerivaModel(self)
+        deriva_model = DerivaCSVModel(self)
 
         stringer = DerivaCatalogToString(deriva_model.catalog, groups={})
         table_string = stringer.table_to_str(self.schema_name, self.table_name)
@@ -674,7 +677,7 @@ class DerivaCSV(Table):
                 convert = True
 
         if convert:  # Generate deriva-py file to create table if convert option is specified.
-            print('Converting table spec to deriva-py....')
+            logger.info('Converting table spec to deriva-py....')
             sys.stdout.flush()
             self.convert_to_deriva(outfile=derivafile, schemafile=schemafile)
 

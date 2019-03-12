@@ -4,11 +4,13 @@ import traceback
 import requests
 from requests import HTTPError
 import deriva.core.ermrest_model as em
+from deriva.core.ermrest_config import MultiKeyedList
+
 from deriva.core.base_cli import BaseCLI
 from deriva.core.ermrest_config import tag as chaise_tags
 from deriva.core import ErmrestCatalog, get_credential, format_exception
 from deriva.core.utils import eprint
-from deriva.utils.catalog.manage.configure_catalog import DerivaTableConfigure, DerivaCatalogConfigure
+
 from deriva.utils.catalog.version import __version__ as VERSION
 
 IS_PY2 = (sys.version_info[0] == 2)
@@ -23,57 +25,115 @@ class DerivaConfigError(Exception):
     def __init__(self, msg):
         self.msg = msg
 
-class DerivaModel():
-    def __init__(self):
-        pass
+
+class DerivaModel:
+    def __init__(self, catalog):
+        self.catalog = catalog
 
     def __enter__(self):
-        pass
+        self.catalog.nesting += 1
+        logger.debug(f"Deriva model nesting {self.catalog.nesting}")
+        return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
-        pass
+        self.catalog.nesting -= 1
+        logger.debug(f"Deriva model nesting {self.catalog.nesting}")
+        if self.catalog.nesting == 0:
+            logger.debug('DerivaModel updated')
+            self.catalog.apply()
 
-class DerivaCatalog(DerivaCatalogConfigure):
+    def model(self):
+        return self.catalog.model
+
+    def schema(self, schema_name):
+        return self.catalog.model.schemas[schema_name]
+
+    def table(self, schema_name, table_name):
+        return self.catalog.model.schemas[schema_name].tables[table_name]
+
+class DerivaCatalog():
     def __init__(self, catalog_or_host, scheme='https', catalog_id=1):
         """
         Initialize a DerivaCatalog.  This can be done one of two ways: by passing in an Ermrestcatalog object, or
         specifying the host and catalog id of the desired catalog.
-        :param host:
-        :param id:
+        :param catalog_or_host:
         :param scheme:
         :param catalog_id:
         """
 
-        catalog = ErmrestCatalog(scheme, catalog_or_host, catalog_id, credentials=get_credential(catalog_or_host)) \
-                 if type(catalog_or_host) is str else catalog_or_host
-        super(DerivaCatalog, self).__init__(catalog)
+        self.nesting = 0
+
+        self.catalog = ErmrestCatalog(scheme, catalog_or_host, catalog_id, credentials=get_credential(catalog_or_host)) \
+            if type(catalog_or_host) is str else catalog_or_host
+
+        self.model = self.catalog.getCatalogModel()
+        self.schema_classes = {}
+
+
+    def apply(self):
+        self.model.apply(self.catalog)
+        return self
+
+    def refresh(self):
+        self.model.apply(self.catalog)
+        self.model = self.catalog.getCatalogModel()
+
+    def getPathBuilder(self):
+        return self.catalog.getPathBuilder()
+
+    def _make_schema_instance(self, schema_name):
+        return DerivaSchema(self.catalog, schema_name)
 
     def schema(self, schema_name):
-        return DerivaSchema(self.catalog, schema_name, model=self.model)
+        if self.model.schemas[schema_name]:
+            return self.schema_classes.setdefault(schema_name, self._make_schema_instance(schema_name))
+
+    def update_referenced_by(self):
+        """Introspects the 'foreign_keys' and updates the 'referenced_by' properties on the 'Table' objects.
+        :param model: an ERMrest model object
+        """
+        for schema in self.model.schemas.values():
+            for table in schema.tables.values():
+                table.referenced_by = MultiKeyedList([])
+        self.model.update_referenced_by()
+
 
     def create_schema(self, schema_name, comment=None, acls={}, annotations={}):
         schema = self.model.create_schema(self.catalog,
-                                 em.Schema.define(
-                                     schema_name,
-                                     comment=comment,
-                                     acls=acls,
-                                     annotations=annotations
-                                 )
-                                 )
+                                          em.Schema.define(
+                                              schema_name,
+                                              comment=comment,
+                                              acls=acls,
+                                              annotations=annotations
+                                          )
+                                          )
         return self.schema(schema_name)
 
-    def schema(self, schema_name):
-        return DerivaSchema(self.catalog, schema_name)
+    def refresh(self):
+        assert(self.nesting == 0)
+        logger.debug('Refreshing model')
+        self.model.apply(self.catalog)
+        self.model = self.catalog.getCatalogModel()
 
-    def table(self, schema_name, table_name):
-        return DerivaTable(self.catalog, schema_name, table_name, model=self.model)
+    def get_groups(self):
+        if chaise_tags.catalog_config in self.model.annotations:
+            return self.model.annotations[chaise_tags.catalog_config]['groups']
+        else:
+            raise DerivaConfigError(msg='Attempting to configure table before catalog is configured')
 
 
 class DerivaSchema:
-    def __init__(self, catalog, schema):
+    def __init__(self, catalog, schema_name):
+        self.catalog = catalog
+        self.schema_name = schema_name
+        self.table_classes = {}
 
-        self.catalog = DerivaCatalog(catalog) if type(catalog) is not DerivaCatalog else catalog
-        self.schema_name = self.schema.name
+    def _make_table_instance(self, schema_name, table_name):
+        return DerivaTable(self.catalog, schema_name, table_name)
+
+    def table(self, table_name):
+        if self.catalog.model.schemas[self.schema_name].tables[table_name]:
+            return self.table_classes.setdefault(table_name, self._make_table_instance(self.schema_name, table_name))
 
     def create_table(self, table_name, column_defs,
                      key_defs=[], fkey_defs=[],
@@ -81,22 +141,25 @@ class DerivaSchema:
                      acls={},
                      acl_bindings={},
                      annotations={}):
-        self.schema.create_table(self.catalog, em.Table.define(
+        return self._create_table(em.Table.define(
             table_name, column_defs,
             key_defs=key_defs, fkey_defs=fkey_defs,
             comment=comment,
             acls=acls, acl_bindings=acl_bindings,
             annotations=annotations))
-        return self.table(table_name)
+
+    def _create_table(self, table_def):
+        schema = self.catalog.model.schemas[self.schema_name]
+        schema.create_table(self.catalog.catalog, table_def)
+        return self.table(table_def['table_name'])
 
     def create_vocabulary(self, vocab_name, curie_template, uri_template='/id/{RID}', column_defs=[],
-                        key_defs=[], fkey_defs=[],
-                        comment=None,
-                        acls={}, acl_bindings={},
-                        annotations={}
-                        ):
-        return self.schema.create_table(
-            self.catalog,
+                          key_defs=[], fkey_defs=[],
+                          comment=None,
+                          acls={}, acl_bindings={},
+                          annotations={}
+                          ):
+        return self._create_table(
             em.Table.define_vocabulary(vocab_name, curie_template, uri_template=uri_template,
                                        column_defs=column_defs,
                                        key_defs=key_defs, fkey_defs=fkey_defs, comment=comment,
@@ -104,14 +167,27 @@ class DerivaSchema:
                                        annotations=annotations)
         )
 
-    def table(self, table_name):
-        return DerivaTable(self.catalog, self.schema_name, table_name, self.model)
 
-class DerivaTable(DerivaTableConfigure):
-    def __init__(self, catalog, schema_name, table_name, model=None):
-        if type(catalog) is DerivaCatalog:
-            catalog = catalog.catalog
-        super(DerivaTable, self).__init__(catalog, schema_name, table_name, model=model)
+class DerivaTable:
+    def __init__(self, catalog, schema_name, table_name):
+        self.catalog =  catalog
+        self.schema_name = schema_name
+        self.table_name = table_name
+
+    def set_annotation(self, annotation, value):
+        with DerivaModel(self.catalog) as m:
+            m.table(self.schema_name, self.table_name).annotations.update({annotation:value})
+
+    def create_key(self, key_def):
+        with DerivaModel(self.catalog) as m:
+            m.table(self.schema_name, self.table_name).create_key(self.catalog.catalog, key_def)
+
+    def create_fkey(self, fkey_def):
+        with DerivaModel(self.catalog) as m:
+            target_schema = fkey_def['referenced_columns'][0]['schema_name']
+            target_table = fkey_def['referenced_columns'][0]['table_name']
+            fkey = m.table(self.schema_name, self.table_name).create_fkey(self.catalog.catalog, fkey_def)
+            m.model().schemas[target_schema].tables[target_table].referenced_by.append(fkey)
 
     def link_tables(self, column_name, target_schema, target_table, target_column='RID'):
         """
@@ -123,18 +199,21 @@ class DerivaTable(DerivaTableConfigure):
         :return:
         """
 
-        if type(column_name) is str:
-            column_name = [column_name]
-        self.table.create_fkey(self.catalog,
-                               em.ForeignKey.define(column_name,
-                                                    target_schema, target_table,
-                                                    target_column if type(target_column) is list else [target_column],
-                                                    constraint_names=[(self.schema_name,
-                                                                       '_'.join([self.table_name] +
-                                                                                column_name +
-                                                                                ['fkey']))],
-                                                    )
-                               )
+        with DerivaModel(self.catalog) as m:
+            if type(column_name) is str:
+                column_name = [column_name]
+            table = m.model().schemas[self.schema_name].tables[self.table_name]
+            self.create_fkey(
+                em.ForeignKey.define(column_name,
+                                     target_schema, target_table,
+                                     target_column if type(target_column) is list else [
+                                         target_column],
+                                     constraint_names=[(self.schema_name,
+                                                        '_'.join([self.table_name] +
+                                                                 column_name +
+                                                                 ['fkey']))],
+                                     )
+            )
         return
 
     def link_vocabulary(self, column_name, term_schema, term_table):
@@ -189,8 +268,10 @@ class DerivaTable(DerivaTableConfigure):
         table_def = em.Table.define(association_table_name, column_defs=column_defs,
                                     key_defs=key_defs, fkey_defs=fkey_defs,
                                     comment='Association table for {}'.format(association_table_name))
-        association_table = self.model.schemas[self.schema_name].create_table(self.catalog, table_def)
-        return DerivaTable(self.catalog, association_table.sname, association_table.name, model=self.model)
+        with DerivaModel(self.catalog) as m:
+            association_table = m.schema(self.schema_name).create_table(self.catalog.catalog, table_def)
+            self.catalog.update_referenced_by()
+            return self.catalog.schema(association_table.sname).table(association_table.name)
 
     @staticmethod
     def _delete_from_visible_columns(vcols, column_name):
@@ -252,19 +333,25 @@ class DerivaTable(DerivaTableConfigure):
         }
 
     def _rename_columns_in_annotations(self, column_name_map):
-        return {
-            k:
-                self._rename_columns_in_visible_columns(v, column_name_map) if k == chaise_tags.visible_columns else
-                self._rename_columns_in_display(v, column_name_map) if k == chaise_tags.display else
-                v
-            for k, v in self.table.annotations.items()
-        }
+        with DerivaModel(self.catalog) as m:
+            model = m.model()
+            table = model.schemas[self.schema_name].tables[self.table_name]
+            return {
+                k:
+                    self._rename_columns_in_visible_columns(v, column_name_map) if k == chaise_tags.visible_columns else
+                    self._rename_columns_in_display(v, column_name_map) if k == chaise_tags.display else
+                    v
+                for k, v in table.annotations.items()
+            }
 
     def _delete_column_from_annotations(self, column_name):
-        return {
-            k: self._delete_from_visible_columns(v, column_name) if k == chaise_tags.visible_columns else v
-            for k, v in self.table.annotations.items()
-        }
+        with DerivaModel(self.catalog) as m:
+            model = m.model()
+            table = model.schemas[self.schema_name].tables[self.table_name]
+            return {
+                k: self._delete_from_visible_columns(v, column_name) if k == chaise_tags.visible_columns else v
+                for k, v in table.annotations.items()
+            }
 
     @staticmethod
     def _key_match(columns, key_columns, rename):
@@ -287,16 +374,16 @@ class DerivaTable(DerivaTableConfigure):
             (self.schema_name == dest_sname and self.table_name == dest_tname)
         columns = set(columns)
 
-        target_table = self.model.schemas[dest_sname].tables[dest_tname]
+        with DerivaModel(self.catalog) as m:
+            table = m.model().schemas[self.schema_name].tables[self.table_name]
+            for i in table.keys:
+                self._key_match(columns, i.unique_columns, local_rename)
 
-        for i in self.table.keys:
-            self._key_match(columns, i.unique_columns, local_rename)
+            for fk in table.foreign_keys:
+                self._key_match(columns, [i['column_name'] for i in fk.foreign_key_columns], local_rename)
 
-        for fk in self.table.foreign_keys:
-            self._key_match(columns, [i['column_name'] for i in fk.foreign_key_columns], local_rename)
-
-        for fk in self.table.referenced_by:
-            self._key_match(columns, [i['column_name'] for i in fk.referenced_columns], local_rename)
+            for fk in table.referenced_by:
+                self._key_match(columns, [i['column_name'] for i in fk.referenced_columns], local_rename)
 
     def _rename_columns_in_keys(self, columns, column_name_map, dest_sname, dest_tname):
         """
@@ -330,75 +417,83 @@ class DerivaTable(DerivaTableConfigure):
 
         column_rename = self.schema_name == dest_sname and self.table_name == dest_tname
         columns = set(columns)
-        dest_table = self.model.schemas[dest_sname].tables[dest_tname]
+        with DerivaModel(self.catalog) as m:
+            model = m.model()
+            dest_table = model.schemas[dest_sname].tables[dest_tname]
+            table = model.schemas[self.schema_name].tables[self.table_name]
 
-        for i in self.table.keys:
-            if i.unique_columns == ['RID']:
-                continue  # RID Key constraint is already put in place by ERMRest.
-            if self._key_match(columns, i.unique_columns, column_rename):
-                dest_table.create_key(self.catalog,
-                                      em.Key.define(
-                                          [column_name_map.get(c, c) for c in i.unique_columns],
-                                          constraint_names=[update_key_name(n) for n in i.names],
-                                          comment=i.comment,
-                                          annotations=i.annotations
+            for i in table.keys:
+                if i.unique_columns == ['RID']:
+                    continue  # RID Key constraint is already put in place by ERMRest.
+                if self._key_match(columns, i.unique_columns, column_rename):
+                    self.catalog.schema(dest_sname).table(dest_tname).create_key(
+                                          em.Key.define(
+                                              [column_name_map.get(c, c) for c in i.unique_columns],
+                                              constraint_names=[update_key_name(n) for n in i.names],
+                                              comment=i.comment,
+                                              annotations=i.annotations
+                                          )
+                                          )
+                    i.delete(self.catalog.catalog, table)
+
+            # Rename the columns that appear in foreign keys...
+            for fk in table.foreign_keys:
+                fk_columns = [i['column_name'] for i in fk.foreign_key_columns]
+                if self._key_match(columns, fk_columns,
+                                   column_rename):  # We are renaming one of the foreign key columns
+                    referenced_schema = fk.referenced_columns[0]['schema_name']
+                    referenced_table = fk.referenced_columns[0]['table_name']
+                    fk_def = def_fkey(fk,
+                                      [column_name_map.get(i, i) for i in fk_columns],
+                                      referenced_schema,
+                                      referenced_table,
+                                      [i['column_name'] for i in fk.referenced_columns],
+                                      [update_key_name(n) for n in fk.names]
                                       )
-                                      )
-                i.delete(self.catalog, self.table)
+                    new_fkey = dest_table.create_fkey(self.catalog.catalog, fk_def)
+                    fk.delete(self.catalog.catalog, table)
 
-        # Rename the columns that appear in foreign keys...
-        for fk in self.table.foreign_keys:
-            fk_columns = [i['column_name'] for i in fk.foreign_key_columns]
-            if self._key_match(columns, fk_columns, column_rename):  # We are renaming one of the foreign key columns
-                fk_def = def_fkey(fk,
-                                  [column_name_map.get(i, i) for i in fk_columns],
-                                  fk.referenced_columns[0]['schema_name'],
-                                  fk.referenced_columns[0]['table_name'],
-                                  [i['column_name'] for i in fk.referenced_columns],
-                                  [update_key_name(n) for n in fk.names]
-                                  )
-                new_fkey = dest_table.create_fkey(self.catalog, fk_def)
-                fk.delete(self.catalog, self.table)
-                # Now patch up referenced_by that was associated with this key.
-                referring_table = self.model.schemas[new_fkey.sname].tables[new_fk.tname]
-                del self.table.referenced_by[fk]
-                self.table.referenced_by.append(new_fk)
-
-        # Now look through incoming foreign keys to make sure none of them changed.
-        for fk in self.table.referenced_by:
-            referenced_columns = [i['column_name'] for i in fk.referenced_columns]
-            if self._key_match(columns, referenced_columns,
-                               column_rename):  # We are renaming one of the referenced columns.
-                fk_def = def_fkey(fk,
-                                  [i['column_name'] for i in fk.foreign_key_columns],
-                                  dest_sname, dest_tname, [column_name_map.get(i, i) for i in referenced_columns],
-                                  fk.names)
-                referring_table = self.model.schemas[fk.sname].tables[fk.tname]
-                fk.delete(self.catalog, referring_table)
-                referring_table.create_fkey(self.catalog, fk_def)
-                del self.table.referenced_by[fk]
-                self.table.referenced_by.append(fk)
+            # Now look through incoming foreign keys to make sure none of them changed.
+            for fk in table.referenced_by:
+                referenced_columns = [i['column_name'] for i in fk.referenced_columns]
+                if self._key_match(columns, referenced_columns,
+                                   column_rename):  # We are renaming one of the referenced columns.
+                    fk_def = def_fkey(fk,
+                                      [i['column_name'] for i in fk.foreign_key_columns],
+                                      dest_sname, dest_tname, [column_name_map.get(i, i) for i in referenced_columns],
+                                      fk.names)
+                    referring_table = model.schemas[fk.sname].tables[fk.tname]
+                    fk.delete(self.catalog.catalog, referring_table)
+                    self.catalog.schema(fk.sname).table(fk.tname).create_fkey(fk_def)
+            self.catalog.update_referenced_by()
 
     def _rename_columns_in_acl_bindings(self, column_name_map):
-        return self.table.acl_bindings
+        with DerivaModel(self.catalog) as m:
+            table = m.model().schemas[self.schema_name].tables[self.table_name]
+            return table.acl_bindings
 
-    def _add_fkeys(self,fkeys):
-        for fkey in self.table.foreign_keys:
-            referenced = self.schemas[
-                fkey.referenced_columns[0]['schema_name']
-            ].tables[
-                fkey.referenced_columns[0]['table_name']
-            ]
-            referenced.referenced_by.append(fkey)
+    def _add_fkeys(self, fkeys):
+        with DerivaModel(self.catalog) as m:
+            model = m.model()
+            table = model.schemas[self.schema_name].tables[self.table_name]
+            for fkey in fkeys:
+                referenced = model.schemas[
+                    fkey.referenced_columns[0]['schema_name']
+                ].tables[
+                    fkey.referenced_columns[0]['table_name']
+                ]
+                referenced.referenced_by.append(fkey)
 
-    def _delete_fkeys(self,fkeys):
-        for fkey in fkeys:
-            referenced = self.schemas[
-                fkey.referenced_columns[0]['schema_name']
-            ].tables[
-                fkey.referenced_columns[0]['table_name']
-        ]
-        del referenced.referenced_by[fkey]
+    def _delete_fkeys(self, fkeys):
+        with DerivaModel(self.catalog) as m:
+            model = m.model()
+            for fkey in fkeys:
+                referenced = model.schemas[
+                    fkey.referenced_columns[0]['schema_name']
+                ].tables[
+                    fkey.referenced_columns[0]['table_name']
+                ]
+            del referenced.referenced_by[fkey]
 
     def delete_columns(self, columns):
         """
@@ -406,29 +501,33 @@ class DerivaTable(DerivaTableConfigure):
         :param columns:
         :return:
         """
-        self._check_composite_keys(columns, self.schema_name, self.table_name, rename=False)
+        with DerivaModel(self.catalog) as m:
+            model = m.model()
+            table = model.schemas[self.schema_name].tables[self.table_name]
 
-        columns = set(columns)
+            self._check_composite_keys(columns, self.schema_name, self.table_name, rename=False)
+            columns = set(columns)
 
-        # Remove keys...
-        for i in self.table.keys:
-            if self._key_match(columns, i.unique_columns, False):
-                i.delete(self.catalog, self.table)
+            # Remove keys...
+            for i in table.keys:
+                if self._key_match(columns, i.unique_columns, False):
+                    i.delete(self.catalog.catalog, table)
 
-        for fk in self.table.foreign_keys:
-            fk_columns = [i['column_name'] for i in fk.foreign_key_columns]
-            if self._key_match(columns, fk_columns, False):  # We are renaming one of the foreign key columns
-                fk.delete(self.catalog, self.table)
+            for fk in table.foreign_keys:
+                fk_columns = [i['column_name'] for i in fk.foreign_key_columns]
+                if self._key_match(columns, fk_columns, False):  # We are renaming one of the foreign key columns
+                    fk.delete(self.catalog.catalog, table)
 
-        for fk in self.table.referenced_by:
-            referenced_columns = [i['column_name'] for i in fk.referenced_columns]
-            if self._key_match(columns, referenced_columns, False):  # We are renaming one of the referenced columns.
-                referring_table = self.model.schemas[fk.sname].tables[fk.tname]
-                fk.delete(self.catalog, referring_table)
+            for fk in table.referenced_by:
+                referenced_columns = [i['column_name'] for i in fk.referenced_columns]
+                if self._key_match(columns, referenced_columns,
+                                   False):  # We are renaming one of the referenced columns.
+                    referring_table = model.schemas[fk.sname].tables[fk.tname]
+                    fk.delete(self.catalog.catalog, referring_table)
 
-        for column in columns:
-            self.table.annotations = self._delete_column_from_annotations(column)
-            self.table.column_definitions[column].delete(self.catalog, self.table)
+            for column in columns:
+                table.annotations = self._delete_column_from_annotations(column)
+                table.column_definitions[column].delete(self.catalog.catalog, table)
         return
 
     def _rename_columns(self, columns, dest_sname, dest_tname, column_map={}):
@@ -441,54 +540,56 @@ class DerivaTable(DerivaTableConfigure):
         :return:
         """
 
-        # TODO we need to figure out what to do about ACL binding
-        target_table = self.model.schemas[dest_sname].tables[dest_tname]
-
         column_name_map = {k: v['name'] for k, v in column_map.items() if 'name' in v}
         nullok = {k: v['nullok'] for k, v in column_map.items() if 'nullok' in v}
         default = {k: v['default'] for k, v in column_map.items() if 'default' in v}
         comment = {k: v['comment'] for k, v in column_map.items() if 'comment' in v}
 
-        # Make sure that we can rename the columns
-        overlap = {column_name_map.get(i, i) for i in columns}.intersection(
-            {i.name for i in target_table.column_definitions})
-        if len(overlap) != 0:
-            raise ValueError('Column {} already exists.'.format(overlap))
+        with DerivaModel(self.catalog) as m:
+            model = m.model()
+            table = model.schemas[self.schema_name].tables[self.table_name]
 
-        self._check_composite_keys(columns, dest_sname, dest_tname)
+            # TODO we need to figure out what to do about ACL binding
+            target_table = model.schemas[dest_sname].tables[dest_tname]
+            # Make sure that we can rename the columns
+            overlap = {column_name_map.get(i, i) for i in columns}.intersection(
+                {i.name for i in target_table.column_definitions})
+            if len(overlap) != 0:
+                raise ValueError('Column {} already exists.'.format(overlap))
 
-        # Create a new column_spec from the existing spec.
-        for from_column in columns:
-            from_def = self.table.column_definitions[from_column]
-            target_table.create_column(self.catalog,
-                                       em.Column.define(
-                                           column_name_map.get(from_column, from_column),
-                                           from_def.type,
-                                           nullok=nullok.get(from_column, from_def.nullok),
-                                           default=default.get(from_column, from_def.default),
-                                           comment=comment.get(from_column, from_def.comment),
-                                           acls=from_def.acls,
-                                           acl_bindings=from_def.acl_bindings,
-                                           annotations=from_def.annotations
-                                       ))
+            self._check_composite_keys(columns, dest_sname, dest_tname)
 
-        # Copy over the old values
-        pb = self.catalog.getPathBuilder()
-        from_path = pb.schemas[self.schema_name].tables[self.table_name]
-        to_path = pb.schemas[dest_sname].tables[dest_tname]
-        rows = from_path.entities(**{column_name_map.get(i, i): getattr(from_path, i) for i in columns + ['RID']})
-        to_path.update(rows)
+            # Create a new column_spec from the existing spec.
+            for from_column in columns:
+                from_def = table.column_definitions[from_column]
+                target_table.create_column(self.catalog.catalog,
+                                           em.Column.define(
+                                               column_name_map.get(from_column, from_column),
+                                               from_def.type,
+                                               nullok=nullok.get(from_column, from_def.nullok),
+                                               default=default.get(from_column, from_def.default),
+                                               comment=comment.get(from_column, from_def.comment),
+                                               acls=from_def.acls,
+                                               acl_bindings=from_def.acl_bindings,
+                                               annotations=from_def.annotations
+                                           ))
 
-        # Copy over the keys.
-        self._rename_columns_in_keys(columns, column_name_map, dest_sname, dest_tname)
+            # Copy over the old values
+            pb = self.catalog.getPathBuilder()
+            from_path = pb.schemas[self.schema_name].tables[self.table_name]
+            to_path = pb.schemas[dest_sname].tables[dest_tname]
+            rows = from_path.entities(**{column_name_map.get(i, i): getattr(from_path, i) for i in columns + ['RID']})
+            to_path.update(rows)
 
-        # Update column name in ACL bindings....
-        self.table.annotations['acl_bindings'] = self._rename_columns_in_acl_bindings(column_name_map)
+            # Copy over the keys.
+            self._rename_columns_in_keys(columns, column_name_map, dest_sname, dest_tname)
 
-        # Update annotations where the old spec was being used
-        self.table.annotations = self._rename_columns_in_annotations(column_name_map)
-        self.apply()
-        self.refresh()
+            # Update column name in ACL bindings....
+            table.annotations['acl_bindings'] = self._rename_columns_in_acl_bindings(column_name_map)
+
+            # Update annotations where the old spec was being used
+            table.annotations = self._rename_columns_in_annotations(column_name_map)
+
         return
 
     def rename_column(self, from_column, to_column, default=None, nullok=None):
@@ -496,6 +597,8 @@ class DerivaTable(DerivaTableConfigure):
         Rename a column by copying it and then deleting the origional column.
         :param from_column:
         :param to_column:
+        :param default:
+        :param nullok:
         :return:
         """
         self.rename_columns([from_column], self.schema_name, self.table_name,
@@ -523,26 +626,26 @@ class DerivaTable(DerivaTableConfigure):
         self._rename_columns(columns, dest_schema, dest_table, column_map=column_map)
         if delete:
             self.delete_columns(columns)
-        self.apply()
-        self.refresh()
         return
 
     def delete_table(self):
-        # Delete all of the incoming FKs
-        columns = {i.name for i in self.table.column_definitions}
-        for fk in self.table.referenced_by:
-            referenced_columns = [i['column_name'] for i in fk.referenced_columns]
-            if self._key_match(columns, referenced_columns, False):  # We are renaming one of the referenced columns.
-                referring_table = self.model.schemas[fk.sname].tables[fk.tname]
-                fk.delete(self.catalog, referring_table)
+        with DerivaModel(self.catalog) as m:
+            model = m.model()
+            table = m.table(self.schema_name, self.table_name)
 
-        # Now we can delete the table.
-        self.table.delete(self.catalog, schema=self.model.schemas[self.schema_name])
-        self.apply()
-        self.table = None
-        self.table_name = None
-        self.schema_name = None
-        self.refresh()
+            # Delete all of the incoming FKs
+            columns = {i.name for i in table.column_definitions}
+            for fk in table.referenced_by:
+                referenced_columns = [i['column_name'] for i in fk.referenced_columns]
+                if self._key_match(columns, referenced_columns,
+                                   False):  # We are renaming one of the referenced columns.
+                    referring_table = model.schemas[fk.sname].tables[fk.tname]
+                    fk.delete(self.catalog, referring_table)
+
+            # Now we can delete the table.
+            table.delete(self.catalog.catalog, schema=model.schemas[self.schema_name])
+            self.table_name = None
+            self.schema_name = None
 
     def copy_table(self, schema_name, table_name, column_map={}, clone=False,
                    column_defs=[],
@@ -572,43 +675,48 @@ class DerivaTable(DerivaTableConfigure):
         :param annotations:
         :return:
         """
-        new_table_def = em.Table.define(
-            table_name,
+        with DerivaModel(self.catalog) as m:
+            model = m.model()
+            table = model.schemas[self.schema_name].tables[self.table_name]
 
-            # Use column_map to change the name of columns in the new table.
-            column_defs=[
-                            em.Column.define(
-                                column_map.get(i.name, i.name),
-                                i.type,
-                                nullok=i.nullok,
-                                default=i.default,
-                                comment=i.comment,
-                                acls=i.acls, acl_bindings=i.acl_bindings,
-                                annotations=i.annotations
-                            )
-                            for i in self.table.column_definitions if i.name not in {c['name']: c for c in column_defs}
-                        ] + column_defs,
-            key_defs=key_defs,
-            fkey_defs=fkey_defs,
+            # Create new table
+            new_table_def = em.Table.define(
+                table_name,
 
-            comment=comment if comment else self.table.comment,
-            acls=self.table.acls,
-            acl_bindings=self.table.acl_bindings,
+                # Use column_map to change the name of columns in the new table.
+                column_defs=[
+                                em.Column.define(
+                                    column_map.get(i.name, i.name),
+                                    i.type,
+                                    nullok=i.nullok,
+                                    default=i.default,
+                                    comment=i.comment,
+                                    acls=i.acls, acl_bindings=i.acl_bindings,
+                                    annotations=i.annotations
+                                )
+                                for i in table.column_definitions if i.name not in {c['name']: c for c in column_defs}
+                            ] + column_defs,
+                key_defs=key_defs,
+                fkey_defs=fkey_defs,
 
-            # Update visible columns to account for column_map
-            annotations=self._rename_columns_in_annotations(column_map)
-        )
+                comment=comment if comment else table.comment,
+                acls=table.acls,
+                acl_bindings=table.acl_bindings,
 
-        # Create new table
-        new_table = self.model.schemas[schema_name].create_table(self.catalog, new_table_def)
+                # Update visible columns to account for column_map
+                annotations=self._rename_columns_in_annotations(column_map)
+            )
 
-        # Copy over values from original to the new one, mapping column names where required.
-        pb = self.catalog.getPathBuilder()
-        from_path = pb.schemas[self.schema_name].tables[self.table_name]
-        to_path = pb.schemas[schema_name].tables[table_name]
-        rows = from_path.entities(**{column_map.get(i, i): getattr(from_path, i) for i in from_path.column_definitions})
-        to_path.insert(rows, **({'nondefaults': {'RID', 'RCT', 'RCB'}} if clone else {}))
-        self.apply()
+            # Create new table
+            new_table = self.catalog.schema(schema_name)._create_table(new_table_def)
+
+            # Copy over values from original to the new one, mapping column names where required.
+            pb = self.catalog.getPathBuilder()
+            from_path = pb.schemas[self.schema_name].tables[self.table_name]
+            to_path = pb.schemas[schema_name].tables[table_name]
+            rows = from_path.entities(
+                **{column_map.get(i, i): getattr(from_path, i) for i in from_path.column_definitions})
+            to_path.insert(rows, **({'nondefaults': {'RID', 'RCT', 'RCB'}} if clone else {}))
         return new_table
 
     def move_table(self, schema_name, table_name,
@@ -622,42 +730,210 @@ class DerivaTable(DerivaTableConfigure):
                    acl_bindings={},
                    annotations={}
                    ):
+        with DerivaModel(self.catalog) as m:
+            model = m.model()
+            table = model.schemas[self.schema_name].tables[self.table_name]
 
-        new_table = self.copy_table(schema_name, table_name, clone=True,
-                                    column_map=column_map,
-                                    column_defs=column_defs,
-                                    key_defs=key_defs,
-                                    fkey_defs=fkey_defs,
-                                    comment=comment,
-                                    acls=acls,
-                                    acl_bindings=acl_bindings,
-                                    annotations=annotations)
+            self.copy_table(schema_name, table_name, clone=True,
+                            column_map=column_map,
+                            column_defs=column_defs,
+                            key_defs=key_defs,
+                            fkey_defs=fkey_defs,
+                            comment=comment,
+                            acls=acls,
+                            acl_bindings=acl_bindings,
+                            annotations=annotations)
 
-        self._rename_columns_in_keys([i.name for i in self.table.column_definitions],
-                                     column_map, schema_name, table_name)
-        if delete_table:
-            self.table.delete(self.catalog, schema=self.model.schemas[self.schema_name])
-        self.table = new_table
-        self.schema_name = schema_name
-        self.table_name = table_name
-        self.apply()
-        self.refresh()
+            self._rename_columns_in_keys([i.name for i in table.column_definitions],
+                                         column_map, schema_name, table_name)
+            if delete_table:
+                self.delete_table()
+            self.schema_name = schema_name
+            self.table_name = table_name
+
         return
 
-    def refresh(self):
-        self.model = self.catalog.getCatalogModel()
-        self.table = self.model.schemas[self.schema_name].tables[self.table_name] if self.table_name else None
+    def create_asset_table(self, key_column,
+                           extensions=[],
+                           file_pattern='.*',
+                           column_defs=[], key_defs=[], fkey_defs=[],
+                           comment=None, acls={},
+                           acl_bindings={},
+                           annotations={},
+                           set_policy=True):
+        """
+        Create a basic asset table and configures the bulk upload annotation to load the table along with a table of
+        associated metadata. This routine assumes that the metadata table has already been defined, and there is a key
+        associated metadata. This routine assumes that the metadata table has already been defined, and there is a key
+        column the metadata table that can be used to associate the asset with a row in the table. The default
+        configuration assumes that the assets are in a directory named with the table name for the metadata and that
+        they either are in a subdirectory named by the key value, or that they are in a file whose name starts with the
+        key value.
+
+        :param key_column: The column in the metadata table to be used to correlate assets with entries. Assets will be
+                           named using the key column.
+        :param extensions: List file extensions to be matched. Default is to match any extension.
+        :param file_pattern: Regex that identified the files to be considered for upload
+        :param column_defs: a list of Column.define() results for extra or overridden column definitions
+        :param key_defs: a list of Key.define() results for extra or overridden key constraint definitions
+        :param fkey_defs: a list of ForeignKey.define() results for foreign key definitions
+        :param comment: a comment string for the asset table
+        :param acls: a dictionary of ACLs for specific access modes
+        :param acl_bindings: a dictionary of dynamic ACL bindings
+        :param annotations: a dictionary of annotations
+        :param set_policy: If true, add ACLs for self serve policy to the asset table
+        :return:
+        """
+
+        def create_asset_upload_spec():
+            extension_pattern = '^.*[.](?P<file_ext>{})$'.format('|'.join(extensions if extensions else ['.*']))
+
+            return [
+                # Any metadata is in a file named /records/schema_name/tablename.[csv|json]
+                {
+                    'default_columns': ['RID', 'RCB', 'RMB', 'RCT', 'RMT'],
+                    'ext_pattern': '^.*[.](?P<file_ext>json|csv)$',
+                    'asset_type': 'table',
+                    'file_pattern': '^((?!/assets/).)*/records/(?P<schema>%s?)/(?P<table>%s)[.]' %
+                                    (self.schema_name, self.table_name),
+                    'target_table': [self.schema_name, self.table_name],
+                },
+                # Assets are in format assets/schema_name/table_name/correlation_key/file.ext
+                {
+                    'checksum_types': ['md5'],
+                    'column_map': {
+                        'URL': '{URI}',
+                        'Length': '{file_size}',
+                        self.table_name : '{table_rid}',
+                        'Filename': '{file_name}',
+                        'MD5': '{md5}',
+                    },
+                    'dir_pattern': '^.*/(?P<schema>%s)/(?P<table>%s)/(?P<key_column>.*)/' %
+                                   (self.schema_name, self.table_name),
+                    'ext_pattern': extension_pattern,
+                    'file_pattern': file_pattern,
+                    'hatrac_templates': {'hatrac_uri': '/hatrac/{schema}/{table}/{md5}.{file_name}'},
+                    'target_table': [self.schema_name, asset_table_name],
+                    # Look for rows in the metadata table with matching key column values.
+                    'metadata_query_templates': [
+                        '/attribute/D:={schema}:{table}/%s={key_column}/table_rid:=D:RID' % key_column],
+                    # Rows in the asset table should have a FK reference to the RID for the matching metadata row
+                    'record_query_template':
+                        '/entity/{schema}:{table}_Asset/{table}={table_rid}/MD5={md5}/URL={URI_urlencoded}',
+                    'hatrac_options': {'versioned_uris': True},
+                }
+            ]
+
+        asset_table_name = '{}_Asset'.format(self.table_name)
+
+        if set_policy and chaise_tags.catalog_config not in self.catalog.model.annotations:
+            raise DerivaConfigError(msg='Attempting to configure table before catalog is configured')
+
+        with DerivaModel(self.catalog) as m:
+            model = m.model()
+            table = model.schemas[self.schema_name].tables[self.table_name]
+            if key_column not in [i.name for i in table.column_definitions]:
+                raise DerivaConfigError(msg='Key column not found in target table')
+
+        column_defs = [
+                          em.Column.define('{}'.format(self.table_name),
+                                           em.builtin_types['text'],
+                                           nullok=False,
+                                           comment="The {} entry to which this asset is attached".format(
+                                               self.table_name)),
+                      ] + column_defs
+
+        # Set up policy so that you can only add an asset to a record that you own.
+        fkey_acls, fkey_acl_bindings = {}, {}
+        if set_policy:
+            groups = self.catalog.get_groups()
+
+            fkey_acls = {
+                "insert": [groups['curator']],
+                "update": [groups['curator']],
+            }
+            fkey_acl_bindings = {
+                "self_linkage_creator": {
+                    "types": ["insert", "update"],
+                    "projection": ["RCB"],
+                    "projection_type": "acl",
+                },
+                "self_linkage_owner": {
+                    "types": ["insert", "update"],
+                    "projection": ["Owner"],
+                    "projection_type": "acl",
+                }
+            }
+
+        # Link asset table to metadata table with additional information about assets.
+        asset_fkey_defs = [
+                              em.ForeignKey.define(['{}'.format(self.table_name)],
+                                                   self.schema_name, self.table_name, ['RID'],
+                                                   acls=fkey_acls, acl_bindings=fkey_acl_bindings,
+                                                   constraint_names=[
+                                                       (self.schema_name,
+                                                        '{}_{}_fkey'.format(asset_table_name, self.table_name))],
+                                                   )
+                          ] + fkey_defs
+        comment = comment if comment else 'Asset table for {}'.format(self.table_name)
+
+        if chaise_tags.table_display not in annotations:
+            annotations[chaise_tags.table_display] = {'row_name': {'row_markdown_pattern': '{{{Filename}}}'}}
+
+        table_def = em.Table.define_asset(self.schema_name, asset_table_name, fkey_defs=asset_fkey_defs,
+                                          column_defs=column_defs, key_defs=key_defs, annotations=annotations,
+                                          acls=acls, acl_bindings=acl_bindings,
+                                          comment=comment)
+
+        for i in table_def['column_definitions']:
+            if i['name'] == 'URL':
+                i[chaise_tags.column_display] = {'*': {'markdown_pattern': '[**{{URL}}**]({{{URL}}})'}}
+            if i['name'] == 'Filename':
+                i[chaise_tags.column_display] = {'*': {'markdown_pattern': '[**{{Filename}}**]({{{URL}}})'}}
+
+        with DerivaModel(self.catalog) as m:
+            model = m.model()
+
+            asset_table = self.catalog.schema(self.schema_name)._create_table(table_def)
+
+            # The last thing we should do is update the upload spec to accomidate this new asset table.
+            if chaise_tags.bulk_upload not in self.catalog.model.annotations:
+                model.annotations.update({
+                    chaise_tags.bulk_upload: {
+                        'asset_mappings': [],
+                        'version_update_url': 'https://github.com/informatics-isi-edu/deriva-qt/releases',
+                        'version_compatibility': [['>=0.4.3', '<1.0.0']]
+                    }
+                })
+
+            # Clean out any old upload specs if there are any and add the new specs.
+            upload_annotations = model.annotations[chaise_tags.bulk_upload]
+            upload_annotations['asset_mappings'] = \
+                [i for i in upload_annotations['asset_mappings'] if
+                 not (
+                         i.get('target_table', []) == [self.schema_name, asset_table_name]
+                         or
+                         (
+                                 i.get('target_table', []) == [self.schema_name, self.table_name]
+                                 and
+                                 i.get('asset_type', '') == 'table'
+                         )
+                 )
+                 ] + create_asset_upload_spec()
+
+        return asset_table
 
     def display(self):
-        for i in self.table.column_definitions:
+        table = self.catalog.model.schemas[self.schema_name].tables[self.table_name]
+        for i in table.column_definitions:
             print('{}\t{}\tnullok:{}\tdefault:{}'.format(i.name, i.type.typename, i.nullok, i.default))
 
-        for i in self.table.foreign_keys:
+        for i in table.foreign_keys:
             print('    ', [c['column_name'] for c in i.foreign_key_columns],
                   '-> {}:{}:'.format(i.referenced_columns[0]['schema_name'], i.referenced_columns[0]['table_name']),
                   [c['column_name'] for c in i.referenced_columns])
 
-        for i in self.table.referenced_by:
+        for i in table.referenced_by:
             print('    ', [c['column_name'] for c in i.referenced_columns],
                   '<- {}:{}:'.format(i.foreign_key_columns[0]['schema_name'], i.foreign_key_columns[0]['table_name']),
                   [c['column_name'] for c in i.foreign_key_columns])

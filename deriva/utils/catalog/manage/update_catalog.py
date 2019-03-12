@@ -36,7 +36,7 @@ class CatalogUpdaterException(Exception):
 
 class CatalogUpdater:
     def __init__(self, catalog):
-        self._catalog = catalog if type(catalog) is DerivaCatalog else DerivaCatalog(catalog)
+        self._catalog = catalog
 
     @staticmethod
     def update_annotations(o, annotations, replace=False):
