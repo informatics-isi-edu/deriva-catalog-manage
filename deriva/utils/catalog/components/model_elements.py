@@ -78,11 +78,15 @@ class DerivaCatalog():
         self.model.apply(self.catalog)
         self.model = self.catalog.getCatalogModel()
 
+    def display(self):
+        for i in self.model.schemas:
+            print('{}'.format(i))
+
     def getPathBuilder(self):
         return self.catalog.getPathBuilder()
 
     def _make_schema_instance(self, schema_name):
-        return DerivaSchema(self.catalog, schema_name)
+        return DerivaSchema(self, schema_name)
 
     def schema(self, schema_name):
         if self.model.schemas[schema_name]:
@@ -127,6 +131,11 @@ class DerivaSchema:
         self.catalog = catalog
         self.schema_name = schema_name
         self.table_classes = {}
+
+    def display(self):
+        for t in self.catalog.model.schemas[self.schema_name].tables:
+            print('{}'.format(t))
+
 
     def _make_table_instance(self, schema_name, table_name):
         return DerivaTable(self.catalog, schema_name, table_name)
@@ -940,6 +949,9 @@ class DerivaTable:
 
     def datapath(self):
         return self.catalog.getPathBuilder().schemas[self.schema_name].tables[self.table_name]
+
+    def entities(self):
+        self.datapath.entities()
 
 
 class DerivaModelElementsCLI(BaseCLI):

@@ -16,8 +16,6 @@ from deriva.utils.catalog.components.model_elements import DerivaModel, DerivaCa
 from deriva.utils.catalog.version import __version__ as VERSION
 
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
-logger.addHandler(logging.StreamHandler())
 
 IS_PY2 = (sys.version_info[0] == 2)
 IS_PY3 = (sys.version_info[0] == 3)
@@ -37,8 +35,8 @@ class DerivaConfigError(Exception):
 
 
 class DerivaCatalogConfigure(DerivaCatalog):
-    def __init__(self, catalog, scheme='https', catalog_id=1, model=None):
-        super(DerivaCatalogConfigure, self).__init__(catalog, scheme=scheme, catalog_id = catalog_id)
+    def __init__(self, host, scheme='https', catalog_id=1, model=None):
+        super(DerivaCatalogConfigure, self).__init__(host, scheme=scheme, catalog_id = catalog_id)
 
     def _make_schema_instance(self, schema_name):
         return DerivaSchemaConfigure(self, schema_name)
@@ -422,22 +420,20 @@ class DerivaTableConfigure(DerivaTable):
             # Allow curators to also update the foreign key.
             fkey_group_acls = {"insert": [groups['curator']], "update": [groups['curator']]}
 
-            owner_fkey_name = '{}_Catalog_Group_fkey'.format(self.table_name)
-            fk = em.ForeignKey.define(['Owner'],
+            owner_fkey_name = '{}_Owner_fkey'.format(self.table_name)
+            fk_def = em.ForeignKey.define(['Owner'],
                                       'public', 'Catalog_Group', ['ID'],
 
                                       acls=fkey_group_acls, acl_bindings=fkey_group_policy,
                                       constraint_names=[(self.schema_name, owner_fkey_name)],
                                       )
-            try:
-                # Delete old fkey if there is one laying around....
-                f = table.foreign_keys[(self.schema_name, owner_fkey_name)]
-                f.delete(self.catalog.catalog, table)
-            except KeyError:
-                pass
+            # Delete old fkey if there is one laying around....
+            for fk in table.foreign_keys:
+                if len(fk.foreign_key_columns) == 1 and fk.foreign_key_columns[0]['column_name'] == 'Owner':
+                    fk.delete(self.catalog.catalog, table)
 
             # Now create the foreign key to the group table.
-            table.create_fkey(self.catalog.catalog, fk)
+            table.create_fkey(self.catalog.catalog, fk_def)
         return
 
     def create_default_visible_columns(self, really=False):
@@ -449,7 +445,7 @@ class DerivaTableConfigure(DerivaTable):
             elif '*' not in table.annotations[chaise_tags.visible_columns] or really:
                 table.annotations[chaise_tags.visible_columns].update({'*': self.default_visible_column_list()})
             else:
-                raise DerivaConfigError(msg='Existing visible column annotation in {}'.format(self.table_name))
+                logger.info('Existing visible column annotation in {}'.format(self.table_name))
         return self
 
     def default_visible_column_list(self):
@@ -473,7 +469,7 @@ class DerivaTableConfigure(DerivaTable):
                 for i in columns
             ]
 
-    def configure_table_defaults(self, set_policy=True, public=False):
+    def configure_table_defaults(self, set_policy=True, public=False, reset_visible_columns=True):
         """
         This function adds the following basic configuration details to an existing table:
         1) Creates a self service modification policy in which creators can update update any row they create.
@@ -520,17 +516,16 @@ class DerivaTableConfigure(DerivaTable):
             # full name of the user will be used for the FK value.
             for col, display in [('RCB', 'Created By'), ('RMB', 'Modified By')]:
                 fk_name = '{}_{}_fkey'.format(self.table_name, col)
-                try:
-                    # Delete old fkey if there is one laying around....
-                    f = table.foreign_keys[(self.schema_name, fk_name)]
-                    f.delete(self.catalog, table)
-                except KeyError:
-                    pass
-                fk = em.ForeignKey.define([col],
+                # Delete old fkey if there is one laying around....
+                for fk in table.foreign_keys:
+                    if len(fk.foreign_key_columns) == 1 and fk.foreign_key_columns[0]['column_name'] == col:
+                        fk.delete(self.catalog.catalog, table)
+
+                fk_def = em.ForeignKey.define([col],
                                           'public', 'ERMrest_Client', ['ID'],
                                           constraint_names=[(self.schema_name, fk_name)],
                                           )
-                table.create_fkey(self.catalog.catalog, fk)
+                table.create_fkey(self.catalog.catalog, fk_def)
 
                 # Add a display annotation so that we have sensible name for RCB and RMB.
                 table.column_definitions[col].annotations.update({chaise_tags.display: {'name': display}})
@@ -538,7 +533,7 @@ class DerivaTableConfigure(DerivaTable):
             table.column_definitions['RCT'].annotations.update({chaise_tags.display: {'name': 'Creation Time'}})
             table.column_definitions['RMT'].annotations.update({chaise_tags.display: {'name': 'Modified Time'}})
 
-            self.create_default_visible_columns()
+            self.create_default_visible_columns(really=reset_visible_columns)
 
         return self
 
@@ -580,12 +575,12 @@ class DerivaConfigureCatalogCLI(BaseCLI):
 
         args = self.parse_cli()
         credentials = self._get_credential(args.host)
-        catalog = ErmrestCatalog('https', args.host, args.catalog, credentials=credentials)
+        catalog = DerivaCatalogConfigure(args.host, catalog_id=args.catalog)
 
         try:
             if args.configure == 'catalog':
                 logging.info('Configuring catalog {}:{}'.format(args.host, args.catalog))
-                cfg = DerivaCatalogConfigure(catalog)
+                cfg = DerivaCatalogConfigure(args.host, catalog_id=args.catalog)
                 cfg.configure_baseline_catalog(catalog_name=args.catalog_name,
                                                reader=args.reader, writer=args.writer, curator=args.curator,
                                                admin=args.admin,
@@ -593,7 +588,7 @@ class DerivaConfigureCatalogCLI(BaseCLI):
                 cfg.apply()
             if args.table:
                 [schema_name, table_name] = args.table.split(':')
-                table = DerivaTableConfigure(catalog, schema_name, table_name)
+                table = catalog.schema(schema_name).table(table_name)
                 table.configure_table_defaults(set_policy=args.set_policy, public=args.publish)
                 table.apply()
         except DerivaConfigError as e:

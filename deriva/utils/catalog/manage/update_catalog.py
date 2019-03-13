@@ -202,4 +202,4 @@ class CatalogUpdater:
                 if c.name in column_acl_bindings:
                     self.update_acl_bindings(c, column_acl_bindings[c.name], replace=replace)
 
-        table.apply(self._catalog)
+        table.apply(self._catalog.catalog)
