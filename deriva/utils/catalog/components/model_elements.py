@@ -32,12 +32,12 @@ class DerivaModel:
 
     def __enter__(self):
         self.catalog.nesting += 1
-        logger.debug(f"Deriva model nesting {self.catalog.nesting}")
+        logger.debug("Deriva model nesting %s" % self.catalog.nesting)
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.catalog.nesting -= 1
-        logger.debug(f"Deriva model nesting {self.catalog.nesting}")
+        logger.debug("Deriva model nesting %s" % self.catalog.nesting)
         if self.catalog.nesting == 0:
             logger.debug('DerivaModel updated')
             self.catalog.apply()

@@ -15,16 +15,19 @@ __version__ = re.search(
     io.open('deriva/utils/catalog/version.py', encoding='utf_8_sig').read()
     ).group(1)
 
+with io.open('README.md') as readme_file:
+    readme = readme_file.read()
 
 setup(
     name="deriva-catalog-manage",
     description="Deriva catalog management using deriva-py",
+    long_description=readme,
+    long_description_content_type='text/markdown',
     url='https://github.com/informatics-isi-edu/deriva-catalog-manage',
     maintainer='USC Information Sciences Institute ISR Division',
     maintainer_email='isrd-support@isi.edu',
-    version="0.1.0",
+    version=__version__,
     packages=find_packages(),
-    namespace_packages=["deriva", "deriva.utils"],
     package_data={},
     entry_points={
         'console_scripts': [
@@ -35,23 +38,8 @@ setup(
         ]
     },
     requires=[
-        'argparse',
-        'attrdict',
-        'datetime',
-        'datetime',
-        'dateutil',
-        'decimal',
-        'importlib',
-        'itertools',
-        'os',
-        'random',
-        're',
-        'request',
-        'string',
-        'sys',
-        'tempfile',
-        'time',
         'deriva',
+        'requests',
         'tableschema',
         'goodtables',
         'graphviz',
@@ -68,7 +56,7 @@ setup(
         'tabulator',
         'graphviz',
         'attrdict',
-        'deriva>=0.6.7'
+        'deriva>=0.7.6'
     ],
     license='Apache 2.0',
     classifiers=[

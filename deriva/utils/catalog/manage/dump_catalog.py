@@ -30,7 +30,7 @@ from deriva.utils.catalog.manage.graph_catalog import DerivaCatalogToGraph
 IS_PY2 = (sys.version_info[0] == 2)
 IS_PY3 = (sys.version_info[0] == 3)
 
-VERSION = '0.1'
+VERSION = '0.1.0'
 
 if IS_PY3:
     from urllib.parse import urlparse
