@@ -319,7 +319,7 @@ class DerivaCatalogToString:
 class DerivaDumpCatalogCLI (BaseCLI):
 
     def __init__(self, description, epilog):
-        super(DerivaDumpCatalogCLI, self).__init__(description, epilog, VERSION)
+        super(DerivaDumpCatalogCLI, self).__init__(description, epilog, VERSION, hostname_required=True)
 
         def python_value(s):
             try:

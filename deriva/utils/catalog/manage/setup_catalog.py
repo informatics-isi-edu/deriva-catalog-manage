@@ -131,12 +131,10 @@ table_public = catalog.schema(schema_name).table(public_table_name)
 
 table.configure_table_defaults(public=True)
 table.create_default_visible_columns(really=True)
-
 table_public.configure_table_defaults(public=True)
 table_public.create_default_visible_columns(really=True)
 
 # Mess with tables:
-table.set_annotation(chaise_tags.visible_columns,{'detailed':['RMT']})
 
 print('Creating asset table')
 table.create_asset_table('ID')
@@ -173,9 +171,12 @@ chaise_url = 'https://{}/chaise/recordset/#{}/{}:{}'.format(server, catalog_id, 
 group_url = 'https://{}/chaise/recordset/#{}/{}:{}'.format(server, catalog_id, 'public','Catalog_Group')
 
 print(chaise_url)
+print(group_url)
 
 foo_table = DerivaTable(catalog, schema_name, "Foo")
+
 foo_table.delete_columns(['Field_1'])
+
 foo_table.move_table('WWW','Fun',
-                    column_defs=[em.Column.define('NewColumn', em.builtin_types['text'])],
-                     column_map={'ID':'NewID'})
+                    column_defs=[em.Column.define('NewColumn', em.builtin_types['text'], nullok=False)],
+                     column_map={'ID':'NewID'}, column_fill={'NewColumn': 'hi there'}, delete_table=False)
