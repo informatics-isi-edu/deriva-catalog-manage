@@ -99,7 +99,7 @@ class DerivaCatalogConfigure(DerivaCatalog):
             key_defs=[em.Key.define(['Title'], [['WWW', 'Page_Title_key']])],
             annotations={
                 chaise_tags.table_display: {'detailed': {'hide_column_headers': True, 'collapse_toc_panel': True}
-            },
+                                            },
                 chaise_tags.visible_foreign_keys: {'detailed': {}},
                 chaise_tags.visible_columns: {'detailed': ['Content']}}
         )
@@ -201,15 +201,7 @@ class DerivaCatalogConfigure(DerivaCatalog):
             ermrest_group.create_key(
                 self.catalog,
                 em.Key.define(['ID', 'URL', 'Display_Name', 'Description'],
-                              constraint_names=[('public', 'Group_Compound_key')],
-                              comment='Compound key to ensure that columns sync up into Visible_Groups on update.'
-
-                              )
-            )
-            ermrest_group.create_key(
-                self.catalog,
-                em.Key.define(['ID'],
-                              constraint_names=[('public', 'Group_ID_key')],
+                              constraint_names=[('public', 'ERMrest_Group_ID_URL_Display_Name_Description_key')],
                               comment='Group ID is unique.'
 
                               )
@@ -234,10 +226,11 @@ class DerivaCatalogConfigure(DerivaCatalog):
 
         key_defs = [
             em.Key.define(['ID'],
-                          constraint_names=[('public', 'Group_ID_key')],
-                          comment='Compound key to ensure that columns sync up into Catalog_Groups on update.'
-
-                          )
+                          constraint_names=[('public', 'Catalog_Group_ID_key')]),
+            em.Key.define(['ID','URL','Display_Name','Description'],
+                          constraint_names=[('public', 'Catalog_Group_ID_URL_Display_Name_Description_key')],
+                          comment='Key to ensure that group only is entered once.'
+                          ),
         ]
 
         # Set up a foreign key to the group table so that the creator of a record can only select
@@ -266,7 +259,8 @@ class DerivaCatalogConfigure(DerivaCatalog):
         # to be able to create new entries.  No one is allowed to update, as this is only done via the CASCADE.
         catalog_group = em.Table.define(
             'Catalog_Group',
-            annotations={chaise_tags.table_display: {'row_name': {'row_markdown_pattern': '{{{Display_Name}}}'}}},
+            annotations={
+                chaise_tags.table_display: {'row_name': {'row_markdown_pattern': '{{{Display_Name}}}'}}},
             column_defs=column_defs,
             fkey_defs=fkey_defs, key_defs=key_defs,
             acls={
@@ -440,34 +434,55 @@ class DerivaTableConfigure(DerivaTable):
         with DerivaModel(self.catalog) as m:
             table = m.model().schemas[self.schema_name].tables[self.table_name]
 
-            if chaise_tags.visible_columns not in table.annotations:
-                table.annotations[chaise_tags.visible_columns] = {'*': self.default_visible_column_list()}
-            elif '*' not in table.annotations[chaise_tags.visible_columns] or really:
-                table.annotations[chaise_tags.visible_columns].update({'*': self.default_visible_column_list()})
+            if chaise_tags.visible_columns not in table.annotations or really:
+                table.annotations[chaise_tags.visible_columns] = self.default_visible_column_list()
             else:
-                logger.info('Existing visible column annotation in {}'.format(self.table_name))
+                spec = self.default_visible_column_list()
+                if '*' not in table.annotations[chaise_tags.visible_columns]:
+                    table.annotations[chaise_tags.visible_columns]['*'] = spec['*']
+                if 'entry' not in table.annotations[chaise_tags.visible_columns]:
+                    table.annotations[chaise_tags.visible_columns]['entry'] = spec['entry']
         return self
 
     def default_visible_column_list(self):
         """
         Create a general visible columns annotation spec that would be consistant with what chaise does by default.
-        This spec can then be added to a table and editied for user preference.
+        This spec can then be added to a table and edited for user preference.
         :return:
         """
         with DerivaModel(self.catalog) as m:
             table = m.model().schemas[self.schema_name].tables[self.table_name]
-            fkeys = {i.foreign_key_columns[0]['column_name']: [i.names[0], i.referenced_columns[0]['column_name']]
-                     for i in table.foreign_keys}
-            columns = [i for i in table.column_definitions]
-            column_names = [i.name for i in columns]
+
+            column_names = [i.name for i in table.column_definitions]
+            # First go through the list of foreign keys and create a list of key columns and referenced columns. Keep
+            # track of columns that are in composite keys so we only output column spec once.
+            simple_fkeys, fkeys = {},{}
+            skip_columns = []
+            for fk in table.foreign_keys:
+                ckey = [c['column_name'] for c in fk.foreign_key_columns] # List of names in composite key.
+                skip_columns.extend(ckey[1:])
+                fkeys[ckey[0]] = fk.names[0]
+                if len(ckey) == 1:
+                    simple_fkeys[ckey[0]] = fk.names[0]
+
+
 
             # Move Owner column to be right after RMB if they both exist.
             if 'Owner' in column_names and 'RMB' in column_names:
-                columns.insert(column_names.index('RMB') + 1, columns.pop(column_names.index('Owner')))
-            return [
-                {'source': [{'outbound': fkeys[i.name][0]}, fkeys[i.name][1]] if i.name in fkeys else i.name}
-                for i in columns
-            ]
+                column_names.insert(column_names.index('RMB') + 1, column_names.pop(column_names.index('Owner')))
+
+            # Entry will convert all FK columns to the associated outbound specs.  For general spec, we will only
+            # do FK specs for columns that have single value FK constraints.
+            return {
+                'entry': [
+                    {'source': [{'outbound': fkeys[i]}, 'RID'] if i in fkeys else i}
+                    for i in column_names if i not in skip_columns
+                ],
+                '*': [
+                    {'source': [{'outbound': simple_fkeys[i]}, 'RID'] if i in simple_fkeys else i}
+                    for i in column_names
+                ]
+            }
 
     def configure_table_defaults(self, set_policy=True, public=False, reset_visible_columns=True):
         """

@@ -169,7 +169,9 @@ collection.apply()
 print('Apply done')
 
 
-chaise_url = 'https://{}/chaise/recordset/#{}/{}:{}'.format(server, catalog_id, schema_name,table_name)
+chaise_url = 'https://{}/chaise/recordset/#{}/{}:{}'.format(server, catalog_id, schema_name,public_table_name)
+group_url = 'https://{}/chaise/recordset/#{}/{}:{}'.format(server, catalog_id, 'public','Catalog_Group')
+
 print(chaise_url)
 
 foo_table = DerivaTable(catalog, schema_name, "Foo")
