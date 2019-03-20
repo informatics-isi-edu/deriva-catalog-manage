@@ -56,7 +56,7 @@ setup(
         'tabulator',
         'graphviz',
         'attrdict',
-        'deriva>=0.7.6'
+        'deriva>=0.8.1'
     ],
     license='Apache 2.0',
     classifiers=[
