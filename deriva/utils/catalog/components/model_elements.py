@@ -381,7 +381,7 @@ class DerivaTable:
                        tables.
         :return: True if the key is contained within columns.
         """
-        overlap = columns.intersection(set(key_columns))
+        overlap = set(columns).intersection(set(key_columns))
         if len(overlap) == 0:
             return False
         if not rename and len(overlap) < len(key_columns):
@@ -413,8 +413,7 @@ class DerivaTable:
             for fk in table.referenced_by:
                 self._key_in_columns(columns, [i['column_name'] for i in fk.referenced_columns], local_rename)
 
-    @staticmethod
-    def _update_key_name(name, column_name_map, dest_sname, dest_tname):
+    def _update_key_name(self, name, column_name_map, dest_sname, dest_tname):
             # Helper function that creates a new constraint name by replacing table and column names.
             name = name[1].replace('{}_'.format(self.table_name), '{}_'.format(dest_tname))
             for k, v in column_name_map.items():
@@ -442,7 +441,7 @@ class DerivaTable:
             fk.referenced_columns[0]['schema_name'],
             fk.referenced_columns[0]['table_name'],
             [column_name_map.get(i, i) for i in referenced_columns] if incoming==True else referenced_columns,
-            constraint_names=[self._update_key_name(n) for n in fk.names],
+            constraint_names=[self._update_key_name(n, column_name_map, dest_sname, dest_tname) for n in fk.names],
             comment=fk.comment,
             acls=fk.acls,
             acl_bindings=fk.acl_bindings,
@@ -454,16 +453,30 @@ class DerivaTable:
 
         return em.Key.define(
             [column_name_map.get(c, c) for c in key.unique_columns],
-            constraint_names=[self._update_key_name(n) for n in key.names],
+            constraint_names=[self._update_key_name(n, column_name_map, dest_sname, dest_tname) for n in key.names],
             comment=key.comment,
             annotations=key.annotations
         ) if self._key_in_columns(columns, key.unique_columns, column_rename) else key
 
+        # Now look through incoming foreign keys to make sure none of them changed.
 
-    def _map_columns_in_keys(self, columns, column_name_map, dest_sname, dest_tname):
+    def _relink_table(self, columns, column_name_map, dest_sname, dest_tname):
+        columns = set(columns)
+        with DerivaModel(self.catalog) as m:
+            model = m.model()
+            dest_table = model.schemas[dest_sname].tables[dest_tname]
+            table = model.schemas[self.schema_name].tables[self.table_name]
+            for fk in table.referenced_by:
+                fk_def = self._rename_column_in_fkey(fk, columns, column_name_map, dest_sname, dest_tname, incoming=True)
+                if fk_def != fk:
+                    referring_table = model.schemas[fk.sname].tables[fk.tname]
+                    fk.delete(self.catalog.catalog, referring_table)
+                    self.catalog.schema(fk.sname).table(fk.tname).create_fkey(fk_def)
+            self.catalog.update_referenced_by()
+
+    def _copy_keys(self, columns, column_name_map, dest_sname, dest_tname):
         """
-        Rename incoming foreign keys to this table so that they still refer to the same columns after columns have
-        been renamed according to column_name_map and move to a new schema and table.
+        Copy over the keys from the current table to the destination table, renaming columns.
         :param columns:
         :param column_name_map:
         :param dest_sname:
@@ -483,7 +496,6 @@ class DerivaTable:
                 key_def = self._rename_column_in_key(i, columns, column_name_map, dest_sname, dest_tname)
                 if key_def == i:
                     self.catalog.schema(dest_sname).table(dest_tname).create_key(key_def)
-                    i.delete(self.catalog.catalog, table)
 
             # Rename the columns that appear in foreign keys...
             for fk in table.foreign_keys:
@@ -491,16 +503,6 @@ class DerivaTable:
                 fk_def = self._rename_column_in_fkey(fk, columns, column_name_map, dest_sname, dest_tname)
                 if fk_def != fk:
                     dest_table.create_fkey(self.catalog.catalog, fk_def)
-                    fk.delete(self.catalog.catalog, table)
-
-            # Now look through incoming foreign keys to make sure none of them changed.
-            for fk in table.referenced_by:
-                fk_def = self._rename_column_in_fkey(fk, columns, column_name_map, dest_sname, dest_tname, incoming=True)
-                if fk_def != fk:
-                    referring_table = model.schemas[fk.sname].tables[fk.tname]
-                    fk.delete(self.catalog.catalog, referring_table)
-                    self.catalog.schema(fk.sname).table(fk.tname).create_fkey(fk_def)
-            self.catalog.update_referenced_by()
 
     def _rename_columns_in_acl_bindings(self, column_name_map):
         with DerivaModel(self.catalog) as m:
@@ -565,7 +567,7 @@ class DerivaTable:
                 table.column_definitions[column].delete(self.catalog.catalog, table)
         return
 
-    def _rename_columns(self, columns, dest_sname, dest_tname, column_map={}):
+    def _copy_columns(self, columns, dest_sname, dest_tname, column_map={}):
         """
         Copy a set of columns, updating visible columns list and keys to mirror source column.
         :param columns: a list of columns
@@ -582,10 +584,11 @@ class DerivaTable:
 
         with DerivaModel(self.catalog) as m:
             model = m.model()
-            table = model.schemas[self.schema_name].tables[self.table_name]
+            table = model.table(self.schema_name, self.table_name)
 
             # TODO we need to figure out what to do about ACL binding
-            target_table = model.schemas[dest_sname].tables[dest_tname]
+            target_table = model.table(dest_sname, dest_tname)
+
             # Make sure that we can rename the columns
             overlap = {column_name_map.get(i, i) for i in columns}.intersection(
                 {i.name for i in target_table.column_definitions})
@@ -617,14 +620,7 @@ class DerivaTable:
             to_path.update(rows)
 
             # Copy over the keys.
-            self._map_columns_in_keys(columns, column_name_map, dest_sname, dest_tname)
-
-            # Update column name in ACL bindings....
-            table.annotations['acl_bindings'] = self._rename_columns_in_acl_bindings(column_name_map)
-
-            # Update annotations where the old spec was being used
-            table.annotations = self._rename_columns_in_annotations(column_name_map)
-
+            self._copy_keys(columns, column_name_map, dest_sname, dest_tname)
         return
 
     def rename_column(self, from_column, to_column, default=None, nullok=None):
@@ -658,9 +654,16 @@ class DerivaTable:
         :param delete:
         :return:
         """
-        self._rename_columns(columns, dest_schema, dest_table, column_map=column_map)
-        if delete:
-            self.delete_columns(columns)
+        with DerivaModel(self.catalog) as m:
+            table = m.model().table(self.schema_name, self.table_name)
+            self._copy_columns(columns, dest_schema, dest_table, column_map=column_map)
+            # Update column name in ACL bindings....
+            self._rename_columns_in_acl_bindings(column_map)
+
+            # Update annotations where the old spec was being used
+            table.annotations.update(self._rename_columns_in_annotations(column_map))
+            if delete:
+                self.delete_columns(columns)
         return
 
     def delete_table(self):
@@ -770,7 +773,7 @@ class DerivaTable:
                    ):
         with DerivaModel(self.catalog) as m:
             model = m.model()
-            table = model.schemas[self.schema_name].tables[self.table_name]
+            table = m.table(self.schema_name, self.table_name)
 
             new_table = self.copy_table(schema_name, table_name, clone=True,column_fill=column_fill,
                             column_map=column_map,
@@ -783,7 +786,7 @@ class DerivaTable:
                             annotations=annotations)
 
             # Redirect incoming FKs to the new table...
-            self._map_columns_in_keys([i.name for i in table.column_definitions],
+            self._relink_table([i.name for i in table.column_definitions],
                                       column_map, schema_name, table_name)
             if delete_table:
                 self.delete_table()
