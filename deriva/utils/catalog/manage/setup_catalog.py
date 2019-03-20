@@ -134,6 +134,8 @@ table.create_default_visible_columns(really=True)
 table_public.configure_table_defaults(public=True)
 table_public.create_default_visible_columns(really=True)
 
+table.create_key(em.Key.define(['Field_1','Field_2'], constraint_names=[(schema_name,'Foo_Field_1_Field_2')]))
+
 # Mess with tables:
 
 print('Creating asset table')
@@ -159,24 +161,31 @@ collection.link_vocabulary('Status', schema_name, 'Collection_Status')
 print('Adding element to collection')
 collection.datapath().insert([{'Name': 'Foo', 'Description':'My collection'}])
 
-print('Renaming column')
-collection.rename_column('Status','MyStatus')
-print('Rename done')
-collection.apply()
-
-print('Apply done')
+def test_copy():
+    column_map = {'Field_1':'Field_1A', 'Status': {'visible': {'*', 'entry'}}}
+    column_defs = [em.Column.define('Status', em.builtin_types['int4'], nullok=False)]
+    table.copy_table('TestSchema','Foo1', column_map=column_map, column_defs=column_defs, column_fill={'Status':1} )
 
 
-chaise_url = 'https://{}/chaise/recordset/#{}/{}:{}'.format(server, catalog_id, schema_name,public_table_name)
-group_url = 'https://{}/chaise/recordset/#{}/{}:{}'.format(server, catalog_id, 'public','Catalog_Group')
+def test_tables():
+    print('Renaming column')
+    collection.rename_column('Status','MyStatus')
+    print('Rename done')
+    collection.apply()
 
-print(chaise_url)
-print(group_url)
+    print('Apply done')
 
-foo_table = DerivaTable(catalog, schema_name, "Foo")
 
-foo_table.delete_columns(['Field_1'])
+    chaise_url = 'https://{}/chaise/recordset/#{}/{}:{}'.format(server, catalog_id, schema_name,public_table_name)
+    group_url = 'https://{}/chaise/recordset/#{}/{}:{}'.format(server, catalog_id, 'public','Catalog_Group')
 
-foo_table.move_table('WWW','Fun',
-                    column_defs=[em.Column.define('NewColumn', em.builtin_types['text'], nullok=False)],
-                     column_map={'ID':'NewID'}, column_fill={'NewColumn': 'hi there'}, delete_table=False)
+    print(chaise_url)
+    print(group_url)
+
+    foo_table = DerivaTable(catalog, schema_name, "Foo")
+
+    foo_table.delete_columns(['Field_1'])
+
+    foo_table.move_table('WWW','Fun',
+                        column_defs=[em.Column.define('NewColumn', em.builtin_types['text'], nullok=False)],
+                         column_map={'ID':'NewID'}, column_fill={'NewColumn': 'hi there'}, delete_table=False)
