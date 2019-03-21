@@ -465,8 +465,6 @@ class DerivaTableConfigure(DerivaTable):
                 if len(ckey) == 1:
                     simple_fkeys[ckey[0]] = fk.names[0]
 
-
-
             # Move Owner column to be right after RMB if they both exist.
             if 'Owner' in column_names and 'RMB' in column_names:
                 column_names.insert(column_names.index('RMB') + 1, column_names.pop(column_names.index('Owner')))

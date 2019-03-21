@@ -180,14 +180,56 @@ class DerivaVisibleColumns:
     def __init__(self, table):
         self.table = table
 
-    def _insert_visible_columns(vcols, positions=None):
+    def _insert_visible_column(self, column_names, foreign_keys, position={}):
         """
-        Create a new visible column spec by ....
-        :param vcols:
-        :param column_map:
+        Create a general visible columns annotation spec that would be consistant with what chaise does by default.
+        This spec can then be added to a table and edited for user preference.
         :return:
         """
 
+        def merge_vcol(col, context, fkeys, skip_cols):
+            return col.insert(-1,
+                    {'source': [{'outbound': fkeys[i]}, 'RID'] if i in fkeys else i}
+             if context == 'entry' else
+            [
+                {'source': [{'outbound': fkeys[i]}, 'RID'] if i in fkeys else i}
+                for i in column_names
+            ] + v if context == 'entry'
+
+        with DerivaModel(self.catalog) as m:
+            table = m.model().schemas[self.schema_name].tables[self.table_name]
+
+            # First go through the list of foreign keys and create a list of key columns and referenced columns. Keep
+            # track of columns that are in composite keys so we only output column spec once.
+            simple_fkeys, fkeys = {}, {}
+            skip_columns = []
+            for fk in foreign_keys:
+                ckey = [c['column_name'] for c in fk.foreign_key_columns]  # List of names in composite key.
+                skip_columns.extend(ckey[1:])
+                fkeys[ckey[0]] = fk.names[0]
+                if len(ckey) == 1:
+                    simple_fkeys[ckey[0]] = fk.names[0]
+
+            # TODO This needs to be redone to support general position spec.
+            # Move Owner column to be right after RMB if they both exist.
+            if 'Owner' in column_names and 'RMB' in column_names:
+                column_names.insert(column_names.index('RMB') + 1, column_names.pop(column_names.index('Owner')))
+
+            # Entry will convert all FK columns to the associated outbound specs.  For general spec, we will only
+            # do FK specs for columns that have single value FK constraints.
+            return {
+                'entry':([
+                    {'source': [{'outbound': fkeys[i]}, 'RID'] if i in fkeys else i}
+                    for i in column_names if i not in skip_columns
+                ] + v) if context == 'entry' else
+                context:[
+                    {'source': [{'outbound': simple_fkeys[i]}, 'RID'] if i in simple_fkeys else i}
+                    for i in column_names
+                ]
+            for context, v in self.table.visible_columns().items()
+            }
+
+    def _map_columns_in_visible_columns(self, column_name_map, new_columns={}):
         def map_column_spec(spec):
             if type(spec) is str and spec in column_name_map:
                 return column_name_map[spec]
@@ -204,36 +246,33 @@ class DerivaVisibleColumns:
                     [i] if (map_column_spec(i) == i)
                     else [map_column_spec(i)]
                 )
-            ] for k, v in vcols.items()
+            ] for k, v in self.table.annotations()[chaise_tags.visable_columns].items()
         }
 
-    @staticmethod
-    def _update_columns_in_visible_columns(visible_columns, column_name_map):
-        def map_column_spec(spec):
-            if type(spec) is str and spec in column_name_map:
-                return column_name_map[spec]
-            if type(spec) is list and len(spec) == 2 and spec[1] in column_name_map:
-                return [spec[0], column_name_map[spec[1]]]
-            if type(spec) is dict:
-                return {k: map_column_spec(v) if k == 'source' else v for k, v, in spec.items()}
+    def map_column_spec(self, spec, column_map):
+        def normalize_column_spec(spec):
+            if type(spec) is str:
+                return {'source': spec}
+            if type(spec) is list:
+                if spec[1] in self.table.keys():
+                    return {'source': spec[1].unique_columns}
+                if spec[1] in self.table.foreign_key():
+                    return {'source': [{'outbound': spec}, 'RID']}
+                else:
+                    ValueError()
             else:
                 return spec
 
-        return {
-            k: [
-                j for i in v for j in (
-                    [i] if (map_column_spec(i) == i)
-                    else [map_column_spec(i)]
-                )
-            ] for k, v in visible_columns.items()
-        }
+        spec = normalize_column_spec(spec)
+        print(spec)
 
-    @staticmethod
-    def _insert_column(vcols, column_name, after=col):
-        return {
-            k: v.append({'source': column_name})
-            for k, v in vcols.items()
-        }
+        if type(spec['source']) is str:
+            return {**spec, **{'source': column_map.get(spec,spec)}}
+        # We have a FK list....
+        if type(spec['source']) is str and spec in column_map:
+            return spec
+        elif type(spec['source']) is dict:
+            return spec
 
 
 class DerivaTable:
@@ -257,6 +296,10 @@ class DerivaTable:
     def keys(self):
         with DerivaModel(self.catalog) as m:
             return m.table(self.schema_name, self.table_name).keys
+
+    def fkeys(self):
+        with DerivaModel(self.catalog) as m:
+            return m.table(self.schema_name, self.table_name).foreign_keys
 
     def create_fkey(self, fkey_def):
         with DerivaModel(self.catalog) as m:
@@ -369,7 +412,7 @@ class DerivaTable:
 
 
     @staticmethod
-    def _update_columns_in_display(dval, column_name_map):
+    def _map_columns_in_display(dval, column_name_map):
         def rename_markdown_pattern(pattern):
             # Look for column names {{columnname}} in the templace and update.
             for k, v in column_name_map:
@@ -381,13 +424,13 @@ class DerivaTable:
             for k, v in dval.items()
         }
 
-    def _update_columns_in_annotations(self, column_name_map):
+    def _map_columns_in_annotations(self, column_name_map, new_columns=[]):
         with DerivaModel(self.catalog) as m:
             model = m.model()
             table = model.schemas[self.schema_name].tables[self.table_name]
             return {
                 k:
-                    self._update_columns_in_visible_columns(v, column_name_map) if k == chaise_tags.visible_columns else
+                    self._update_columns_in_visible_columns(v, column_name_map, new_columns) if k == chaise_tags.visible_columns else
                     self._update_columns_in_display(v, column_name_map) if k == chaise_tags.display else
                     v
                 for k, v in table.annotations.items()
@@ -717,7 +760,7 @@ class DerivaTable:
             self.table_name = None
             self.schema_name = None
 
-    def copy_table(self, schema_name, table_name, column_map={}, clone=False, column_config={},
+    def copy_table(self, schema_name, table_name, column_map={}, clone=False, column_fill={},
                    column_defs=[],
                    key_defs=[],
                    fkey_defs=[],
@@ -746,23 +789,26 @@ class DerivaTable:
         :return:
         """
 
-        column_fill = { k:v['fill'] for k,v in column_config.items() if 'fill' in v}
-        visible_columns = {k:v['visible'] for k,v in column_config.items() if 'visible' in v}
-
         with DerivaModel(self.catalog) as m:
             model = m.model()
             table = model.schemas[self.schema_name].tables[self.table_name]
 
             # Get new key and fkey definitions by mapping to new column names.
             columns = [i.name for i in table.column_definitions]
-            keys = key_defs + [
+            keys = [
                        self._rename_column_in_key(k, columns, column_map, schema_name, table_name)
                            for k in table.keys
                    ]
-            fkeys = fkey_defs + [
+            fkeys = [
                         self._rename_column_in_fkey(fk, columns, column_map, schema_name, table_name)
                             for fk in table.foreign_keys
                     ]
+
+            # Add foreign key name mappings...
+            column_map.update({i[0]:i[1] for i in
+                                zip([i.names[0][1] for i in table.fkeys()],
+                                    [i.names[0][1] for i in fkeys])})
+
 
             annotations= {}
 
@@ -783,17 +829,14 @@ class DerivaTable:
                                 )
                                 for i in table.column_definitions if i.name not in {c['name']: c for c in column_defs}
                             ] + column_defs,
-                key_defs=keys,
-                fkey_defs=fkeys,
+                key_defs=keys + key_defs,
+                fkey_defs=fkeys + fkey_defs,
                 comment=comment if comment else table.comment,
                 acls=table.acls,
                 acl_bindings=table.acl_bindings,
 
                 # Update visible columns to account for column_map
-                annotations=self._update_columns_in_annotations(column_map)
-                self._insert_column_in_visible_columns(
-                    [asdf]
-                ), visible_columns)
+                annotations=self._map_columns_in_annotations(column_map)
             )
 
             # Create new table
