@@ -215,24 +215,19 @@ class DerivaVisibleColumns:
             # Entry will convert all FK columns to the associated outbound specs.  For general spec, we will only
             # do FK specs for columns that have single value FK constraints.
 
-            def spec_to_kcolumn(spec):
+            def spec_to_column(spec):
                 col = spec['source']
                 if type(col) is str:
                     return str
                 elif len(col) == 1 and 'outbound' in 'outbound' in col[0]  # We have a single outbound FK
                     col[0]['outbound'].get('outbound',None)
-
-
                 return None
 
             def merge_spec(col,vc_list, position):
                 # Get a map of the column names in the current list of VC specs
 
-                vc_names = [spec_column(i) for i in vc_list]
+                vc_names = [spec_to_column(i) for i in vc_list]
                 new_spec = {'source': [{'outbound': fkeys[i]}, 'RID'] if i in fkeys else i}
-
-
-
                 spec =  {'source': [{'outbound': fkeys[i]}, 'RID'] if i in fkeys else i}
                          for i in column_names if i not in skip_columns
                      ]
