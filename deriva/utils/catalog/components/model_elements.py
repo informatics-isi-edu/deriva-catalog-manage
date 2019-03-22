@@ -180,13 +180,22 @@ class DerivaVisibleColumns:
     def __init__(self, table):
         self.table = table
 
-    def _insert_visible_column(self, column_names, foreign_keys, position={}):
+    def _insert_visible_column(self, vcolumn_spec, column_names, foreign_keys, assets, position={}):
         """
-        Create a general visible columns annotation spec that would be consistant with what chaise does by default.
-        This spec can then be added to a table and edited for user preference.
+        For each column in column_names, insert into the provided visible column spec at the position specified by
+        position. If a column is in a single column foreign key, the path to that foreign key is used.  If the context
+        is entry, then a spec is only included for the asset column.
+
+        :vcolumn_spec: A visible column specification.  A dictionary with contexts then a list of sources.
+        :column_names: The list of column names to be inserted into the vcolumn_spec
+        :foreign_keys: A list of columns that are foreign keys.
+        :assets: A list of which columns are assets.
+        :position:
         :return:
         """
 
+        # Go through the list of asset annotations and extract out the columns.
+        skip_columns = [ c for i assets.items() for c in i['']]
         def merge_vcol(col, context, fkeys, skip_cols):
             return col.insert(-1,
                     {'source': [{'outbound': fkeys[i]}, 'RID'] if i in fkeys else i}
