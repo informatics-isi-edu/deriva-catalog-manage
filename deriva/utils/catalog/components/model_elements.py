@@ -180,63 +180,87 @@ class DerivaVisibleColumns:
     def __init__(self, table):
         self.table = table
 
-    def _insert_visible_column(self, vcolumn_spec, column_names, foreign_keys, assets, position={}):
+    def insert_visible_columns(self, column_names, position={}):
         """
-        For each column in column_names, insert into the provided visible column spec at the position specified by
-        position. If a column is in a single column foreign key, the path to that foreign key is used.  If the context
-        is entry, then a spec is only included for the asset column.
-
-        :vcolumn_spec: A visible column specification.  A dictionary with contexts then a list of sources.
-        :column_names: The list of column names to be inserted into the vcolumn_spec
-        :foreign_keys: A list of columns that are foreign keys.
-        :assets: A list of which columns are assets.
-        :position:
+        Create a general visible columns annotation spec that would be consistant with what chaise does by default.
+        This spec can then be added to a table and edited for user preference.
         :return:
         """
 
-        # Go through the list of asset annotations and extract out the columns.
-        skip_columns = [ c for i assets.items() for c in i['']]
-        def merge_vcol(col, context, fkeys, skip_cols):
-            return col.insert(-1,
-                    {'source': [{'outbound': fkeys[i]}, 'RID'] if i in fkeys else i}
-             if context == 'entry' else
-            [
-                {'source': [{'outbound': fkeys[i]}, 'RID'] if i in fkeys else i}
-                for i in column_names
-            ] + v if context == 'entry'
-
-        with DerivaModel(self.catalog) as m:
+        with DerivaModel(self.table.catalog) as m:
             table = m.model().schemas[self.schema_name].tables[self.table_name]
 
             # First go through the list of foreign keys and create a list of key columns and referenced columns. Keep
             # track of columns that are in composite keys so we only output column spec once.
-            simple_fkeys, fkeys = {}, {}
+            simple_fkeys, fkeys, assets = {},{}, {}
             skip_columns = []
-            for fk in foreign_keys:
-                ckey = [c['column_name'] for c in fk.foreign_key_columns]  # List of names in composite key.
+
+            # Identify any columns that are references to assets and collect up associated columns.
+            for col in column_names:
+                if chaise_tags.asset in table.column_definitions[col].annotations:
+                    assets[col] = table.column_definitions[col][chaise_tags.asset].values()
+
+            for fk in table.foreign_keys:
+                ckey = [c['column_name'] for c in fk.foreign_key_columns] # List of names in composite key.
                 skip_columns.extend(ckey[1:])
                 fkeys[ckey[0]] = fk.names[0]
                 if len(ckey) == 1:
                     simple_fkeys[ckey[0]] = fk.names[0]
 
-            # TODO This needs to be redone to support general position spec.
             # Move Owner column to be right after RMB if they both exist.
+            # TODO Make this proper column position
             if 'Owner' in column_names and 'RMB' in column_names:
                 column_names.insert(column_names.index('RMB') + 1, column_names.pop(column_names.index('Owner')))
 
             # Entry will convert all FK columns to the associated outbound specs.  For general spec, we will only
             # do FK specs for columns that have single value FK constraints.
-            return {
-                'entry':([
-                    {'source': [{'outbound': fkeys[i]}, 'RID'] if i in fkeys else i}
-                    for i in column_names if i not in skip_columns
-                ] + v) if context == 'entry' else
-                context:[
-                    {'source': [{'outbound': simple_fkeys[i]}, 'RID'] if i in simple_fkeys else i}
-                    for i in column_names
-                ]
-            for context, v in self.table.visible_columns().items()
-            }
+
+            def spec_column(spec):
+                """
+                Return the column associated with a VC spec mapping back from a FK name if necessary. Return None
+                if the spec if for a composite FK constraint.
+                :param spec: A cannonical VC specification.
+                :return:
+                """
+                col = spec['source']
+                if type(col) is str:
+                    return str
+                elif len(col) == 1 and 'outbound' in 'outbound' in col[0]  # We have a single outbound FK
+                    col[0]['outbound'].get('outbound',None)
+
+
+                return None
+
+            def merge_spec(col,vc_list, position):
+                # Get a map of the column names in the current list of VC specs
+                vc_names = [spec_column(i) for i in vc_list]
+
+
+                spec =  {'source': [{'outbound': fkeys[i]}, 'RID'] if i in fkeys else i}
+                         for i in column_names if i not in skip_columns
+                     ]
+                     if c == 'entry' else
+                     [
+                         {'source': [{'outbound': simple_fkeys[i]}, 'RID'] if i in simple_fkeys else i}
+                         for i in column_names
+                     ]
+
+
+            new_spec = \
+                {c:
+                     [
+                         {'source': [{'outbound': fkeys[i]}, 'RID'] if i in fkeys else i}
+                         for i in column_names if i not in skip_columns
+                     ]
+                     if c == 'entry' else
+                     [
+                         {'source': [{'outbound': simple_fkeys[i]}, 'RID'] if i in simple_fkeys else i}
+                         for i in column_names
+                     ]
+                 for c, v in table.annotations[chaise_tags.visible_columns]
+                 }
+
+            return new_spec
 
     def _map_columns_in_visible_columns(self, column_name_map, new_columns={}):
         def map_column_spec(spec):
