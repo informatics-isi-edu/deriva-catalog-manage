@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 CATALOG_CONFIG__TAG = 'tag:isrd.isi.edu,2019:catalog-config'
 
 
-class DerivaConfigError(Exception):
+class DerivaCatalogError(Exception):
     def __init__(self, msg):
         self.msg = msg
 
@@ -142,7 +142,7 @@ class DerivaCatalog():
         if chaise_tags.catalog_config in self.model.annotations:
             return self.model.annotations[chaise_tags.catalog_config]['groups']
         else:
-            raise DerivaConfigError(msg='Attempting to configure table before catalog is configured')
+            raise DerivaCatalogError(msg='Attempting to configure table before catalog is configured')
 
 
 class DerivaSchema:
@@ -177,9 +177,12 @@ class DerivaSchema:
             annotations=annotations))
 
     def _create_table(self, table_def):
-        schema = self.catalog.model.schemas[self.schema_name]
-        schema.create_table(self.catalog.catalog, table_def)
-        return self.table(table_def['table_name'])
+        with DerivaModel(self.catalog) as m:
+            schema = m.schema(self.schema_name)
+            schema.create_table(self.catalog.catalog, table_def)
+            table = self.table(table_def['table_name'])
+            table.deleted = False
+            return table
 
     def create_vocabulary(self, vocab_name, curie_template, uri_template='/id/{RID}', column_defs=[],
                           key_defs=[], fkey_defs=[],
@@ -337,7 +340,7 @@ class DerivaVisibleColumns:
             reordered_names = vc_names[:]
             for key_col, column_list in positions.get(context, positions[DerivaModel.Context.all]).items():
                 if  not (set(column_list + [key_col]) <= set(vc_names)):
-                    raise DerivaConfigError('Invalid position specificaion in reorder columns')
+                    raise DerivaCatalogError('Invalid position specificaion in reorder columns')
                 mapped_list = [j for i in reordered_names if i not in column_list
                             for j in [i] + (column_list if i == key_col else [])
                 ]
@@ -375,7 +378,7 @@ class DerivaSourceSpec:
                 elif spec in self.table.foreign_keys().elements:
                     return {'source': [{'outbound': spec}, 'RID']}
                 else:
-                    raise DerivaConfigError(f'Invalid source entry {spec}')
+                    raise DerivaCatalogError(f'Invalid source entry {spec}')
             else:
                  return self.normalize_source_entry(spec)
 
@@ -403,10 +406,10 @@ class DerivaSourceSpec:
                     target_table = path_table.foreign_keys[k].referenced_columns[0]['table_name']
                     path_table = m.table(target_schema, target_table)
                 else:
-                   raise DerivaConfigError(f'Invalid source entry {c}')
+                   raise DerivaCatalogError(f'Invalid source entry {c}')
 
             if source_entry[-1] not in path_table.column_definitions.elements:
-                raise DerivaConfigError(f'Invalid source entry {source_entry[-1]}')
+                raise DerivaCatalogError(f'Invalid source entry {source_entry[-1]}')
         return spec
 
     def rename_column(self, column_map, dest_sname, dest_tname):
@@ -443,6 +446,7 @@ class DerivaTable:
         self.catalog =  catalog
         self.schema_name = schema_name
         self.table_name = table_name
+        self.deleted = False
 
     def annotations(self):
         with DerivaModel(self.catalog) as m:
@@ -616,7 +620,7 @@ class DerivaTable:
         if len(overlap) == 0:
             return False
         if not rename and len(overlap) < len(key_columns):
-            raise DerivaConfigError(msg='Cannot rename part of compound key')
+            raise DerivaCatalogError(msg='Cannot rename part of compound key')
         return True
 
     def _check_composite_keys(self, columns, dest_sname, dest_tname, rename=None):
@@ -905,19 +909,11 @@ class DerivaTable:
             model = m.model()
             table = m.table(self.schema_name, self.table_name)
 
-            # Delete all of the incoming FKs
-            columns = {i.name for i in table.column_definitions}
-            for fk in table.referenced_by:
-                referenced_columns = [i['column_name'] for i in fk.referenced_columns]
-                if self._key_in_columns(columns, referenced_columns,
-                                        False):  # We are renaming one of the referenced columns.
-                    referring_table = model.schemas[fk.sname].tables[fk.tname]
-                    fk.delete(self.catalog, referring_table)
-
+            if table.referenced_by != []:
+                DerivaCatalogError('Attept to delete catalog with incoming foreign keys')
             # Now we can delete the table.
             table.delete(self.catalog.catalog, schema=model.schemas[self.schema_name])
-            self.table_name = None
-            self.schema_name = None
+            self.deleted = True
 
     def copy_table(self, schema_name, table_name, column_map={}, clone=False, column_fill={},
                    column_defs=[],
@@ -999,6 +995,8 @@ class DerivaTable:
 
             # Create new table
             new_table = self.catalog.schema(schema_name)._create_table(new_table_def)
+            new_table.table = table_name
+            new_table.schema = schema_name
             new_table.visible_columns().insert_visible_columns(new_columns)
 
             # Copy over values from original to the new one, mapping column names where required. Use the column_fill
@@ -1122,13 +1120,13 @@ class DerivaTable:
         asset_table_name = '{}_Asset'.format(self.table_name)
 
         if set_policy and chaise_tags.catalog_config not in self.catalog.model.annotations:
-            raise DerivaConfigError(msg='Attempting to configure table before catalog is configured')
+            raise DerivaCatalogError(msg='Attempting to configure table before catalog is configured')
 
         with DerivaModel(self.catalog) as m:
             model = m.model()
             table = model.schemas[self.schema_name].tables[self.table_name]
             if key_column not in [i.name for i in table.column_definitions]:
-                raise DerivaConfigError(msg='Key column not found in target table')
+                raise DerivaCatalogError(msg='Key column not found in target table')
 
         column_defs = [
                           em.Column.define('{}'.format(self.table_name),
