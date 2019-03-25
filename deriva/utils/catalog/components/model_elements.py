@@ -485,6 +485,10 @@ class DerivaTable:
             fkey = m.table(self.schema_name, self.table_name).create_fkey(self.catalog.catalog, fkey_def)
             m.model().schemas[target_schema].tables[target_table].referenced_by.append(fkey)
 
+    def model(self):
+        with DerivaModel(self.catalog) as m:
+            return m.table(self.schema_name, self.table_name)
+
     def link_tables(self, column_name, target_schema, target_table, target_column='RID'):
         """
         Create a foreign key link from the specified column to the target table and column.
@@ -617,6 +621,7 @@ class DerivaTable:
         :return: True if the key is contained within columns.
         """
         overlap = set(columns).intersection(set(key_columns))
+        print(f'overlap {overlap} columns {columns} key_colums {key_columns}')
         if len(overlap) == 0:
             return False
         if not rename and len(overlap) < len(key_columns):
@@ -657,25 +662,39 @@ class DerivaTable:
 
     def _rename_column_in_fkey(self, fk, columns, column_name_map, dest_sname, dest_tname, incoming=False):
         """
-        Given an existing FK, create a new FK that reflects column renaming.
-        :param fk:
-        :param columns:
-        :param column_name_map:
-        :param dest_sname:
-        :param dest_tname:
+        Given an existing FK, create a new FK that reflects column renaming caused by changing the column name, or
+        by moving the column to a new table and/or schema.
+        :param fk: The existing fkey that is being renamed.
+        :param columns: List of columns that are being renamed.  Used to determine if FK is being impacted.
+        :param column_name_map: dictionary that indicates column name remapping.
+        :param dest_sname: new schema for the column
+        :param dest_tname: new table for the column
+        :param incoming: True if we are renaming an incoming FK definition.
         :return:
         """
+
+        # Determine if we are moving the column within the same table, or between tables.
         column_rename = self.schema_name == dest_sname and self.table_name == dest_tname
 
         # Rename the columns that appear in foreign keys...
+        if incoming:
+            fk_schema = fk.referenced_columns[0]['schema_name']
+            fk_table = fk.referenced_columns[0]['table_name']
+            fk_columns = fk.referenced_columns[0]['schema_name']
+        else:
+            fk_schema = dest_sname
+            fk_table = dest_tname
+
         fk_columns = [i['column_name'] for i in fk.foreign_key_columns]
         referenced_columns = [i['column_name'] for i in fk.referenced_columns]
 
+        print(f'key_match {columns} {fk_columns} {column_rename}', self._key_in_columns(columns, fk_columns, column_rename))
+
         return em.ForeignKey.define(
-            [column_name_map.get(i, i) for i in fk_columns] if incoming==False else fk_columns,
-            fk.referenced_columns[0]['schema_name'],
-            fk.referenced_columns[0]['table_name'],
-            [column_name_map.get(i, i) for i in referenced_columns] if incoming==True else referenced_columns,
+            [column_name_map.get(i, i) for i in fk_columns] if not incoming  else fk_columns,
+            fk.referenced_columns[0]['schema_name'] if not incoming else dest_sname,
+            fk.referenced_columns[0]['table_name'] if not incoming else dest_tname,
+            [column_name_map.get(i, i) for i in referenced_columns] if incoming else referenced_columns,
             constraint_names=[self._update_key_name(n, column_name_map, dest_sname, dest_tname) for n in fk.names],
             comment=fk.comment,
             acls=fk.acls,
@@ -684,6 +703,15 @@ class DerivaTable:
         ) if self._key_in_columns(columns, fk_columns, column_rename) else fk
 
     def _rename_column_in_key(self, key, columns, column_name_map, dest_sname, dest_tname):
+        """
+        Create a new key def
+        :param key:
+        :param columns:
+        :param column_name_map:
+        :param dest_sname:
+        :param dest_tname:
+        :return:
+        """
         column_rename = self.schema_name == dest_sname and self.table_name == dest_tname
 
         return em.Key.define(
@@ -695,14 +723,18 @@ class DerivaTable:
 
         # Now look through incoming foreign keys to make sure none of them changed.
 
-    def _relink_table(self, columns, column_name_map, dest_sname, dest_tname):
-        columns = set(columns)
+    def _relink_table(self, dest_table, column_name_map={}):
+        dest_sname = dest_table.schema_name
+        dest_tname = dest_table.table_name
+
         with DerivaModel(self.catalog) as m:
             model = m.model()
-            dest_table = model.schemas[dest_sname].tables[dest_tname]
             table = model.schemas[self.schema_name].tables[self.table_name]
+            columns = {i.name for i in table.column_definitions}
+            print(f'columns in {self.table_name} {columns}')
             for fk in table.referenced_by:
                 fk_def = self._rename_column_in_fkey(fk, columns, column_name_map, dest_sname, dest_tname, incoming=True)
+                print(f'referenced by: fk {fk.sname} {fk.tname} {fk.names}, fk_def {fk_def.sname} {fk_def.tname} {fk_def.names}')
                 if fk_def != fk:
                     referring_table = model.schemas[fk.sname].tables[fk.tname]
                     fk.delete(self.catalog.catalog, referring_table)
