@@ -69,6 +69,7 @@ class DerivaModel:
     def table(self, schema_name, table_name):
         return self.catalog.model.schemas[schema_name].tables[table_name]
 
+
 class DerivaCatalog():
     def __init__(self, catalog_or_host, scheme='https', catalog_id=1):
         """
@@ -199,28 +200,30 @@ class DerivaVisibleColumns:
     def __init__(self, table):
         self.table = table
 
-    def _spec_to_column(self, spec):
-        # Return the column name that is referenced in the VC spec in the general format.
-        # This will require us to look up the column behind an outbound foreign key reference.
-        col = spec['source']
-        if type(col) is str:
-            return col
-        elif len(col) == 2 and 'outbound' in 'outbound' in col[0]:  # We have a single outbound FK
-            fk_cols = self.table.foreign_keys()[col[0]['outbound']].foreign_key_columns
-            return fk_cols[0]['column_name'] if len(fk_cols) == 1 else None
-        return None
-
-    def insert_visible_columns(self, column_names, position={}, contexts={}):
+    def insert_visible_columns(self, column_names, position={}, contexts={}, create=False):
         """
         Create a general visible columns annotation spec that would be consistant with what chaise does by default.
         This spec can then be added to a table and edited for user preference.
         :return:
         """
 
-        contexts = DerivaModel.Context if (contexts == {} or contexts == DerivaModel.Context.all) else contexts
+        # Get the contexts list into a standard form...
+        if type(contexts) is str:
+            contexts = {DerivaModel.Context(contexts)}
+        elif type(contexts) is DerivaModel.Context:
+            contexts = {contexts}
+        elif contexts == {} or contexts == DerivaModel.Context.all:
+            contexts = {i for i in DerivaModel.Context}
 
         with DerivaModel(self.table.catalog) as m:
             table = m.model().table(self.table.schema_name, self.table.table_name)
+
+            # Create any missing contexts
+            if create:
+                vcs = self.table._visible_columns()
+                for i in contexts:
+                    if i.value not in vcs.keys():
+                        vcs[i.value] = []
 
             # Identify any columns that are references to assets and collect up associated columns.
             skip_columns , assets = [], []
@@ -229,7 +232,7 @@ class DerivaVisibleColumns:
                     assets.append(col)
                     skip_columns.extend(table.column_definitions[col][chaise_tags.asset].values())
 
-            # Go through the list of foreign keys and create a list of key columns and referenced columns. Keep
+            # Go through the list of foreign keys and create a list of key columns and referenced columns.
             fkey_names, fkey_cols = {},{}
             for fk in table.foreign_keys:
                 ckey = [c['column_name'] for c in fk.foreign_key_columns] # List of names in composite key.
@@ -237,12 +240,14 @@ class DerivaVisibleColumns:
                     fkey_names[ckey[0]] = fk.names[0]
                     fkey_cols[fk.names[0][1]] = ckey[0]
 
-            vc = {}
-            for context,vc_list in self.table.visible_columns().items():
+            vcs = {}
+            for context, vc_list in self.table._visible_columns().items():
                 # Get list of column names that are in the spec, mapping back simple FK references.
-                if context in contexts:
+                if DerivaModel.Context(context) not in contexts:
                     continue
-                vc_names = [self._spec_to_column(i) for i in vc_list]
+
+                vc_names = [DerivaSourceSpec(self.table, i)._referenced_columns() for i in vc_list]
+
                 new_vc = vc_list[:]
                 for col in column_names:
                     if (context == 'entry' and col in skip_columns) or col in vc_names:
@@ -253,55 +258,27 @@ class DerivaVisibleColumns:
                     new_vc.append(new_spec)
                     vc_names.append(col)
 
-                vc[context] = new_vc
+                vcs[context] = new_vc
+            vcs= self._reorder_visible_columns(vcs, position)
 
-            vc= self._reorder_visible_columns(vc, position)
             # All is good, so update the visible columns annotation.
-            self.table.set_annotation(chaise_tags.visible_columns,{**self.table.visible_columns(), **vc})
+            self.table.set_annotation(chaise_tags.visible_columns, {**self.table._visible_columns(), **vcs})
 
-    def rename_columns_in_visible_columns(self, column_name_map):
-        return {
+    def rename_columns_in_visible_columns(self, column_name_map, dest_sname, dest_tname):
+        vc = {
             k: [
                 j for i in v for j in (
-                    [i] if (self._rename_column_spec(i, column_name_map) == i)
-                    else [self._rename_column_spec(i, column_name_map)]
+                    [i] if (DerivaSourceSpec(self.table, i).rename_column(column_name_map, dest_sname, dest_tname) == i)
+                    else [DerivaSourceSpec(self.table, i).rename_column(column_name_map, dest_sname, dest_tname)]
                 )
-            ] for k, v in self.table.annotations()[chaise_tags.visable_columns].items()
+            ] for k, v in self.table.annotations()[chaise_tags.visible_columns].items()
         }
-
-    def _rename_column_spec(self, spec, column_map, dest_sname, dest_tname):
-        def normalize_column_spec(spec):
-            if type(spec) is str:
-                return {'source': spec}
-            if type(spec) is list:
-                if spec[1] in self.table.keys():
-                    return {'source': spec[1].unique_columns}
-                if spec[1] in self.table.foreign_key():
-                    return {'source': [{'outbound': spec}, 'RID']}
-                else:
-                    ValueError()
-            else:
-                return spec
-
-        spec = normalize_column_spec(spec)
-
-        source = spec['source']
-        if type(source) is str:
-            return {**spec, **{'source': column_map.get(source,source)}}
-        # We have a FK list....
-        if type(source) is list and len(source) == 1:
-            if self._spec_to_column(spec) in column_map:
-                return {
-                    **spec,
-                    **{'source': [self.table._update_key_name(source[1], column_map, dest_sname, dest_tname)]}
-                }
-
-        return spec
+        return vc
 
     def delete_visible_columns(self, columns, contexts=[]):
         context_names = [i.value for i in (DerivaModel.Context if contexts == [] else contexts)]
 
-        for context, vc_list in self.table.visible_columns().items():
+        for context, vc_list in self.table._visible_columns().items():
             # Get list of column names that are in the spec, mapping back simple FK references.
             if context not in context_names:
                 continue
@@ -316,8 +293,8 @@ class DerivaVisibleColumns:
         pass
 
     def reorder_visible_columns(self, positions):
-        vc = self._reorder_visible_columns(self.table.visible_columns(), positions)
-        self.table.set_attributes(chaise_tags.visible_columns, {**self.table.visible_columns(), **vc})
+        vc = self._reorder_visible_columns(self.table._visible_columns(), positions)
+        self.table.set_annotation(chaise_tags.visible_columns, {**self.table._visible_columns(), **vc})
 
     def _reorder_visible_columns(self, visible_columns, positions):
         """
@@ -326,7 +303,9 @@ class DerivaVisibleColumns:
             context: {key_column: column_list, key_column:column_list}
         The columns in the specified context are then reorded so that the columns in the column list follow the column
         in order.  Key column specs are processed in order specified. The context name 'all' can be used to indicate
-        that the order should be applied to all contexts currently in the visible_columns annotation.
+        that the order should be applied to all contexts currently in the visible_columns annotation.  The context name
+        can also be omitted an positions can be in the form of {key_column: columnlist, ...} and the context all is
+        implied.
 
         :param positions:
         :param context:
@@ -334,7 +313,8 @@ class DerivaVisibleColumns:
         """
         if positions == {}:
             return visible_columns
-        print(positions)
+
+        # Set up positions to apply to all contexts if you have {key_column: column_list} form.
         positions = OrderedDict(positions) if positions.keys() in DerivaModel.Context \
             else OrderedDict({DerivaModel.Context.all: positions})
         position_contexts = \
@@ -344,36 +324,119 @@ class DerivaVisibleColumns:
                  else positions.keys())
             }
 
-        print(f'contexts: {position_contexts}')
         new_vc = {}
         for context, vc_list in visible_columns.items():
             if context not in position_contexts:
-                print(f'skipping {context} {position_contexts}')
                 continue
 
             # Get the list of column names for the spec.
-            vc_names = [self._spec_to_column(i) for i in vc_list]
+            vc_names = [DerivaSourceSpec(self.table, i).column_name for i in vc_list]
 
             # Now build up a map that has the indexes of the reordered columns.  Include the columns in order
             # Unless they are in the column_list, in which case, insert them immediately after the key column.
-            mapped_list = []
             reordered_names = vc_names[:]
             for key_col, column_list in positions.get(context, positions[DerivaModel.Context.all]).items():
+                if  not (set(column_list + [key_col]) <= set(vc_names)):
+                    raise DerivaConfigError('Invalid position specificaion in reorder columns')
                 mapped_list = [j for i in reordered_names if i not in column_list
                             for j in [i] + (column_list if i == key_col else [])
                 ]
-                print(mapped_list)
                 reordered_names = mapped_list
 
             new_vc[context] = [vc_list[vc_names.index(i)] for i in reordered_names]
         return {**visible_columns, **new_vc}
 
     def validate(self):
-        for c, l in self.table.visible_columns():
-            pass
+        for c, l in self.table._visible_columns().items():
+            for j in l:
+                DerivaSourceSpec(self.table, j)
 
     def display(self):
-        print(self.table.visible_columns())
+        print(self.table._visible_columns())
+
+
+class DerivaSourceSpec:
+    def __init__(self, table, spec):
+        self.table = table
+        self.spec = spec
+        self.source = self.normalize_column_entry(spec)['source']
+        self.column_name = self._referenced_columns()
+
+    def normalize_column_entry(self, spec):
+        with DerivaModel(self.table.catalog) as m:
+            table_m = m.table(self.table.schema_name, self.table.table_name)
+            if type(spec) is str:
+                table_m.column_definitions[spec]
+                return {'source': spec}
+            if isinstance(spec, (tuple,list)) and len(spec) == 2:
+                spec = tuple(spec)
+                if spec in self.table.keys().elements:
+                    return {'source': self.table.keys()[spec].unique_columns[0]}
+                elif spec in self.table.foreign_keys().elements:
+                    return {'source': [{'outbound': spec}, 'RID']}
+                else:
+                    raise DerivaConfigError(f'Invalid source entry {spec}')
+            else:
+                 return self.normalize_source_entry(spec)
+
+    def normalize_source_entry(self, spec):
+        with DerivaModel(self.table.catalog) as m:
+            table_m = m.table(self.table.schema_name, self.table.table_name)
+
+            source_entry = spec['source']
+            if type(source_entry) is str:
+                table_m.column_definitions[source_entry]
+                return spec
+
+            # We have a path of FKs so follow the path to make sure that all of the constraints line up.
+            path_table = table_m
+
+            for c in source_entry[0:-1]:
+                if 'inbound' in c and len(c['inbound']) == 2:
+                    k = tuple(c['inbound'])
+                    target_schema = path_table.referenced_by[k].foreign_key_columns[0]['schema_name']
+                    target_table = path_table.referenced_by[k].foreign_key_columns[0]['table_name']
+                    path_table = m.table(target_schema, target_table)
+                elif 'outbound' in c and len(c['outbound']) == 2:
+                    k = tuple(c['outbound'])
+                    target_schema = path_table.foreign_keys[k].referenced_columns[0]['schema_name']
+                    target_table = path_table.foreign_keys[k].referenced_columns[0]['table_name']
+                    path_table = m.table(target_schema, target_table)
+                else:
+                   raise DerivaConfigError(f'Invalid source entry {c}')
+
+            if source_entry[-1] not in path_table.column_definitions.elements:
+                raise DerivaConfigError(f'Invalid source entry {source_entry[-1]}')
+        return spec
+
+    def rename_column(self, column_map, dest_sname, dest_tname):
+        if type(self.source) is str:
+            return {**self.spec, **{'source': column_map.get(self.source, self.source)}}
+        # We have a FK list....
+        if type(self.source) is list and len(self.source) == 2:
+            return {
+                **self.spec,
+                **{'source':
+                       (
+                        {
+                            'outbound': self.table._update_key_name(self.source[0]['outbound'], column_map, dest_sname, dest_tname)
+                        },
+                        self.source[1]
+                       )}
+            }
+        return self.spec
+
+    def _referenced_columns(self):
+        # Return the column name that is referenced in the source spec.
+        # This will require us to look up the column behind an outbound foreign key reference.
+        if type(self.source) is str:
+            return self.source
+        elif len(self.source) == 2 and 'outbound' in self.source[0]:
+            t = tuple(self.source[0]['outbound'])
+            fk_cols = self.table.foreign_keys()[t].foreign_key_columns
+            return fk_cols[0]['column_name'] if len(fk_cols) == 1 else {'pseudo_column': self.source}
+        return {'pseudo_column': self.source}
+
 
 class DerivaTable:
     def __init__(self, catalog, schema_name, table_name):
@@ -381,12 +444,22 @@ class DerivaTable:
         self.schema_name = schema_name
         self.table_name = table_name
 
+    def annotations(self):
+        with DerivaModel(self.catalog) as m:
+            return m.table(self.schema_name, self.table_name).annotations
+
     def set_annotation(self, annotation, value):
         with DerivaModel(self.catalog) as m:
             m.table(self.schema_name, self.table_name).annotations.update({annotation:value})
 
     def visible_columns(self):
+        return DerivaVisibleColumns(self)
+
+    def _visible_columns(self):
         with DerivaModel(self.catalog) as m:
+            table = m.table(self.schema_name, self.table_name)
+            if chaise_tags.visible_columns not in table.annotations:
+                table.annotations[chaise_tags.visible_columns] = {}
             return m.table(self.schema_name, self.table_name).annotations[chaise_tags.visible_columns]
 
     def create_key(self, key_def):
@@ -505,24 +578,26 @@ class DerivaTable:
             for k, v in dval.items()
         }
 
-    def _map_columns_in_annotations(self, column_name_map, new_columns=[]):
-        with DerivaModel(self.catalog) as m:
-            model = m.model()
-            table = model.schemas[self.schema_name].tables[self.table_name]
-            return {
-                k:
-                    self._update_columns_in_visible_columns(v, column_name_map, new_columns) if k == chaise_tags.visible_columns else
-                    self._update_columns_in_display(v, column_name_map) if k == chaise_tags.display else
-                    v
-                for k, v in table.annotations.items()
-            }
+    def _update_columns_in_visible_columns(self, column_map, new_columns):
+        vc = self.visible_columns()
+        vc.rename_columns_in_visible_columns(column_map)
+        vc.insert_visible_columns(new_columns)
+
+    def _rename_columns_in_annotations(self, column_name_map, dest_sname, dest_tname):
+        return {
+            k: self._update_columns_in_display(v, column_name_map) if k == chaise_tags.display else
+               self.visible_columns().rename_columns_in_visible_columns(column_name_map, dest_sname, dest_tname)
+               if k == chaise_tags.visible_columns else
+            v
+            for k, v in self.annotations().items()
+        }
 
     def _delete_column_from_annotations(self, column_name):
         with DerivaModel(self.catalog) as m:
             model = m.model()
             table = model.schemas[self.schema_name].tables[self.table_name]
             return {
-                k: self._delete_from_visible_columns(v, column_name) if k == chaise_tags.visible_columns else v
+                k: self._delete_from_visible_columns(v, column_name) if k == chaise_tags._visible_columns else v
                 for k, v in table.annotations.items()
             }
 
@@ -664,6 +739,9 @@ class DerivaTable:
         with DerivaModel(self.catalog) as m:
             table = m.model().schemas[self.schema_name].tables[self.table_name]
             return table.acl_bindings
+
+    def _rename_columns_in_column_annotations(self, annotation, column_name_map):
+        return annotation
 
     def _add_fkeys(self, fkeys):
         with DerivaModel(self.catalog) as m:
@@ -886,12 +964,13 @@ class DerivaTable:
                     ]
 
             # Add foreign key name mappings...
-            column_map.update({i[0]:i[1] for i in
-                                zip([i.names[0][1] for i in table.foreign_keys()],
-                                    [i.names[0][1] for i in fkeys])})
-
+            column_map.update({i[0]: i[1] for i in
+                                zip([i.names[0][1] for i in table.foreign_keys],
+                                    [i['names'][0][1] for i in fkeys])})
 
             annotations= {}
+
+            new_columns = [c['name'] for c in column_defs]
 
             # Create new table
             new_table_def = em.Table.define(
@@ -906,24 +985,24 @@ class DerivaTable:
                                     default=i.default,
                                     comment=i.comment,
                                     acls=i.acls, acl_bindings=i.acl_bindings,
-                                    annotations=self._map_column_annotations(i.annotations)
+                                    annotations=self._rename_columns_in_column_annotations(i.annotations, column_map)
                                 )
-                                for i in table.column_definitions if i.name not in {c['name']: c for c in column_defs}
+                                for i in table.column_definitions if i.name not in new_columns
                             ] + column_defs,
                 key_defs=keys + key_defs,
                 fkey_defs=fkeys + fkey_defs,
                 comment=comment if comment else table.comment,
                 acls=table.acls,
                 acl_bindings=table.acl_bindings,
-
-                # Update visible columns to account for column_map
-                annotations=self._map_columns_in_annotations(column_map)
+                annotations=self._rename_columns_in_annotations(column_map, schema_name, table_name)
             )
 
             # Create new table
             new_table = self.catalog.schema(schema_name)._create_table(new_table_def)
+            new_table.visible_columns().insert_visible_columns(new_columns)
 
-            # Copy over values from original to the new one, mapping column names where required.
+            # Copy over values from original to the new one, mapping column names where required. Use the column_fill
+            # argument to provide values for non-null columns.
             pb = self.catalog.getPathBuilder()
             from_path = pb.schemas[self.schema_name].tables[self.table_name]
             to_path = pb.schemas[schema_name].tables[table_name]
@@ -1204,7 +1283,7 @@ class DerivaModelElementsCLI(BaseCLI):
             table = DerivaTable(catalog, schema_name, table_name)
             if args.asset_table:
                 table.create_asset_table(args.asset_table)
-            if args.visible_columns:
+            if args._visible_columns:
                 table.create_default_visible_columns(really=args.replace)
 
         except HTTPError as e:

@@ -198,8 +198,8 @@ class DerivaCSVModel:
         keys = []
         for cols in csvschema._key_columns:
             mapped_cols = [csvschema.map_name(i) for i in cols]
-            mapped_name = csvschema.map_name('{}_{})'.format(csvschema.table_name, '_'.join(cols)))
-            constraint_name = (csvschema.schema_name, '{}_key)'.format(mapped_name))
+            mapped_name = csvschema.map_name('{}_{}'.format(csvschema.table_name, '_'.join(cols)))
+            constraint_name = (csvschema.schema_name, '{}_key'.format(mapped_name))
             keys.append(em.Key.define(mapped_cols, constraint_names=[constraint_name]))
 
         return keys

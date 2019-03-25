@@ -434,53 +434,23 @@ class DerivaTableConfigure(DerivaTable):
         with DerivaModel(self.catalog) as m:
             table = m.model().schemas[self.schema_name].tables[self.table_name]
 
-            if chaise_tags.visible_columns not in table.annotations or really:
-                table.annotations[chaise_tags.visible_columns] = self.default_visible_column_list()
-            else:
-                spec = self.default_visible_column_list()
-                if '*' not in table.annotations[chaise_tags.visible_columns]:
-                    table.annotations[chaise_tags.visible_columns]['*'] = spec['*']
-                if 'entry' not in table.annotations[chaise_tags.visible_columns]:
-                    table.annotations[chaise_tags.visible_columns]['entry'] = spec['entry']
-        return self
-
-    def default_visible_column_list(self):
-        """
-        Create a general visible columns annotation spec that would be consistant with what chaise does by default.
-        This spec can then be added to a table and edited for user preference.
-        :return:
-        """
-        with DerivaModel(self.catalog) as m:
-            table = m.model().schemas[self.schema_name].tables[self.table_name]
-
             column_names = [i.name for i in table.column_definitions]
-            # First go through the list of foreign keys and create a list of key columns and referenced columns. Keep
-            # track of columns that are in composite keys so we only output column spec once.
-            simple_fkeys, fkeys = {},{}
-            skip_columns = []
-            for fk in table.foreign_keys:
-                ckey = [c['column_name'] for c in fk.foreign_key_columns] # List of names in composite key.
-                skip_columns.extend(ckey[1:])
-                fkeys[ckey[0]] = fk.names[0]
-                if len(ckey) == 1:
-                    simple_fkeys[ckey[0]] = fk.names[0]
+            position = {'RCB': ['Owner']} if 'Owner' in column_names else {}
+            vc = self.visible_columns()
 
-            # Move Owner column to be right after RMB if they both exist.
-            if 'Owner' in column_names and 'RMB' in column_names:
-                column_names.insert(column_names.index('RMB') + 1, column_names.pop(column_names.index('Owner')))
+            # Don't overwrite existing annotations if they are already in place.
+            if chaise_tags.visible_columns not in table.annotations or really:
+                self.set_annotation(chaise_tags.visible_columns, {'*': [], 'entry': []})
+                contexts = {DerivaModel.Context('entry'), DerivaModel.Context('*')}
+            else:
+                contexts = set({})
+                if '*' not in table.annotations[chaise_tags.visible_columns]:
+                    contexts.add(DerivaModel.Context('*'))
+                if 'entry' not in table.annotations[chaise_tags.visible_columns]:
+                    contexts.add({DerivaModel.Context('entry')})
 
-            # Entry will convert all FK columns to the associated outbound specs.  For general spec, we will only
-            # do FK specs for columns that have single value FK constraints.
-            return {
-                'entry': [
-                    {'source': [{'outbound': fkeys[i]}, 'RID'] if i in fkeys else i}
-                    for i in column_names if i not in skip_columns
-                ],
-                '*': [
-                    {'source': [{'outbound': simple_fkeys[i]}, 'RID'] if i in simple_fkeys else i}
-                    for i in column_names
-                ]
-            }
+            if contexts != {}:
+                vc.insert_visible_columns(column_names, contexts=contexts, position=position, create=True)
 
     def configure_table_defaults(self, set_policy=True, public=False, reset_visible_columns=True):
         """
