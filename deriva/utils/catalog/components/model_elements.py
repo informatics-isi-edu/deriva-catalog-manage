@@ -15,9 +15,6 @@ from deriva.core.utils import eprint
 
 from deriva.utils.catalog.version import __version__ as VERSION
 
-IS_PY2 = (sys.version_info[0] == 2)
-IS_PY3 = (sys.version_info[0] == 3)
-
 logger = logging.getLogger(__name__)
 
 CATALOG_CONFIG__TAG = 'tag:isrd.isi.edu,2019:catalog-config'
@@ -27,23 +24,25 @@ class DerivaCatalogError(Exception):
     def __init__(self, msg):
         self.msg = msg
 
+class DerivaContext(Enum):
+    compact="compact"
+    compact_brief = "compact/brief"
+    compact_select = "compact/select"
+    detailed = "detailed"
+    entry = "entry"
+    entry_edit = "entry/edit"
+    entry_create = "entry/create"
+    filter = "filter"
+    row_name="row_name"
+    row_name_title="row_name/title"
+    row_name_compact="row_name/compact"
+    row_name_detailed="row_name/detailed"
+    star="*"
+    all="all"
 
 class DerivaModel:
-    class Context(Enum):
-        compact="compact"
-        compact_brief = "compact/brief"
-        compact_select = "compact/select"
-        detailed = "detailed"
-        entry = "entry"
-        entry_edit = "entry/edit"
-        entry_create = "entry/create"
-        filter = "filter"
-        row_name="row_name"
-        row_name_title="row_name/title"
-        row_name_compact="row_name/compact"
-        row_name_detailed="row_name/detailed"
-        star="*"
-        all="all"
+
+    contexts = {i for i in DerivaContext if i is not DerivaContext("all")}
 
     def __init__(self, catalog):
         self.catalog = catalog
@@ -155,6 +154,25 @@ class DerivaSchema:
         for t in self.catalog.model.schemas[self.schema_name].tables:
             print('{}'.format(t))
 
+    @property
+    def comment(self):
+        with DerivaModel(self.catalog) as m:
+            return m.table(self.schema_name, self.table_name).comment
+
+    @comment.setter
+    def comment(self, value):
+        with DerivaModel(self.catalog) as m:
+            m.table(self.schema_name, self.table_name).comment = value
+
+    @property
+    def acls(self):
+        with DerivaModel(self.catalog) as m:
+            return m.schemas[self.schema_name].acls
+
+    @acls.setter
+    def acls(self, value):
+        with DerivaModel(self.catalog) as m:
+            m.schemas[self.schema_name].acls.update(value)
 
     def _make_table_instance(self, schema_name, table_name):
         return DerivaTable(self.catalog, schema_name, table_name)
@@ -212,11 +230,11 @@ class DerivaVisibleColumns:
 
         # Get the contexts list into a standard form...
         if type(contexts) is str:
-            contexts = {DerivaModel.Context(contexts)}
-        elif type(contexts) is DerivaModel.Context:
+            contexts = {DerivaContext(contexts)}
+        elif type(contexts) is DerivaContext:
             contexts = {contexts}
-        elif contexts == {} or contexts == DerivaModel.Context.all:
-            contexts = {i for i in DerivaModel.Context}
+        elif contexts == {} or contexts == DerivaContext.all:
+            contexts = DerivaModel.contexts
 
         with DerivaModel(self.table.catalog) as m:
             table = m.model().table(self.table.schema_name, self.table.table_name)
@@ -246,7 +264,7 @@ class DerivaVisibleColumns:
             vcs = {}
             for context, vc_list in self.table._visible_columns().items():
                 # Get list of column names that are in the spec, mapping back simple FK references.
-                if DerivaModel.Context(context) not in contexts:
+                if DerivaContext(context) not in contexts:
                     continue
 
                 vc_names = [DerivaSourceSpec(self.table, i)._referenced_columns() for i in vc_list]
@@ -262,7 +280,7 @@ class DerivaVisibleColumns:
                     vc_names.append(col)
 
                 vcs[context] = new_vc
-            vcs= self._reorder_visible_columns(vcs, position)
+            vcs = self._reorder_visible_columns(vcs, position)
 
             # All is good, so update the visible columns annotation.
             self.table.set_annotation(chaise_tags.visible_columns, {**self.table._visible_columns(), **vcs})
@@ -279,7 +297,7 @@ class DerivaVisibleColumns:
         return vc
 
     def delete_visible_columns(self, columns, contexts=[]):
-        context_names = [i.value for i in (DerivaModel.Context if contexts == [] else contexts)]
+        context_names = [i.value for i in (DerivaContext if contexts == [] else contexts)]
 
         for context, vc_list in self.table._visible_columns().items():
             # Get list of column names that are in the spec, mapping back simple FK references.
@@ -318,12 +336,12 @@ class DerivaVisibleColumns:
             return visible_columns
 
         # Set up positions to apply to all contexts if you have {key_column: column_list} form.
-        positions = OrderedDict(positions) if positions.keys() in DerivaModel.Context \
-            else OrderedDict({DerivaModel.Context.all: positions})
+        positions = OrderedDict(positions) if positions.keys() in DerivaContext \
+            else OrderedDict({DerivaContext.all: positions})
         position_contexts = \
             {
                 i.value for i in \
-                (DerivaModel.Context if positions.keys() == {} or positions.keys() == {DerivaModel.Context.all} \
+                (DerivaContext if positions.keys() == {} or positions.keys() == {DerivaContext.all} \
                  else positions.keys())
             }
 
@@ -338,7 +356,7 @@ class DerivaVisibleColumns:
             # Now build up a map that has the indexes of the reordered columns.  Include the columns in order
             # Unless they are in the column_list, in which case, insert them immediately after the key column.
             reordered_names = vc_names[:]
-            for key_col, column_list in positions.get(context, positions[DerivaModel.Context.all]).items():
+            for key_col, column_list in positions.get(context, positions[DerivaContext.all]).items():
                 if  not (set(column_list + [key_col]) <= set(vc_names)):
                     raise DerivaCatalogError('Invalid position specificaion in reorder columns')
                 mapped_list = [j for i in reordered_names if i not in column_list
@@ -420,12 +438,13 @@ class DerivaSourceSpec:
             return {
                 **self.spec,
                 **{'source':
-                       (
+                    (
                         {
-                            'outbound': self.table._update_key_name(self.source[0]['outbound'], column_map, dest_sname, dest_tname)
+                            'outbound': self.table._update_key_name(self.source[0]['outbound'], column_map, dest_sname,
+                                                                    dest_tname)
                         },
                         self.source[1]
-                       )}
+                    )}
             }
         return self.spec
 
@@ -447,6 +466,36 @@ class DerivaTable:
         self.schema_name = schema_name
         self.table_name = table_name
         self.deleted = False
+
+    @property
+    def comment(self):
+        with DerivaModel(self.catalog) as m:
+            return m.table(self.schema_name, self.table_name).comment
+
+    @comment.setter
+    def comment(self,value):
+        with DerivaModel(self.catalog) as m:
+            m.table(self.schema_name, self.table_name).comment = value
+
+    @property
+    def acls(self):
+        with DerivaModel(self.catalog) as m:
+            return m.table(self.schema_name, self.table_name).acls
+
+    @acls.setter
+    def acls(self, value):
+        with DerivaModel(self.catalog) as m:
+            return m.table(self.schema_name, self.table_name).acls.update(value)
+
+    @property
+    def acl_bindings(self):
+        with DerivaModel(self.catalog) as m:
+            return m.table(self.schema_name, self.table_name).acls
+
+    @acl_bindings.setter
+    def acls(self, value):
+        with DerivaModel(self.catalog) as m:
+            m.schemas(self.schema_name, self.table_name).acl_bindings.update(value)
 
     def annotations(self):
         with DerivaModel(self.catalog) as m:
@@ -596,6 +645,8 @@ class DerivaTable:
             k: self._update_columns_in_display(v, column_name_map) if k == chaise_tags.display else
                self.visible_columns().rename_columns_in_visible_columns(column_name_map, dest_sname, dest_tname)
                if k == chaise_tags.visible_columns else
+               self.visible_foreign_keys().rename_columns_in_visible_fkeys(column_name_map, dest_sname, dest_tname)
+               if k == chaise_tags.visible_foreign_keys else
             v
             for k, v in self.annotations().items()
         }
@@ -665,7 +716,7 @@ class DerivaTable:
         Given an existing FK, create a new FK that reflects column renaming caused by changing the column name, or
         by moving the column to a new table and/or schema.
         :param fk: The existing fkey that is being renamed.
-        :param columns: List of columns that are being renamed.  Used to determine if FK is being impacted.
+        :param columns: List of columns in this tablethat are being renamed.  Used to determine if FK is being impacted.
         :param column_name_map: dictionary that indicates column name remapping.
         :param dest_sname: new schema for the column
         :param dest_tname: new table for the column
@@ -676,31 +727,34 @@ class DerivaTable:
         # Determine if we are moving the column within the same table, or between tables.
         column_rename = self.schema_name == dest_sname and self.table_name == dest_tname
 
-        # Rename the columns that appear in foreign keys...
-        if incoming:
-            fk_schema = fk.referenced_columns[0]['schema_name']
-            fk_table = fk.referenced_columns[0]['table_name']
-            fk_columns = fk.referenced_columns[0]['schema_name']
-        else:
-            fk_schema = dest_sname
-            fk_table = dest_tname
-
         fk_columns = [i['column_name'] for i in fk.foreign_key_columns]
         referenced_columns = [i['column_name'] for i in fk.referenced_columns]
 
-        print(f'key_match {columns} {fk_columns} {column_rename}', self._key_in_columns(columns, fk_columns, column_rename))
+        # Rename the columns that appear in foreign keys...
+        if incoming:
+            fk_colnames = fk_columns
+            pk_sname = dest_sname
+            pk_tname = dest_tname
+            pk_colnames = [column_name_map.get(i, i) for i in referenced_columns]
+            names = fk.names
+            map_key =  self._key_in_columns(columns, referenced_columns, column_rename)
+        else:
+            fk_colnames =  [column_name_map.get(i, i) for i in fk_columns]
+            pk_sname = fk.referenced_columns[0]['schema_name']
+            pk_tname = fk.referenced_columns[0]['table_name']
+            pk_colnames = referenced_columns
+            names = [self._update_key_name(n, column_name_map, dest_sname, dest_tname) for n in fk.names]
+            map_key = self._key_in_columns(columns, fk_columns, column_rename)
 
         return em.ForeignKey.define(
-            [column_name_map.get(i, i) for i in fk_columns] if not incoming  else fk_columns,
-            fk.referenced_columns[0]['schema_name'] if not incoming else dest_sname,
-            fk.referenced_columns[0]['table_name'] if not incoming else dest_tname,
-            [column_name_map.get(i, i) for i in referenced_columns] if incoming else referenced_columns,
-            constraint_names=[self._update_key_name(n, column_name_map, dest_sname, dest_tname) for n in fk.names],
+            fk_colnames,
+            pk_sname, pk_tname, pk_colnames,
+            constraint_names=names,
             comment=fk.comment,
             acls=fk.acls,
             acl_bindings=fk.acl_bindings,
             annotations=fk.annotations
-        ) if self._key_in_columns(columns, fk_columns, column_rename) else fk
+        ) if map_key else fk
 
     def _rename_column_in_key(self, key, columns, column_name_map, dest_sname, dest_tname):
         """
@@ -734,11 +788,13 @@ class DerivaTable:
             print(f'columns in {self.table_name} {columns}')
             for fk in table.referenced_by:
                 fk_def = self._rename_column_in_fkey(fk, columns, column_name_map, dest_sname, dest_tname, incoming=True)
-                print(f'referenced by: fk {fk.sname} {fk.tname} {fk.names}, fk_def {fk_def.sname} {fk_def.tname} {fk_def.names}')
                 if fk_def != fk:
                     referring_table = model.schemas[fk.sname].tables[fk.tname]
+                    sname = fk.sname
+                    tname = fk.tname
                     fk.delete(self.catalog.catalog, referring_table)
-                    self.catalog.schema(fk.sname).table(fk.tname).create_fkey(fk_def)
+                    self.catalog.schema(sname).table(tname).create_fkey(fk_def)
+
             self.catalog.update_referenced_by()
 
     def _copy_keys(self, columns, column_name_map, dest_sname, dest_tname):
@@ -1012,7 +1068,7 @@ class DerivaTable:
                                     nullok=i.nullok,
                                     default=i.default,
                                     comment=i.comment,
-                                    acls=i.acls, acl_bindings=i.acl_bindings,
+                                    acls={**i.acls, **acls}, acl_bindings={**i.acl_bindings, **acl_bindings},
                                     annotations=self._rename_columns_in_column_annotations(i.annotations, column_map)
                                 )
                                 for i in table.column_definitions if i.name not in new_columns
