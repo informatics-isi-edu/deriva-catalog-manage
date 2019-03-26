@@ -12,7 +12,8 @@ from deriva.core.ermrest_config import tag as chaise_tags
 from deriva.core import ErmrestCatalog, get_credential, format_exception
 from deriva.core.utils import eprint
 from deriva.core.base_cli import BaseCLI
-from deriva.utils.catalog.components.model_elements import DerivaModel, DerivaCatalog, DerivaSchema, DerivaTable
+from deriva.utils.catalog.components.model_elements import DerivaModel, DerivaCatalog, DerivaSchema, \
+    DerivaTable, DerivaContext
 from deriva.utils.catalog.version import __version__ as VERSION
 
 logger = logging.getLogger(__name__)
@@ -441,7 +442,7 @@ class DerivaTableConfigure(DerivaTable):
             # Don't overwrite existing annotations if they are already in place.
             if chaise_tags.visible_columns not in table.annotations or really:
                 self.set_annotation(chaise_tags.visible_columns, {'*': [], 'entry': []})
-                contexts = {DerivaModel.Context('entry'), DerivaModel.Context('*')}
+                contexts = {DerivaContext('entry'), DerivaContext('*')}
             else:
                 contexts = set({})
                 if '*' not in table.annotations[chaise_tags.visible_columns]:
@@ -451,6 +452,28 @@ class DerivaTableConfigure(DerivaTable):
 
             if contexts != {}:
                 vc.insert_visible_columns(column_names, contexts=contexts, position=position, create=True)
+
+    def create_default_visible_fkey(self, really=False):
+        with DerivaModel(self.catalog) as m:
+            table = m.model().schemas[self.schema_name].tables[self.table_name]
+
+            column_names = [i.name for i in table.column_definitions]
+            position = {'RCB': ['Owner']} if 'Owner' in column_names else {}
+            vc = self.visible_foreign_keys()
+
+            # Don't overwrite existing annotations if they are already in place.
+            if chaise_tags.visible_foreign_keys not in table.annotations or really:
+                self.set_annotation(chaise_tags.visible_foreign_keys, {'*': []})
+                contexts = {DerivaContext('*')}
+            else:
+                contexts = set({})
+                if '*' not in table.annotations[chaise_tags.visible_columns]:
+                    contexts.add(DerivaModel.Context('*'))
+
+            if contexts != {}:
+                vc.insert_visible_foreign_keys(column_names, contexts=contexts, position=position, create=True)
+
+
 
     def configure_table_defaults(self, set_policy=True, public=False, reset_visible_columns=True):
         """
