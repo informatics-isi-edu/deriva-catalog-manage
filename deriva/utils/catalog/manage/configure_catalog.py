@@ -437,7 +437,6 @@ class DerivaTableConfigure(DerivaTable):
 
             column_names = [i.name for i in table.column_definitions]
             position = {'RCB': ['Owner']} if 'Owner' in column_names else {}
-            vc = self.visible_columns()
 
             # Don't overwrite existing annotations if they are already in place.
             if chaise_tags.visible_columns not in table.annotations or really:
@@ -451,7 +450,8 @@ class DerivaTableConfigure(DerivaTable):
                     contexts.add({DerivaModel.Context('entry')})
 
             if contexts != {}:
-                vc.insert_visible_columns(column_names, contexts=contexts, position=position, create=True)
+                vc = self.visible_columns()
+                vc.insert_source(column_names, contexts=contexts, position=position, create=True)
 
     def create_default_visible_fkey(self, really=False):
         with DerivaModel(self.catalog) as m:
@@ -459,7 +459,6 @@ class DerivaTableConfigure(DerivaTable):
 
             column_names = [i.name for i in table.column_definitions]
             position = {'RCB': ['Owner']} if 'Owner' in column_names else {}
-            vc = self.visible_foreign_keys()
 
             # Don't overwrite existing annotations if they are already in place.
             if chaise_tags.visible_foreign_keys not in table.annotations or really:
@@ -471,7 +470,8 @@ class DerivaTableConfigure(DerivaTable):
                     contexts.add(DerivaModel.Context('*'))
 
             if contexts != {}:
-                vc.insert_visible_foreign_keys(column_names, contexts=contexts, position=position, create=True)
+                vfk = self.visible_foreign_keys()
+                vfk.insert_visible_foreign_keys(column_names, contexts=contexts, position=position, create=True)
 
 
 
