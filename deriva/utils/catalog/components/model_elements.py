@@ -13,6 +13,8 @@ from deriva.core.ermrest_config import tag as chaise_tags
 from deriva.core import ErmrestCatalog, get_credential, format_exception
 from deriva.core.utils import eprint
 
+from urllib.parse import urlparse
+
 from deriva.utils.catalog.version import __version__ as VERSION
 
 logger = logging.getLogger(__name__)
@@ -242,7 +244,7 @@ class DerivaVisibleSources:
 
             # Create any missing contexts
             if create:
-                sources = self.table._annotation(self.tag)
+                sources = self.table.get_annotation(self.tag)
                 for i in contexts:
                     if i.value not in sources.keys():
                         sources[i.value] = []
@@ -263,7 +265,7 @@ class DerivaVisibleSources:
                     fkey_cols[fk.names[0][1]] = ckey[0]
 
             sources = {}
-            for context, source_list in self.table.annotation(self.tag).items():
+            for context, source_list in self.table.get_annotation(self.tag).items():
 
                 if DerivaContext(context) not in contexts:
                     continue
@@ -285,7 +287,7 @@ class DerivaVisibleSources:
             sources = self._reorder_sources(sources, position)
 
             # All is good, so update the visible columns annotation.
-            self.table.set_annotation(self.tag, {**self.table.annotation(self.tag), **sources})
+            self.table.set_annotation(self.tag, {**self.table.get_annotation(self.tag), **sources})
 
     def rename_columns(self, column_name_map, dest_sname, dest_tname):
         vc = {
@@ -506,7 +508,7 @@ class DerivaTable:
         with DerivaModel(self.catalog) as m:
             m.schemas(self.schema_name, self.table_name).acl_bindings.update(value)
 
-    def annotation(self, tag):
+    def get_annotation(self, tag):
         with DerivaModel(self.catalog) as m:
             table = m.table(self.schema_name, self.table_name)
             if tag not in table.annotations:
@@ -523,7 +525,7 @@ class DerivaTable:
 
 
     def visible_columns(self):
-        return DerivaVisibleSources(self)
+        return DerivaVisibleSources(self, chaise_tags.visible_columns)
 
     def _visible_columns(self):
         with DerivaModel(self.catalog) as m:
@@ -1338,6 +1340,11 @@ class DerivaTable:
             print('    ', [c['column_name'] for c in i.referenced_columns],
                   '<- {}:{}:'.format(i.foreign_key_columns[0]['schema_name'], i.foreign_key_columns[0]['table_name']),
                   [c['column_name'] for c in i.foreign_key_columns])
+
+    def uri(self):
+        p = urlparse(self.catalog.catalog.get_server_uri())
+        catalog_id = p.path.split('/')[-1]
+        print(f'{p.scheme}://{p.hostname}/chaise/recordset/#{catalog_id}/{self.schema_name}:{self.table_name}')
 
     def datapath(self):
         return self.catalog.getPathBuilder().schemas[self.schema_name].tables[self.table_name]
