@@ -446,7 +446,6 @@ class DerivaSourceSpec:
                         self.source[1]
                     )}
             }
-        return self.spec
 
     def _referenced_columns(self):
         # Return the column name that is referenced in the source spec.
@@ -458,6 +457,10 @@ class DerivaSourceSpec:
             fk_cols = self.table.foreign_keys()[t].foreign_key_columns
             return fk_cols[0]['column_name'] if len(fk_cols) == 1 else {'pseudo_column': self.source}
         return {'pseudo_column': self.source}
+
+    def from_foreign_key(self, fkey):
+        if fkey.table == self.table.table_name:
+            return
 
 
 class DerivaTable:
@@ -533,6 +536,25 @@ class DerivaTable:
             target_table = fkey_def['referenced_columns'][0]['table_name']
             fkey = m.table(self.schema_name, self.table_name).create_fkey(self.catalog.catalog, fkey_def)
             m.model().schemas[target_schema].tables[target_table].referenced_by.append(fkey)
+
+    def sources(self, merge_outbound=True):
+        with DerivaModel(self.catalog) as m:
+            table = m.table(self.schema_name, self.table_name)
+
+            # Go through the list of foreign keys and create a list of key columns and referenced columns.
+            fkey_names = {}
+            for fk in table.foreign_keys:
+                ckey = [c['column_name'] for c in fk.foreign_key_columns]  # List of names in composite key.
+                if len(ckey) == 1:
+                    fkey_names[ckey[0]] = fk.names[0]
+
+            column_sources = [
+                {'source': [{'outbound': fkey_names[col]}, 'RID'] if col in fkey_names else col}
+                        for col in table.column_definitions]
+
+            outbound_sources = [ {'source': [{'outbound': i.names[0]}, 'RID']} for i in table.foreign_keys]
+            inbound_sources = [ {'source': [{'inbound': i.names[0]}, 'RID']} for i in table.referenced_by]
+            return column_sources, outbound_sources, inbound_sources
 
     def model(self):
         with DerivaModel(self.catalog) as m:

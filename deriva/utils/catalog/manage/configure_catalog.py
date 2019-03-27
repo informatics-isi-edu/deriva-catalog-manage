@@ -435,8 +435,8 @@ class DerivaTableConfigure(DerivaTable):
         with DerivaModel(self.catalog) as m:
             table = m.model().schemas[self.schema_name].tables[self.table_name]
 
-            column_names = [i.name for i in table.column_definitions]
-            position = {'RCB': ['Owner']} if 'Owner' in column_names else {}
+            column_sources, outbound_sources, inbound_sources = self.sources(merge_outbound=True)
+            position = {'RCB': ['Owner']}
             vc = self.visible_columns()
 
             # Don't overwrite existing annotations if they are already in place.
@@ -451,14 +451,15 @@ class DerivaTableConfigure(DerivaTable):
                     contexts.add({DerivaModel.Context('entry')})
 
             if contexts != {}:
-                vc.insert_visible_columns(column_names, contexts=contexts, position=position, create=True)
+                vc.insert_visible_columns(column_sources+ inbound_sources, contexts=contexts, position=position, create=True)
 
     def create_default_visible_fkey(self, really=False):
         with DerivaModel(self.catalog) as m:
             table = m.model().schemas[self.schema_name].tables[self.table_name]
 
             column_names = [i.name for i in table.column_definitions]
-            position = {'RCB': ['Owner']} if 'Owner' in column_names else {}
+            position = {'RCB': ['Owner']}
+            column_sources, outbound_sources, inbound_sources = self.sources(merge_outbound=True)
             vc = self.visible_foreign_keys()
 
             # Don't overwrite existing annotations if they are already in place.
@@ -471,7 +472,7 @@ class DerivaTableConfigure(DerivaTable):
                     contexts.add(DerivaModel.Context('*'))
 
             if contexts != {}:
-                vc.insert_visible_foreign_keys(column_names, contexts=contexts, position=position, create=True)
+                vc.insert_visible_foreign_keys(outbound_sources+inbound_sources, contexts=contexts, position=position, create=True)
 
 
 
