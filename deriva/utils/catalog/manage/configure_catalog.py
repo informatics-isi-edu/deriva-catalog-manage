@@ -430,7 +430,7 @@ class DerivaTableConfigure(DerivaTable):
             table = m.model().schemas[self.schema_name].tables[self.table_name]
 
             column_sources, outbound_sources, inbound_sources = self.sources(merge_outbound=True)
-            position = {'RCB': ['Owner']}
+            position = {'RCB': ['Owner']} if 'Owner' in table.column_definitions.elements else {}
 
             # Don't overwrite existing annotations if they are already in place.
             if chaise_tags.visible_columns not in table.annotations or really:
@@ -444,16 +444,14 @@ class DerivaTableConfigure(DerivaTable):
                     contexts.add({DerivaContext('entry')})
 
             if contexts != {}:
-                print(f'sources {column_sources} {inbound_sources}')
                 vc = self.visible_columns()
-                vc.insert_sources(column_sources + inbound_sources, contexts=contexts, position=position, create=True)
+                vc.insert_sources(column_sources, contexts=contexts, position=position, create=True)
 
-    def create_default_visible_fkey(self, really=False):
+    def create_default_visible_foreign_keys(self, really=False):
         with DerivaModel(self.catalog) as m:
             table = m.model().schemas[self.schema_name].tables[self.table_name]
 
             _, _, inbound_sources = self.sources()
-            position = {'RCB': ['Owner']}
 
             # Don't overwrite existing annotations if they are already in place.
             if chaise_tags.visible_foreign_keys not in table.annotations or really:
@@ -466,7 +464,7 @@ class DerivaTableConfigure(DerivaTable):
 
             if contexts != {}:
                 vfk = self.visible_foreign_keys()
-                vfk.insert_sources(inbound_sources, contexts=contexts, position=position, create=True)
+                vfk.insert_sources(inbound_sources, contexts=contexts, create=True)
 
     def configure_table_defaults(self, set_policy=True, public=False, reset_visible_columns=True):
         """

@@ -150,10 +150,10 @@ collection = test_schema.create_table('Collection',
                           em.Column.define('Status', em.builtin_types['text'])]
                          )
 collection.configure_table_defaults()
-collection.create_default_visible_columns(really=True)
-
 collection.associate_tables(schema_name, table_name)
 collection.associate_tables(schema_name, public_table_name)
+collection.create_default_visible_columns(really=True)
+collection.create_default_visible_foreign_keys(really=True)
 
 test_schema.create_vocabulary('Collection_Status', 'TESTCATALOG:{RID}')
 collection.link_vocabulary('Status', schema_name, 'Collection_Status')
@@ -189,3 +189,7 @@ def test_tables():
     foo_table.move_table('WWW','Fun',
                         column_defs=[em.Column.define('NewColumn', em.builtin_types['text'], nullok=False)],
                          column_map={'ID':'NewID'}, column_fill={'NewColumn': 'hi there'}, delete_table=False)
+    
+    
+def test_move_columns():
+    pass
