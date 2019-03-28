@@ -6,6 +6,7 @@ from requests import exceptions
 import traceback
 import requests
 from requests.exceptions import HTTPError, ConnectionError
+from urllib.parse import urlparse
 
 import deriva.core.ermrest_model as em
 from deriva.core.ermrest_config import tag as chaise_tags
@@ -18,17 +19,9 @@ from deriva.utils.catalog.version import __version__ as VERSION
 
 logger = logging.getLogger(__name__)
 
-IS_PY2 = (sys.version_info[0] == 2)
-IS_PY3 = (sys.version_info[0] == 3)
-
-if IS_PY3:
-    from urllib.parse import urlparse
-else:
-    from urlparse import urlparse
 
 chaise_tags.catalog_config = 'tag:isrd.isi.edu,2019:catalog-config'
 
-logger = logging.getLogger(__name__)
 
 class DerivaConfigError(Exception):
     def __init__(self, msg):
@@ -36,8 +29,8 @@ class DerivaConfigError(Exception):
 
 
 class DerivaCatalogConfigure(DerivaCatalog):
-    def __init__(self, host, scheme='https', catalog_id=1, model=None):
-        super(DerivaCatalogConfigure, self).__init__(host, scheme=scheme, catalog_id = catalog_id)
+    def __init__(self, host, scheme='https', catalog_id=1):
+        super(DerivaCatalogConfigure, self).__init__(host, scheme=scheme, catalog_id=catalog_id)
 
     def _make_schema_instance(self, schema_name):
         return DerivaSchemaConfigure(self, schema_name)
@@ -228,7 +221,7 @@ class DerivaCatalogConfigure(DerivaCatalog):
         key_defs = [
             em.Key.define(['ID'],
                           constraint_names=[('public', 'Catalog_Group_ID_key')]),
-            em.Key.define(['ID','URL','Display_Name','Description'],
+            em.Key.define(['ID', 'URL', 'Display_Name', 'Description'],
                           constraint_names=[('public', 'Catalog_Group_ID_URL_Display_Name_Description_key')],
                           comment='Key to ensure that group only is entered once.'
                           ),
@@ -301,7 +294,6 @@ class DerivaCatalogConfigure(DerivaCatalog):
         :param reader: Name of the reader group. Defaults to catalog-reader
         :param set_policy: Set policy for catalog to support reader/writer/curator/admin groups.
         :param public: Set to true if anonymous read access should be allowed.
-        :param apply: If true then applyt the changes from the model to the catalog
         :return:
         """
 
@@ -350,12 +342,14 @@ def update_group_table(catalog):
         [{'RID': i['RID'], 'URL': group_urls(i['ID'])[0]} for i in pb.public.ERMrest_Group.entities()]
     )
 
+
 class DerivaSchemaConfigure(DerivaSchema):
     def __init__(self, catalog, schema_name):
-        super(DerivaSchemaConfigure,self).__init__(catalog, schema_name)
+        super(DerivaSchemaConfigure, self).__init__(catalog, schema_name)
 
     def _make_table_instance(self, schema_name, table_name):
         return DerivaTableConfigure(self.catalog, schema_name, table_name)
+
 
 class DerivaTableConfigure(DerivaTable):
     def __init__(self, catalog, schema_name, table_name):
@@ -417,11 +411,11 @@ class DerivaTableConfigure(DerivaTable):
 
             owner_fkey_name = '{}_Owner_fkey'.format(self.table_name)
             fk_def = em.ForeignKey.define(['Owner'],
-                                      'public', 'Catalog_Group', ['ID'],
+                                          'public', 'Catalog_Group', ['ID'],
 
-                                      acls=fkey_group_acls, acl_bindings=fkey_group_policy,
-                                      constraint_names=[(self.schema_name, owner_fkey_name)],
-                                      )
+                                          acls=fkey_group_acls, acl_bindings=fkey_group_policy,
+                                          constraint_names=[(self.schema_name, owner_fkey_name)],
+                                          )
             # Delete old fkey if there is one laying around....
             for fk in table.foreign_keys:
                 if len(fk.foreign_key_columns) == 1 and fk.foreign_key_columns[0]['column_name'] == 'Owner':
@@ -437,7 +431,6 @@ class DerivaTableConfigure(DerivaTable):
 
             column_sources, outbound_sources, inbound_sources = self.sources(merge_outbound=True)
             position = {'RCB': ['Owner']}
-            vc = self.visible_columns()
 
             # Don't overwrite existing annotations if they are already in place.
             if chaise_tags.visible_columns not in table.annotations or really:
@@ -446,21 +439,21 @@ class DerivaTableConfigure(DerivaTable):
             else:
                 contexts = set({})
                 if '*' not in table.annotations[chaise_tags.visible_columns]:
-                    contexts.add(DerivaModel.Context('*'))
+                    contexts.add(DerivaContext('*'))
                 if 'entry' not in table.annotations[chaise_tags.visible_columns]:
-                    contexts.add({DerivaModel.Context('entry')})
+                    contexts.add({DerivaContext('entry')})
 
             if contexts != {}:
-                vc.insert_visible_columns(column_sources+ inbound_sources, contexts=contexts, position=position, create=True)
+                print(f'sources {column_sources} {inbound_sources}')
+                vc = self.visible_columns()
+                vc.insert_sources(column_sources + inbound_sources, contexts=contexts, position=position, create=True)
 
     def create_default_visible_fkey(self, really=False):
         with DerivaModel(self.catalog) as m:
             table = m.model().schemas[self.schema_name].tables[self.table_name]
 
-            column_names = [i.name for i in table.column_definitions]
+            _, _, inbound_sources = self.sources()
             position = {'RCB': ['Owner']}
-            column_sources, outbound_sources, inbound_sources = self.sources(merge_outbound=True)
-            vc = self.visible_foreign_keys()
 
             # Don't overwrite existing annotations if they are already in place.
             if chaise_tags.visible_foreign_keys not in table.annotations or really:
@@ -469,12 +462,11 @@ class DerivaTableConfigure(DerivaTable):
             else:
                 contexts = set({})
                 if '*' not in table.annotations[chaise_tags.visible_columns]:
-                    contexts.add(DerivaModel.Context('*'))
+                    contexts.add(DerivaContext('*'))
 
             if contexts != {}:
-                vc.insert_visible_foreign_keys(outbound_sources+inbound_sources, contexts=contexts, position=position, create=True)
-
-
+                vfk = self.visible_foreign_keys()
+                vfk.insert_sources(inbound_sources, contexts=contexts, position=position, create=True)
 
     def configure_table_defaults(self, set_policy=True, public=False, reset_visible_columns=True):
         """
@@ -529,9 +521,9 @@ class DerivaTableConfigure(DerivaTable):
                         fk.delete(self.catalog.catalog, table)
 
                 fk_def = em.ForeignKey.define([col],
-                                          'public', 'ERMrest_Client', ['ID'],
-                                          constraint_names=[(self.schema_name, fk_name)],
-                                          )
+                                              'public', 'ERMrest_Client', ['ID'],
+                                              constraint_names=[(self.schema_name, fk_name)],
+                                              )
                 table.create_fkey(self.catalog.catalog, fk_def)
 
                 # Add a display annotation so that we have sensible name for RCB and RMB.
@@ -581,7 +573,7 @@ class DerivaConfigureCatalogCLI(BaseCLI):
     def main(self):
 
         args = self.parse_cli()
-        credentials = self._get_credential(args.host)
+
         catalog = DerivaCatalogConfigure(args.host, catalog_id=args.catalog)
 
         try:
