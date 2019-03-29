@@ -1,16 +1,12 @@
-from attrdict import AttrDict
 import random
 import datetime
 import string
 import os
-from deriva.core import ErmrestCatalog, get_credential, DerivaServer
+from deriva.core import get_credential, DerivaServer
 import deriva.core.ermrest_model as em
 from deriva.utils.catalog.manage.deriva_csv import DerivaCSV
-from deriva.utils.catalog.manage.configure_catalog import DerivaCatalogConfigure, DerivaTableConfigure
-import deriva.utils.catalog.components.model_elements as model_elements
-from deriva.core.ermrest_config import tag as chaise_tags
-import configure_catalog
-from deriva.utils.catalog.components.model_elements import DerivaCatalog, DerivaSchema, DerivaTable
+from configure_catalog import DerivaCatalogConfigure
+from deriva.utils.catalog.components.model_elements import DerivaTable
 import csv
 
 server = 'dev.isrd.isi.edu'
@@ -155,14 +151,14 @@ collection.associate_tables(schema_name, public_table_name)
 collection.create_default_visible_columns(really=True)
 collection.create_default_visible_foreign_keys(really=True)
 
-test_schema.create_vocabulary('Collection_Status', 'TESTCATALOG:{RID}')
-collection.link_vocabulary('Status', schema_name, 'Collection_Status')
+collection_status = test_schema.create_vocabulary('Collection_Status', 'TESTCATALOG:{RID}')
+collection.link_vocabulary('Status', collection_status)
 
 print('Adding element to collection')
 collection.datapath().insert([{'Name': 'Foo', 'Description':'My collection'}])
 
 def test_copy():
-    column_map = {'Field_1':'Field_1A', 'Status': {'visible': {'*', 'entry'}}}
+    column_map = {'Field_1':'Field_1A', 'Status': 'Status1'}
     column_defs = [em.Column.define('Status', em.builtin_types['int4'], nullok=False)]
     table.copy_table('TestSchema','Foo1', column_map=column_map, column_defs=column_defs, column_fill={'Status':1} )
 
@@ -175,12 +171,7 @@ def test_tables():
 
     print('Apply done')
 
-
-    chaise_url = 'https://{}/chaise/recordset/#{}/{}:{}'.format(server, catalog_id, schema_name,public_table_name)
-    group_url = 'https://{}/chaise/recordset/#{}/{}:{}'.format(server, catalog_id, 'public','Catalog_Group')
-
-    print(chaise_url)
-    print(group_url)
+    global foo_table
 
     foo_table = DerivaTable(catalog, schema_name, "Foo")
 

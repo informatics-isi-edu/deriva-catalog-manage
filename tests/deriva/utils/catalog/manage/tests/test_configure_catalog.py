@@ -1,18 +1,13 @@
 from unittest import TestCase
-import datetime
 import os
 import csv
 import sys
-import string
 import tempfile
-import random
 import warnings
 import logging
 
-from tableschema import exceptions
 from deriva.utils.catalog.manage.deriva_csv import DerivaCSV
-import deriva.utils.catalog.manage.configure_catalog as configure_catalog
-import deriva.utils.catalog.manage.dump_catalog as dump_catalog
+import configure_catalog as configure_catalog
 from deriva.core import get_credential
 import deriva.core.ermrest_model as em
 from deriva.utils.catalog.manage.utils import TempErmrestCatalog
@@ -28,9 +23,9 @@ logger.addHandler(logging.StreamHandler())
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 
 if sys.version_info >= (3, 0):
-    from urllib.parse import urlparse
+    pass
 if sys.version_info < (3, 0) and sys.version_info >= (2, 5):
-    from urlparse import urlparse
+    pass
 
 
 class TestConfigureCatalog(TestCase):
