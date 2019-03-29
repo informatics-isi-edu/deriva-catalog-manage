@@ -215,13 +215,16 @@ class DerivaVisibleSources:
         self.table = table
         self.tag = tag
 
+    def __str__(self):
+        ''.join([f'{k}\n{v}' for k,v in self.table.get_annotation(self.tag)])
+
     def validate(self):
-        for c, l in self.table.annotation(self.tag).items():
+        for c, l in self.table.get_annotation(self.tag).items():
             for j in l:
                 DerivaSourceSpec(self.table, j)
 
     def display(self):
-        print(self.table.annotation(self.tag))
+        print(self.table.get_annotation(self.tag))
 
     def insert_sources(self, source_list, position={}, contexts={}, create=False):
         """
@@ -288,13 +291,13 @@ class DerivaVisibleSources:
             # All is good, so update the visible columns annotation.
             self.table.set_annotation(self.tag, {**self.table.get_annotation(self.tag), **sources})
 
-    def rename_columns(self, column_name_map, dest_table):
-        print(f'rename_columns {column_name_map}')
+    def rename_columns(self, column_map, dest_table):
+        print(f'rename_columns {column_map}')
         vc = {
             k: [
                 j for i in v for j in (
-                    [i] if (DerivaSourceSpec(self.table, i).rename_column(column_name_map, dest_table) == i)
-                    else [DerivaSourceSpec(self.table, i).rename_column(column_name_map, dest_table)]
+                    [i] if (DerivaSourceSpec(self.table, i).rename_column(column_map, dest_table) == i)
+                    else [DerivaSourceSpec(self.table, i).rename_column(column_map, dest_table)]
                 )
             ] for k, v in self.table.get_annotation(self.tag).items()
         }
@@ -446,7 +449,7 @@ class DerivaSourceSpec:
 
     def rename_column(self, column_map, dest_table):
         if type(self.source) is str:
-            return {**self.spec, **{'source': column_map.get(self.source, self.source)}}
+            return {**self.spec, **{'source': self._column_map(column_map, 'name').get(self.source, self.source)}}
         # We have a FK list....
         if type(self.source) is list and len(self.source) == 2:
             print(f'rename_column {column_map}')
@@ -483,6 +486,9 @@ class DerivaTable:
         self.schema_name = schema_name
         self.table_name = table_name
         self.deleted = False
+
+    def validate(self):
+        self.visible_columns().validate()
 
     def _column_names(self):
         table = self.catalog.model.schemas[self.schema_name].tables[self.table_name]
@@ -620,10 +626,10 @@ class DerivaTable:
             return column_sources, outbound_sources, inbound_sources
 
     @staticmethod
-    def _rename_columns_in_display(dval, column_name_map):
+    def _rename_columns_in_display(dval, column_map):
         def rename_markdown_pattern(pattern):
             # Look for column names {{columnname}} in the templace and update.
-            for k, v in column_name_map:
+            for k, v in self._column_map(column_map, 'name'):
                 pattern = pattern.replace('{{{}}}'.format(k), '{{{}}}'.format(v))
             return pattern
 
@@ -646,7 +652,7 @@ class DerivaTable:
             new_annotations[k] = renamed
         return new_annotations
 
-    def _rename_column_in_fkey(self, fk, columns, column_name_map, dest_table, incoming=False):
+    def _rename_column_in_fkey(self, fk, columns, column_map, dest_table, incoming=False):
         """
         Given an existing FK, create a new FK that reflects column renaming caused by changing the column name, or
         by moving the column to a new table and/or schema.
@@ -663,6 +669,7 @@ class DerivaTable:
 
         fk_columns = [i['column_name'] for i in fk.foreign_key_columns]
         referenced_columns = [i['column_name'] for i in fk.referenced_columns]
+        column_name_map = self._column_map(column_map, 'name')
 
         # Rename the columns that appear in foreign keys...
         if incoming:
@@ -690,7 +697,7 @@ class DerivaTable:
             annotations=fk.annotations
         ) if map_key else fk
 
-    def _rename_column_in_key(self, key, columns, column_name_map, dest_table):
+    def _rename_column_in_key(self, key, columns, column_map, dest_table):
         """
         Create a new key def
         :param key:
@@ -703,7 +710,7 @@ class DerivaTable:
 
         return em.Key.define(
             [column_name_map.get(c, c) for c in key.unique_columns],
-            constraint_names=[self._update_key_name(n, column_name_map, dest_table) for n in key.names],
+            constraint_names=[self._update_key_name(n, column_map, dest_table) for n in key.names],
             comment=key.comment,
             annotations=key.annotations
         ) if self._key_in_columns(columns, key.unique_columns, column_rename) else key
@@ -830,6 +837,17 @@ class DerivaTable:
                     fkey.referenced_columns[0]['table_name']
                 ]
                 del referenced.referenced_by[fkey]
+
+    @staticmethod
+    def _column_map(self, column_map, field):
+        map = {}
+        for k, v in column_map.items():
+            if type(i) is str and field == 'name':
+                map[k] = v
+            elif field in v:
+                map[k] = v
+            map
+        return map
 
     def delete_columns(self, columns):
         """

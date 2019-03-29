@@ -158,7 +158,7 @@ print('Adding element to collection')
 collection.datapath().insert([{'Name': 'Foo', 'Description':'My collection'}])
 
 def test_copy():
-    column_map = {'Field_1':'Field_1A', 'Status': 'Status1'}
+    column_map = {'Field_1':'Field_1A', 'Status': {'name':'Status1', 'nullok':False, 'fill': 1}}
     column_defs = [em.Column.define('Status', em.builtin_types['int4'], nullok=False)]
     table.copy_table('TestSchema','Foo1', column_map=column_map, column_defs=column_defs, column_fill={'Status':1} )
 
