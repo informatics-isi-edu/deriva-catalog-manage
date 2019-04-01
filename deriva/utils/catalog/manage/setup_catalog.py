@@ -5,7 +5,7 @@ import os
 from deriva.core import get_credential, DerivaServer
 import deriva.core.ermrest_model as em
 from deriva.utils.catalog.manage.deriva_csv import DerivaCSV
-from configure_catalog import DerivaCatalogConfigure
+from deriva.utils.catalog.components.configure_catalog import DerivaCatalogConfigure
 from deriva.utils.catalog.components.model_elements import DerivaTable, \
     DerivaColumnDef, DerivaKeyDef, DerivaForeignKeyDef, DerivaVisibleSources, DerivaContext
 import csv
@@ -162,6 +162,8 @@ def test_insert():
     table.create_columns(DerivaColumnDef('TestCol',em.builtin_types['text']))
     table.create_columns(DerivaColumnDef('TestCol3', em.builtin_types['text']), positions={'*'})
     
+def test_delete():
+    table.delete_columns(['TestCol','TestCol3'])
 
 def test_copy():
     column_map = {'Field_1':'Field_1A', 'Status': {'name':'Status1', 'nullok':False, 'fill': 1}}
@@ -174,6 +176,10 @@ def test_delete_column():
     foo_table = DerivaTable(catalog, schema_name, "Foo")
     foo_table.delete_columns(['Field_3'])
 
+
+def test_rename_column():
+    table.create_columns(DerivaColumnDef('TestCol',em.builtin_types['text']))
+    table.create_fkey(DerivaForeignKeyDef())
     
 def test_tables():
     print('Renaming column')

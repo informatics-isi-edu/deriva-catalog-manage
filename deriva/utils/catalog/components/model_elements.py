@@ -489,7 +489,7 @@ class DerivaSourceSpec:
                     **{'source': DerivaTable._column_map(column_map, 'name').get(self.source, self.source)}
                     }
         elif self.source_type() == 'outbound':
-            # We have a FK list....
+            # We have a FK list.  Go through the elements and remap any matching FK names.
             return {
                 **self.spec,
                 **{'source':
@@ -521,7 +521,7 @@ class DerivaSourceSpec:
 
 DerivaColumnDef = namedtuple(
     'DerivaColumnDef',
-    ['name', 'type', 'nullok', 'default', 'fill', 'comment', 'acls', 'acl_bindings', 'annotations'])
+    ['name', 'type', 'schema', 'table', 'nullok', 'default', 'fill', 'comment', 'acls', 'acl_bindings', 'annotations'])
 DerivaColumnDef.__new__.__defaults__ = (None,) * (len(DerivaColumnDef._fields) - 1)
 
 DerivaKeyDef = namedtuple('DerivaKeyDef', ['name', 'columns', 'comment', 'annotations'])
@@ -529,7 +529,7 @@ DerivaKeyDef.__new__.__defaults__ = (None,) * (len(DerivaKeyDef._fields) - 1)
 
 DerivaForeignKeyDef = namedtuple(
     'DerivaForeignKeyDef',
-    ['name', 'type', 'nullok', 'default', 'fill', 'comment', 'acls', 'acl_bindings', 'annotations'])
+    ['name', 'schema', 'table', 'columns', 'comment', 'acls', 'acl_bindings', 'annotations'])
 DerivaForeignKeyDef.__new__.__defaults__ = (None,) * (len(DerivaForeignKeyDef._fields) - 1)
 
 
@@ -653,6 +653,8 @@ class DerivaTable:
             target_table = fkey_def['referenced_columns'][0]['table_name']
             fkey = m.table(self).create_fkey(self.catalog.catalog, fkey_def)
             m.model().schemas[target_schema].tables[target_table].referenced_by.append(fkey)
+            # TODO Need to go over source list and update to change column spec to FK spec.
+            # TODO Need to add FK to visible  FK list of table that you are refering to.
 
     def sources(self, merge_outbound=False):
         with DerivaModel(self.catalog) as m:
@@ -892,14 +894,23 @@ class DerivaTable:
 
     def _add_keys_to_column_map(self, columns, column_map, dest_table):
         """
-        Go through the column map and add mappings for keys and foreign keys.
+        Put a column map into a standard format.
+        Go through the column map and add mappings for keys and foreign keys. First put the column map into a standard
+        form which is a dictionary in the form of {source-name: DerivaColumnDef} where source bname can be in the form
+        of a column or key name.  Then add entries for all keys that will be renamed under the map of column names.
         :param columns:
         :param column_map:
         :param dest_table:
         :return:
         """
         # Make sure column_map is in standard form.
-        column_map = {k: DerivaColumnDef(**({'name': v} if isinstance(v, str) else v)) for k, v in column_map.items()}
+        column_map = {
+            k: DerivaColumnDef(**({'name': v, 'table': dest_table} if isinstance(v, str) else v))
+            for k, v in column_map.items()
+        }
+        for c in column_map:
+            if not c.table:
+                c.table = dest_table
 
         # Collect up all of the column name maps.
         column_name_map = self._column_map(column_map,'name')
@@ -968,7 +979,7 @@ class DerivaTable:
                 table.column_definitions[column].delete(self.catalog.catalog, table)
         return
 
-    def _copy_columns(self, columns, dest_table, column_map={}):
+    def copy_columns(self, columns, dest_table, column_map={}):
         """
         Copy a set of columns, updating visible columns list and keys to mirror source column.
         :param columns: a list of columns
@@ -977,7 +988,7 @@ class DerivaTable:
         :return:
         """
 
-        column_map = self._add_keys_to_map(column_map)
+        column_map = self._add_keys_to_column_map(columns, column_map, dest_table)
 
         column_name_map = self._column_map(column_map, 'name')
         nullok = self._column_map(column_map, 'nullok')
@@ -1021,13 +1032,16 @@ class DerivaTable:
 
             # Copy over the keys.
             self._copy_keys(columns, column_name_map, dest_table)
+
+            # Update visible column spec, putting copied column right next to the source column.
+            positions = {col: [column_name_map[col] for col in columns}
         return
 
     def create_columns(self, columns, positions={}, visible=True):
         """
         Create a new column in the table.
         :param columns: Either a DerivaColumnDef, or a
-        :param position:  Where the column should be added into the visible columns spec.
+        :param positions:  Where the column should be added into the visible columns spec.
         :param visible: Include this column in the visible columns spec.
         :return:
         """
@@ -1059,8 +1073,6 @@ class DerivaTable:
         if visible:
             self.visible_columns().insert_sources(column_names, positions)
 
-
-
     def rename_column(self, from_column, to_column, default=None, nullok=None):
         """
         Rename a column by copying it and then deleting the origional column.
@@ -1070,7 +1082,7 @@ class DerivaTable:
         :param nullok:
         :return:
         """
-        column_map = {from_column: DerivaColumnDef(name=to_column, default=default, nullok=nullok)}
+        column_map = {from_column: DerivaColumnDef(name=to_column, table=self, default=default, nullok=nullok)}
         self.rename_columns([from_column], self, column_map=column_map)
         return
 
@@ -1085,7 +1097,7 @@ class DerivaTable:
         """
         with DerivaModel(self.catalog) as m:
             table = m.table(self)
-            self._copy_columns(columns, dest_table, column_map=column_map)
+            self.copy_columns(columns, dest_table, column_map=column_map)
             # Update column name in ACL bindings....
             self._rename_columns_in_acl_bindings(column_map)
 
@@ -1383,6 +1395,8 @@ class DerivaTable:
                 i[chaise_tags.column_display] = {'*': {'markdown_pattern': '[**{{URL}}**]({{{URL}}})'}}
             if i['name'] == 'Filename':
                 i[chaise_tags.column_display] = {'*': {'markdown_pattern': '[**{{Filename}}**]({{{URL}}})'}}
+            if i['name'] == 'Length' or i['name'] == 'MD5' or i['name'] == 'URL':
+                i[chaise_tags.generated] = True
 
         with DerivaModel(self.catalog) as m:
             model = m.model()
