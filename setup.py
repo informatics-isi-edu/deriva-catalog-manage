@@ -22,14 +22,20 @@ def get_readme_contents():
 
 
 url = 'https://github.com/informatics-isi-edu/deriva-catalog-manage'
+author = 'USC Information Sciences Institute, Informatics Systems Research Division'
+author_email = 'isrd-support@isi.edu'
+
+
 setup(
     name='deriva-catalog-manage',
     description='DERIVA catalog management utilities built on deriva-py.',
     long_description='For further information, visit the project [homepage](%s).' % url,
     long_description_content_type='text/markdown',
     url=url,
-    maintainer='USC Information Sciences Institute, Informatics Systems Research Division',
-    maintainer_email='isrd-support@isi.edu',
+    author=author,
+    author_email=author_email,
+    maintainer=author,
+    maintainer_email=author_email,
     version=__version__,
     packages=find_packages(),
     package_data={},
@@ -47,19 +53,15 @@ setup(
         'goodtables',
         'graphviz',
         'tabulator',
-        'urllib',
-        'urlparse',
         'yapf'
     ],
     install_requires=[
         'requests',
         'yapf',
-        'tableschema',
         'goodtables',
-        'tabulator',
         'graphviz',
         'attrdict',
-        'deriva>=0.8.1'
+        'deriva>=0.8.2'
     ],
     license='Apache 2.0',
     classifiers=[
