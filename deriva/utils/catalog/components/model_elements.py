@@ -224,33 +224,56 @@ class DerivaVisibleSources:
                 DerivaSourceSpec(self.table, j)
 
     def display(self):
-        for k,v in self.table.get_annotation(self.tag).items():
+        for k, v in self.table.get_annotation(self.tag).items():
             print(k, v)
 
-    def insert_sources(self, source_list, position={}, contexts={}, create=False):
+    @staticmethod
+    def _normalize_positions(positions):
+        """
+        A position can be in the form:
+          {context: {key:list}, context: {key:list} ...}
+          {key:list, ...}
+          {context,context}
+        where context can be all.  Convert these into a standard format:
+           { context: {key:list} ...}
+        :param positions: position list
+        :return: normalized position.
+        """
+        # If just a set of contexts, convert to normal form.
+        if isinstance(positions, set) or positions == {}:
+            return OrderedDict({DerivaContext(j): []
+                                for i in positions
+                                for j in (DerivaModel.contexts
+                                          if DerivaContext(i) is DerivaContext("all") else [i])})
+
+        try:
+            # Map all contexts to enum values...
+            return OrderedDict({DerivaContext(j): v
+                            for k, v in positions.items()
+                            for j in (DerivaModel.contexts
+                                      if DerivaContext(k) is DerivaContext("all") else [k])})
+
+        except ValueError:
+            # Keys are not valid context name, so we must have keylist dictionary.
+            return OrderedDict({k: positions for k in DerivaModel.contexts})
+
+    def insert_context(self, context, sources=[]):
+        context = DerivaContext(context)
+        # Map over sources and make sure that they are all ok before we inster...
+        sources = [DerivaSourceSpec(self.table, j).spec for j in sources]
+        self.table.get_annotation(self.tag).update({context.value: sources})
+
+    def insert_sources(self, source_list, positions={}):
         """
         Create a general visible columns annotation spec that would be consistant with what chaise does by default.
         This spec can then be added to a table and edited for user preference.
         :return:
         """
 
-        # Get the contexts list into a standard form...
-        if type(contexts) is str:
-            contexts = {DerivaContext(contexts)}
-        elif type(contexts) is DerivaContext:
-            contexts = {contexts}
-        elif contexts == {} or contexts == DerivaContext.all:
-            contexts = DerivaModel.contexts
+        positions = self._normalize_positions(positions)
 
         with DerivaModel(self.table.catalog) as m:
             table = m.model().table(self.table.schema_name, self.table.table_name)
-
-            # Create any missing contexts
-            if create:
-                sources = self.table.get_annotation(self.tag)
-                for i in contexts:
-                    if i.value not in sources.keys():
-                        sources[i.value] = []
 
             # Identify any columns that are references to assets and collect up associated columns.
             skip_columns, assets = [], []
@@ -271,7 +294,7 @@ class DerivaVisibleSources:
 
             sources = {}
             for context, context_list in self.table.get_annotation(self.tag).items():
-                if DerivaContext(context) not in contexts:
+                if DerivaContext(context) not in positions.keys():
                     continue
 
                 # Get list of column names that are in the spec, mapping back simple FK references.
@@ -288,7 +311,7 @@ class DerivaVisibleSources:
                     source_names.append(col_name)
 
                 sources[context] = new_context
-            sources = self._reorder_sources(sources, position)
+            sources = self._reorder_sources(sources, positions)
 
             # All is good, so update the visible columns annotation.
             self.table.set_annotation(self.tag, {**self.table.get_annotation(self.tag), **sources})
@@ -321,8 +344,8 @@ class DerivaVisibleSources:
                     vc_names.remove(col)
 
     def reorder_visible_source(self, positions):
-        vc = self._reorder_sources(self.table.annotation(self.tag), positions)
-        self.table.set_annotation(self.tag, {**self.table.annotation(self.tag), **vc})
+        vc = self._reorder_sources(self.table.get_annotation(self.tag), positions)
+        self.table.set_annotation(self.tag, {**self.table.get_annotation(self.tag), **vc})
 
     def _reorder_sources(self, sources, positions):
         """
@@ -339,22 +362,17 @@ class DerivaVisibleSources:
         :param positions:
         :return:
         """
+
         if positions == {}:
             return sources
 
         # Set up positions to apply to all contexts if you have {key_column: column_list} form.
-        positions = OrderedDict(positions) if positions.keys() in DerivaContext \
-            else OrderedDict({DerivaContext.all: positions})
-        position_contexts = \
-            {
-                i.value for i in
-                (DerivaContext if positions.keys() == {} or positions.keys() == {DerivaContext.all}
-                 else positions.keys())
-            }
+        positions = self._normalize_positions(positions)
 
         new_sources = {}
         for context, source_list in sources.items():
-            if context not in position_contexts:
+            deriva_context = DerivaContext(context)
+            if deriva_context not in positions.keys():
                 continue
 
             # Get the list of column names for the spec.
@@ -364,7 +382,7 @@ class DerivaVisibleSources:
             # Unless they are in the column_list, in which case, insert them immediately after the key column.
             reordered_names = source_names[:]
 
-            for key_col, column_list in positions.get(context, positions[DerivaContext.all]).items():
+            for key_col, column_list in positions[deriva_context].items():
                 if not (set(column_list + [key_col]) <= set(source_names)):
                     raise DerivaCatalogError('Invalid position specification in reorder columns')
                 mapped_list = [j for i in reordered_names if i not in column_list
@@ -393,20 +411,19 @@ class DerivaVisibleForeignKeys(DerivaVisibleSources):
 class DerivaSourceSpec:
     def __init__(self, table, spec):
         self.table = table
-        self.spec = spec
-        self.source = self.normalize_column_entry(spec)['source']
+        self.spec = spec.spec if isinstance(spec, DerivaSourceSpec) else spec
+        self.source = self.normalize_column_entry(self.spec)['source']
         self.column_name = self._referenced_columns()
 
     def source_type(self):
         if type(self.source) is str:
             return 'column'
-        elif isinstance(self.source, (list,tuple)) and len(self.source) ==2:
+        elif isinstance(self.source, (list, tuple)) and len(self.source) == 2:
             if 'inbound' in self.source[0]:
                 return 'inbound'
             elif 'outbound' in self.source[0]:
                 return 'outbound'
         return None
-
 
     def normalize_column_entry(self, spec):
         with DerivaModel(self.table.catalog) as m:
@@ -465,7 +482,7 @@ class DerivaSourceSpec:
                     **{'source': DerivaTable._column_map(column_map, 'name').get(self.source, self.source)}
                     }
         elif self.source_type() == 'outbound':
-        # We have a FK list....
+            # We have a FK list....
             return {
                 **self.spec,
                 **{'source':
@@ -495,6 +512,20 @@ class DerivaSourceSpec:
             return
 
 
+DerivaColumnDef = namedtuple(
+    'DerivaColumnDef',
+    ['name', 'type', 'nullok', 'default', 'fill', 'comment', 'acls', 'acl_bindings', 'annotations'])
+DerivaColumnDef.__new__.__defaults__ = (None,) * (len(DerivaColumnDef._fields) - 1)
+
+DerivaKeyDef = namedtuple('DerivaKeyDef', ['name', 'columns', 'comment', 'annotations'])
+DerivaKeyDef.__new__.__defaults__ = (None,) * (len(DerivaKeyDef._fields) - 1)
+
+DerivaForeignKeyDef = namedtuple(
+    'DerivaForeignKeyDef',
+    ['name', 'type', 'nullok', 'default', 'fill', 'comment', 'acls', 'acl_bindings', 'annotations'])
+DerivaForeignKeyDef.__new__.__defaults__ = (None,) * (len(DerivaForeignKeyDef._fields) - 1)
+
+
 class DerivaTable:
     def __init__(self, catalog, schema_name, table_name):
         self.catalog = catalog
@@ -511,6 +542,7 @@ class DerivaTable:
 
     def display(self):
         table = self.catalog.model.schemas[self.schema_name].tables[self.table_name]
+        print('{}:{}'.format(self.schema_name, self.table_name))
         for i in table.column_definitions:
             print('{}\t{}\tnullok:{}\tdefault:{}'.format(i.name, i.type.typename, i.nullok, i.default))
 
@@ -527,7 +559,7 @@ class DerivaTable:
                   '<- {}:{}:'.format(i.foreign_key_columns[0]['schema_name'], i.foreign_key_columns[0]['table_name']),
                   [c['column_name'] for c in i.foreign_key_columns])
 
-    def uri(self):
+    def chaise_uri(self):
         p = urlparse(self.catalog.catalog.get_server_uri())
         catalog_id = p.path.split('/')[-1]
         print(f'{p.scheme}://{p.hostname}/chaise/recordset/#{catalog_id}/{self.schema_name}:{self.table_name}')
@@ -694,7 +726,7 @@ class DerivaTable:
             pk_tname = dest_table.table_name
             pk_colnames = [column_name_map.get(i, i) for i in referenced_columns]
             names = fk.names
-            map_key = self._key_in_columns(columns, referenced_columns, column_rename)
+            map_key = self._key_in_columns(columns, referenced_columns, dest_table)
         else:
             fk_colnames = [column_name_map.get(i, i) for i in fk_columns]
             pk_sname = fk.referenced_columns[0]['schema_name']
@@ -715,21 +747,20 @@ class DerivaTable:
 
     def _rename_column_in_key(self, key, columns, column_map, dest_table):
         """
-        Create a new key def
+        Create a new key def using the column remapping.
         :param key:
         :param columns:
         :param column_map:
         :param dest_table:
         :return:
         """
-        column_rename = self.schema_name == dest_table.schema_name and self.table_name == dest_table.table_name
 
         return em.Key.define(
             [self._column_map(column_map, 'name').get(c, c) for c in key.unique_columns],
             constraint_names=[self._update_key_name(n, column_map, dest_table) for n in key.names],
             comment=key.comment,
             annotations=key.annotations
-        ) if self._key_in_columns(columns, key.unique_columns, column_rename) else key
+        ) if self._key_in_columns(columns, key.unique_columns, dest_table) else key
 
         # Now look through incoming foreign keys to make sure none of them changed.
 
@@ -741,8 +772,7 @@ class DerivaTable:
     def _rename_columns_in_column_annotations(self, annotation, column_map):
         return annotation
 
-    @staticmethod
-    def _key_in_columns(columns, key_columns, rename):
+    def _key_in_columns(self, columns, key_columns, dest_table):
         """
         Given a set of columns and a key, return true if the key is in that column set.  If we are simply renaming
         columns, rather then moving them to a new table, not all of the columns in a composite key have to be present.
@@ -753,11 +783,13 @@ class DerivaTable:
         :return: True if the key is contained within columns.
         """
         overlap = set(columns).intersection(set(key_columns))
+        # Determine if we are moving the column within the same table, or between tables.
+        rename = self.schema_name == dest_table.schema_name and self.table_name == dest_table.table_name
 
         if len(overlap) == 0:
             return False
         if not rename and len(overlap) < len(key_columns):
-            raise DerivaCatalogError(msg='Cannot rename part of compound key')
+            raise DerivaCatalogError(msg=f'Cannot rename part of compound key {key_columns}')
         return True
 
     def _check_composite_keys(self, columns, dest_table, rename=None):
@@ -790,7 +822,7 @@ class DerivaTable:
         # Helper function that creates a new constraint name by replacing table and column names.
         name = name[1].replace('{}_'.format(self.table_name), '{}_'.format(dest_table.table_name))
 
-        for k, v in column_map.items():
+        for k, v in self._column_map(column_map, 'name').items():
             name = name.replace(k, v)
         return dest_table.schema_name, name
 
@@ -855,13 +887,39 @@ class DerivaTable:
 
     @staticmethod
     def _column_map(column_map, field):
-        sub_map = {}
-        for k, v in column_map.items():
-            if type(v) is str and field == 'name':
-                sub_map[k] = v
-            elif field in v:
-                sub_map[k] = v
-        return sub_map
+        return {k: getattr(v, field) for k, v in column_map.items() if getattr(v, field)}
+
+    def _add_keys_to_column_map(self, columns, column_map, dest_table):
+        # Make sure column_map is in standard for.
+        column_map = {k: DerivaColumnDef(v) if type(v) is str else v for k, v in column_map.items()}
+
+        # Collect up all of the column name maps.
+        column_name_map = {k: v['name'] for k, v in column_map if type(k) is str}
+
+        with DerivaModel(self.catalog) as m:
+            table = m.table(self)
+
+            # Get new key and fkey definitions by mapping to new column names.
+            column_map.update(
+                {key.names[0]:
+                     DerivaKeyDef(self._update_key_name(key.names[0], column_map, dest_table),
+                                  [column_name_map.get(c, c) for c in
+                                   [i['column_name'] for i in key.unique_columns]
+                                   ]
+                                  )
+                 for key in table.keys if self._key_in_columns(columns, key.unique_columns, dest_table)
+                 }
+            )
+
+            column_map.update(
+                {fkey.names[0]:
+                     DerivaForeignKeyDef(self._update_key_name(fkey.names[0], column_map, dest_table),
+                                         [column_name_map.get(c, c) for c in
+                                          [i['column_name'] for i in fkey.foreign_key_columns]])
+                 for fkey in table.foreign_keys if self._key_in_columns(columns, fkey.unique_columns, dest_table)
+                 }
+            )
+            return column_map
 
     def delete_columns(self, columns):
         """
@@ -907,6 +965,8 @@ class DerivaTable:
         :return:
         """
 
+        column_map = self._add_keys_to_map(column_map)
+
         column_name_map = self._column_map(column_map, 'name')
         nullok = self._column_map(column_map, 'nullok')
         default = self._column_map(column_map, 'default')
@@ -951,6 +1011,28 @@ class DerivaTable:
             self._copy_keys(columns, column_name_map, dest_table)
         return
 
+    def create_column(self, column, position={}):
+        try:
+            column_def = em.Column.define(
+                column.name,
+                column.type,
+                nullok=column.nullok if column.nullok else True,
+                comment=column.comment if column.comment else None,
+                acls=column.acls if column.acls else {},
+                acl_bindings=column.acl_bindings if column.acl_bindings else {},
+                annotations=column.annotations if column.annotations else {},
+                default=column.default
+            )
+            column_name = column.name
+        except AttributeError:
+            column_def = column.name
+
+        print(column_def)
+        with DerivaModel(self.catalog) as m:
+            table = m.table(self)
+            table.create_column(m.catalog.catalog, column_def)
+            self.visible_columns().insert_sources([column_name], position)
+
     def rename_column(self, from_column, to_column, default=None, nullok=None):
         """
         Rename a column by copying it and then deleting the origional column.
@@ -960,13 +1042,8 @@ class DerivaTable:
         :param nullok:
         :return:
         """
-        column_map = {from_column: {'name': to_column}}
-        if default:
-            column_map['default'] = default
-        if nullok:
-            column_map['nullok'] = nullok
-
-        self.rename_columns([from_column], self, column_map={from_column: to_column})
+        column_map = {from_column: DerivaColumnDef(name=to_column, default=default, nullok=nullok)}
+        self.rename_columns([from_column], self, column_map=column_map)
         return
 
     def rename_columns(self, columns, dest_table, column_map, delete=True):
@@ -1004,7 +1081,7 @@ class DerivaTable:
     def _relink_table(self, dest_table, column_name_map={}):
         with DerivaModel(self.catalog) as m:
             model = m.model()
-            table = model.table(self)
+            table = m.table(self)
 
             for fk in table.referenced_by:
                 fk_def = self._rename_column_in_fkey(
@@ -1051,11 +1128,13 @@ class DerivaTable:
         :return:
         """
 
+        column_map = self._add_fkeys_to_column_map(column_map)
+
         proto_table = namedtuple('ProtoTable', ['schema_name', 'table_name'])(schema_name, table_name)
+
         with DerivaModel(self.catalog) as m:
             model = m.model()
             table = model.schemas[self.schema_name].tables[self.table_name]
-
             # Get new key and fkey definitions by mapping to new column names.
             keys = [
                 self._rename_column_in_key(k, self._column_names(), column_map, proto_table)

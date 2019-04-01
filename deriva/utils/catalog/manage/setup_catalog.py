@@ -6,7 +6,8 @@ from deriva.core import get_credential, DerivaServer
 import deriva.core.ermrest_model as em
 from deriva.utils.catalog.manage.deriva_csv import DerivaCSV
 from configure_catalog import DerivaCatalogConfigure
-from deriva.utils.catalog.components.model_elements import DerivaTable
+from deriva.utils.catalog.components.model_elements import DerivaTable, \
+    DerivaColumnDef, DerivaKeyDef, DerivaForeignKeyDef, DerivaVisibleSources, DerivaContext
 import csv
 
 server = 'dev.isrd.isi.edu'
@@ -157,12 +158,23 @@ collection.link_vocabulary('Status', collection_status)
 print('Adding element to collection')
 collection.datapath().insert([{'Name': 'Foo', 'Description':'My collection'}])
 
+def test_insert():
+    table.create_column(DerivaColumnDef('TestCol',em.builtin_types['text']))
+    table.create_column(DerivaColumnDef('TestCol3', em.builtin_types['text']), position={'*'})
+    
+
 def test_copy():
     column_map = {'Field_1':'Field_1A', 'Status': {'name':'Status1', 'nullok':False, 'fill': 1}}
     column_defs = [em.Column.define('Status', em.builtin_types['int4'], nullok=False)]
-    table.copy_table('TestSchema','Foo1', column_map=column_map, column_defs=column_defs, column_fill={'Status':1} )
+    global foo1 
+    foo1 = table.copy_table('TestSchema','Foo1', column_map=column_map, column_defs=column_defs, column_fill={'Status':1} )
 
 
+def test_delete_column():
+    foo_table = DerivaTable(catalog, schema_name, "Foo")
+    foo_table.delete_columns(['Field_3'])
+
+    
 def test_tables():
     print('Renaming column')
     collection.rename_column('Status','MyStatus')
@@ -175,7 +187,7 @@ def test_tables():
 
     foo_table = DerivaTable(catalog, schema_name, "Foo")
 
-    foo_table.delete_columns(['Field_1'])
+    foo_table.delete_columns(['Field_3'])
 
     foo_table.move_table('WWW','Fun',
                         column_defs=[em.Column.define('NewColumn', em.builtin_types['text'], nullok=False)],
