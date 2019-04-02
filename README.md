@@ -1,4 +1,9 @@
 # deriva-catalog-manage
+[![PyPi Version](https://img.shields.io/pypi/v/deriva-catalog-manage.svg)](https://pypi.python.org/pypi/deriva-catalog-manage)
+[![PyPi Wheel](https://img.shields.io/pypi/wheel/deriva-catalog-manage.svg)](https://pypi.python.org/pypi/deriva-catalog-manage)
+[![Python Versions](https://img.shields.io/pypi/pyversions/deriva-catalog-manage.svg)](https://pypi.python.org/pypi/deriva-catalog-manage)
+[![License](https://img.shields.io/pypi/l/deriva-catalog-manage.svg)](http://www.apache.org/licenses/LICENSE-2.0)
+
 Deriva catalog management using deriva-py. Deriva catalog management streamlines common tasks associated with creating
 and managing catalog.  For example, given an empty catalog and a CSV file that is an example of a table, a functioning
 catalog can be created by:
