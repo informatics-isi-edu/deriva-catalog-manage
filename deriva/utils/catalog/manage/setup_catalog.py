@@ -158,13 +158,16 @@ collection.link_vocabulary('Status', collection_status)
 print('Adding element to collection')
 collection.datapath().insert([{'Name': 'Foo', 'Description':'My collection'}])
 
-def test_insert():
-    table.create_columns(DerivaColumnDef('TestCol',em.builtin_types['text']))
-    table.create_columns(DerivaColumnDef('TestCol3', em.builtin_types['text']), positions={'*'})
+def test_create_columns():
+    table.create_columns(DerivaColumnDef('TestCol',em.builtin_types['text'], table))
+    table.create_columns(DerivaColumnDef('TestCol3', em.builtin_types['text'], table), positions={'*'})
     
-def test_delete():
+def test_delete_columns():
     table.delete_columns(['TestCol','TestCol3'])
-
+    
+def copy_columns():
+    table.copy_columns({'Field_1':'Foobar', 'RCB':'RCB1'})
+    
 def test_copy():
     column_map = {'Field_1':'Field_1A', 'Status': {'name':'Status1', 'nullok':False, 'fill': 1}}
     column_defs = [em.Column.define('Status', em.builtin_types['int4'], nullok=False)]
