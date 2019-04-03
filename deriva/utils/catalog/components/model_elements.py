@@ -1563,15 +1563,15 @@ class DerivaColumnDef:
                  acls={},
                  acl_bindings={},
                  annotations={}):
-        self.name = name,
-        self.type = type,
+        self.name = name
+        self.type = type
         self.table = table
-        self.nullok = nullok,
-        self.default = default,
-        self.fill = fill,
-        self.comment = comment,
-        self.acls = acls,
-        self.acl_bindings = acl_bindings,
+        self.nullok = nullok
+        self.default = default
+        self.fill = fill
+        self.comment = comment
+        self.acls = acls
+        self.acl_bindings = acl_bindings
         self.annotations = annotations
 
     def column_def(self):
