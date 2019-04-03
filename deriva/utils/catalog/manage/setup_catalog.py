@@ -159,13 +159,15 @@ print('Adding element to collection')
 collection.datapath().insert([{'Name': 'Foo', 'Description':'My collection'}])
 
 def test_create_columns():
-    table.create_columns(DerivaColumnDef('TestCol',em.builtin_types['text'], table))
+    table.create_columns(
+        [table.column_def('TestCol', em.builtin_types['text']),
+                        em.Column.define('TestCol1',em.builtin_types['text'])])
     table.create_columns(DerivaColumnDef('TestCol3', em.builtin_types['text'], table), positions={'*'})
     
 def test_delete_columns():
-    table.delete_columns(['TestCol','TestCol3'])
+    table.delete_columns(['TestCol','TestCol1', 'TestCol3'])
     
-def copy_columns():
+def test_copy_columns():
     table.copy_columns({'Field_1':'Foobar', 'RCB':'RCB1'})
     
 def test_copy():
