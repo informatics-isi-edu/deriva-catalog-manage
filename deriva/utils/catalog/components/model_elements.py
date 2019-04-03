@@ -1,8 +1,7 @@
 import logging
 from enum import Enum
 from typing import NamedTuple, Any
-from sortedcollections import OrderedDict
-from collections import namedtuple
+from collections import namedtuple, OrderedDict
 import deriva.core.ermrest_model as em
 from deriva.core.ermrest_config import MultiKeyedList
 
@@ -232,7 +231,7 @@ class DerivaVisibleSources:
                 try:
                     new_context.append(DerivaSourceSpec(self.table, j).spec)
                 except DerivaCatalogError:
-                    print(f"Removing {c} {j}")
+                    print("Removing {} {}".format(c,j))
             new_vs.update({c: new_context})
         if not dryrun:
             self.table.set_annotation(self.tag, new_vs)
@@ -315,7 +314,6 @@ class DerivaVisibleSources:
                             (source.column_name != 'pseudo_column' and source.column_name in source_names):
                         # Skip over asset columns in entry context and make sure we don't have repeat column specs.
                         continue
-                    print('spec A', source.spec)
                     new_context.append(source.spec)
                     source_names.append(source.column_name)
 
@@ -419,7 +417,6 @@ class DerivaSourceSpec:
     def __init__(self, table, spec):
         self.table = table
         self.spec = spec.spec if isinstance(spec, DerivaSourceSpec) else self.normalize_column_entry(spec)
-        print(spec, self.spec)
         self.source = self.spec['source']
         self.column_name = self._referenced_columns()
 
@@ -1086,6 +1083,7 @@ class DerivaTable:
         column_names = []
         columns = columns if type(columns) is list else [columns]
         for column in columns:
+            print(column.type)
             try:
                 # column is a DerivaColumnDef
                 column_def = em.Column.define(
@@ -1101,9 +1099,10 @@ class DerivaTable:
             except AttributeError:
                 # Got a column definition already.
                 column_def = column
+            except TypeError as e:
+                print('Should not be here', e)
 
             column_names.append(column_def['name'])
-            print(f'column def {column_def}')
             with DerivaModel(self.catalog) as m:
                 table = m.table(self)
                 table.create_column(m.catalog.catalog, column_def)
