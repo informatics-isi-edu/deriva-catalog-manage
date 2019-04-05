@@ -919,15 +919,18 @@ class DerivaTable:
         :param dest_table:
         :return:
         """
-        # Convert any map entries that are just column names to DerivaColumnDefs
+        # Convert any map entries that are just column names or dictionaries to DerivaColumnDefs
         column_map = {
-            k: DerivaColumnDef(v, self._column_definition(k).type, dest_table) if isinstance(v, str) else v
+            k:
+                DerivaColumnDef(v, self._column_definition(k).type, dest_table) if isinstance(v, str)
+                else (
+                    DerivaColumnDef(**{**{'table': dest_table}, **v}) if isinstance(v, dict) else v)
             for k, v in column_map.items()
         }
         print(column_map)
         # Fill in any missing table attributes.
         for c in column_map.values():
-            if not c.table:
+            if type(c) is dict and not c.table:
                 c.table = dest_table
 
         # Add any columns from list that are not already in the map.

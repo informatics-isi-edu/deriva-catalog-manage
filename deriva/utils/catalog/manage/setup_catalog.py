@@ -2,13 +2,15 @@ import random
 import datetime
 import string
 import os
+import csv
+
 from deriva.core import get_credential, DerivaServer
 import deriva.core.ermrest_model as em
 from deriva.utils.catalog.manage.deriva_csv import DerivaCSV
 from deriva.utils.catalog.components.configure_catalog import DerivaCatalogConfigure
 from deriva.utils.catalog.components.model_elements import DerivaTable, \
     DerivaColumnDef, DerivaKeyDef, DerivaForeignKeyDef, DerivaVisibleSources, DerivaContext
-import csv
+
 
 server = 'dev.isrd.isi.edu'
 credentials = get_credential(server)
@@ -101,19 +103,18 @@ with open(csv_file_public, 'w', newline='') as f:
 
 # Create a test catalog
 
-new_catalog = DerivaServer('https', server, credentials).create_ermrest_catalog()
-catalog_id = new_catalog._catalog_id
-#new_catalog = ErmrestCatalog('https',host, catalog_id, credentials=credentials)
-print('Catalog_id is', catalog_id)
+def create_test_catalog():
+    new_catalog = DerivaServer('https', server, credentials).create_ermrest_catalog()
+    catalog_id = new_catalog._catalog_id
+    #new_catalog = ErmrestCatalog('https',host, catalog_id, credentials=credentials)
+    print('Catalog_id is', catalog_id)
+    catalog = DerivaCatalogConfigure(server, catalog_id=catalog_id)
 
-# Create a new schema and upload the CSVs into it.
-catalog = DerivaCatalogConfigure(server, catalog_id=catalog_id)
+    # Set up catalog into standard configuration
+    catalog.configure_baseline_catalog(catalog_name='test', admin='isrd-systems')
 
-# Set up catalog into standard configuration
-catalog.configure_baseline_catalog(catalog_name='test', admin='isrd-systems')
-
-schema = catalog.create_schema(schema_name)
-test_schema = schema
+    schema = catalog.create_schema(schema_name)
+    test_schema = schema
 
 # Upload CSVs into catalog, creating two new tables....
 csvtable = DerivaCSV(csv_file, schema_name, column_map=['ID'], key_columns='id')
