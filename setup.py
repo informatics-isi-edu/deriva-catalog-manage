@@ -42,8 +42,8 @@ setup(
     entry_points={
         'console_scripts': [
             'deriva-catalog-dump = deriva.utils.catalog.manage.dump_catalog:main',
-            'deriva-csv = deriva.utils.catalog.manage.deriva_csv:main',
             'deriva-catalog-config = deriva.utils.catalog.components.deriva_catalog:main',
+            'deriva-csv = deriva.utils.catalog.manage.deriva_csv:main'
         ]
     },
     requires=[
@@ -73,7 +73,6 @@ setup(
         'Operating System :: Microsoft :: Windows',
         'Programming Language :: Python',
         'Programming Language :: Python :: 2.7',
-        'Programming Language :: Python :: 3.3',
         'Programming Language :: Python :: 3.4',
         'Programming Language :: Python :: 3.5',
         'Programming Language :: Python :: 3.6',

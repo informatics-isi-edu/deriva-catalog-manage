@@ -1,8 +1,7 @@
 import logging
 from enum import Enum
 from typing import NamedTuple, Any
-from sortedcollections import OrderedDict
-from collections import namedtuple
+from collections import namedtuple, OrderedDict
 import deriva.core.ermrest_model as em
 from deriva.core.ermrest_config import MultiKeyedList
 
@@ -977,14 +976,17 @@ class DerivaTable:
         :param dest_table:
         :return:
         """
-        # Convert any map entries that are just column names to DerivaColumnDefs
+        # Convert any map entries that are just column names or dictionaries to DerivaColumnDefs
         column_map = {
-            k: DerivaColumnDef(v, self._column_definition(k).type, dest_table) if isinstance(v, str) else v
+            k:
+                DerivaColumnDef(v, self._column_definition(k).type, dest_table) if isinstance(v, str)
+                else (
+                    DerivaColumnDef(**{**{'table': dest_table}, **v}) if isinstance(v, dict) else v)
             for k, v in column_map.items()
         }
         # Fill in any missing table attributes.
         for c in column_map.values():
-            if not c.table:
+            if type(c) is dict and not c.table:
                 c.table = dest_table
 
         # Add any columns from list that are not already in the map.
@@ -1139,12 +1141,15 @@ class DerivaTable:
         columns = columns if type(columns) is list else [columns]
 
         for column in columns:
+            print(column.type)
             try:
                 # column is a DerivaColumnDef
                 column_def = column.column_def()
             except AttributeError:
                 # Got a column definition already.
                 column_def = column
+            except TypeError as e:
+                print('Should not be here', e)
 
             column_names.append(column_def['name'])
 
