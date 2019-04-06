@@ -68,12 +68,14 @@ def upload_test():
         with open(filename, "w") as f:
             f.write("FOOBAR {}\n".format(i))
 
+
 def create_upload_dirs(schema_name, table_name, iditer):
     os.makedirs('records/{}'.format(schema_name), exist_ok=True)
     for i in iditer:
         asset_dir = 'assets/{}/{}/{}'.format(schema_name, table_name, i)
         os.makedirs(asset_dir, exist_ok=True)
     return
+
 
 table_size = 10
 column_count = 5
@@ -135,9 +137,8 @@ def create_test_catalog():
 
 #print('Creating asset table')
 
-
 def create_collection(catalog):
-    test_schema = catalog.schema['TestSchema']
+    test_schema = catalog.schema('TestSchema')
     print('Creating collection')
     collection = test_schema.create_table('Collection',
                              [em.Column.define('Name',
@@ -157,6 +158,7 @@ def create_collection(catalog):
     
     print('Adding element to collection')
     collection.datapath().insert([{'Name': 'Foo', 'Description':'My collection'}])
+    return collection
 
 def create_link():
     pass
@@ -197,22 +199,37 @@ def test_create_key(catalog):
     table.create_key(em.Key.define(['Field_1','Field_2'], constraint_names=[(schema_name,'Foo_Field_1_Field_2')]))
     table.create_fkey(em.Key.define(['Field_1', 'Field_2'], x))
     
-def test_copy_table():
-    column_map = {'Field_1':'Field_1A', 'Status': {'name':'Status1', 'nullok':False, 'fill': 1}}
-    column_defs = [em.Column.define('Status', em.builtin_types['int4'], nullok=False)]
-    global foo1 
-    foo1 = table.copy_table('TestSchema','Foo1', column_map=column_map, column_defs=column_defs, column_fill={'Status':1} )
-
     
+def test_copy_table(catalog):
+    try:
+        catalog.schema('TestSchema').table('Foo1').delete()
+    except KeyError:
+        pass
+    column_map = {'Field_1':'Field_1A', 'ID': {'name':'ID1', 'nullok':False, 'fill': 1}, 
+                  'Status': {'type': 'int4', 'nullok': False, 'fill': 1}}
+    table = catalog.schema('TestSchema').table('Foo')
+    foo1 = table.copy_table('TestSchema','Foo1', column_map=column_map)
+    return foo1
+
+
+def test_move_table(catalog):
+    try:
+        catalog.schema('TestSchema').table('Foo1').delete()
+    except KeyError:
+        pass
+    column_map = {'Field_1':'Field_1A', 'ID': {'name':'ID1', 'nullok':False, 'fill': 1}, 
+                  'Status': {'type': 'int4', 'nullok': False, 'fill': 1}}
+        
+    table = catalog.schema('TestSchema').table('Foo')
+    column_defs = [DerivaColumnDef(table, 'Status', 'int4', nullok=False)]
+    foo1 = table.move_table('TestSchema','Foo1', column_map=column_map, delete=False)
+    return foo1
+
+
 def test_tables():
     print('Renaming column')
     collection.rename_column('Status','MyStatus')
     print('Rename done')
-    collection.apply()
-
-    print('Apply done')
-
-    global foo_table
 
     foo_table = DerivaTable(catalog, schema_name, "Foo")
 
