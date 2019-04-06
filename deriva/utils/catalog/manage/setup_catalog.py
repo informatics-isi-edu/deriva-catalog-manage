@@ -12,10 +12,6 @@ from deriva.utils.catalog.components.model_elements import DerivaTable, \
     DerivaColumnDef, DerivaKeyDef, DerivaForeignKeyDef, DerivaVisibleSources, DerivaContext
 
 
-server = 'dev.isrd.isi.edu'
-credentials = get_credential(server)
-catalog_id = 55001
-
 def generate_test_csv(columncnt):
     """
     Generate a test CSV file for testing derivaCSV routines.  First row returned will be a header.
@@ -89,19 +85,38 @@ public_table_name = 'Foo_Public'
 csv_file = table_name + '.csv'
 csv_file_public = public_table_name + ".csv"
 
-(row, headers) = generate_test_csv(column_count)
-with open(csv_file, 'w', newline='') as f:
-    tablewriter = csv.writer(f)
-    for i, j in zip(range(table_size + 1), row):
-        tablewriter.writerow(j)
+def load_csvs(catalog):
+    (row, headers) = generate_test_csv(column_count)
+    with open(csv_file, 'w', newline='') as f:
+        tablewriter = csv.writer(f)
+        for i, j in zip(range(table_size + 1), row):
+            tablewriter.writerow(j)
+    
+    (row, headers) = generate_test_csv(column_count)
+    with open(csv_file_public, 'w', newline='') as f:
+        tablewriter = csv.writer(f)
+        for i, j in zip(range(table_size + 1), row):
+            tablewriter.writerow(j)
 
-(row, headers) = generate_test_csv(column_count)
-with open(csv_file_public, 'w', newline='') as f:
-    tablewriter = csv.writer(f)
-    for i, j in zip(range(table_size + 1), row):
-        tablewriter.writerow(j)
+    # Upload CSVs into catalog, creating two new tables....
+    csv_foo = DerivaCSV(csv_file, schema_name, column_map=['ID'], key_columns='id')
+    csv_foo.create_validate_upload_csv(catalog, convert=True, create=True, upload=True)
+    
+    csv_foo_public = DerivaCSV(csv_file_public, schema_name, column_map=True, key_columns='id')
+    csv_foo_public.create_validate_upload_csv(catalog, convert=True, create=True, upload=True)
+
+    table = catalog.schema('TestSchema').table('Foo')
+    table.configure_table_defaults(public=True)
+    table.create_default_visible_columns(really=True)
+    table_public = catalog.schema('TestSchema').table('Foo')
+    table_public.configure_table_defaults(public=True)
+    table_public.create_default_visible_columns(really=True)
+    
 
 # Create a test catalog
+server = 'dev.isrd.isi.edu'
+credentials = get_credential(server)
+catalog_id = 55001
 
 def create_test_catalog():
     new_catalog = DerivaServer('https', server, credentials).create_ermrest_catalog()
@@ -114,78 +129,80 @@ def create_test_catalog():
     catalog.configure_baseline_catalog(catalog_name='test', admin='isrd-systems')
 
     schema = catalog.create_schema(schema_name)
-    test_schema = schema
-
-# Upload CSVs into catalog, creating two new tables....
-csvtable = DerivaCSV(csv_file, schema_name, column_map=['ID'], key_columns='id')
-csvtable.create_validate_upload_csv(catalog, convert=True, create=True, upload=True)
-
-csvtable_public = DerivaCSV(csv_file_public, schema_name, column_map=True, key_columns='id')
-csvtable_public.create_validate_upload_csv(catalog, convert=True, create=True, upload=True)
-
-# Now get the two tables we just created from the CSVs.  Do this two different ways, just for fun.
-table = catalog.schema(schema_name).table(table_name)
-table_public = catalog.schema(schema_name).table(public_table_name)
-
-table.configure_table_defaults(public=True)
-table.create_default_visible_columns(really=True)
-table_public.configure_table_defaults(public=True)
-table_public.create_default_visible_columns(really=True)
-
-table.create_key(em.Key.define(['Field_1','Field_2'], constraint_names=[(schema_name,'Foo_Field_1_Field_2')]))
+    return catalog   
 
 # Mess with tables:
 
-print('Creating asset table')
-table.create_asset_table('ID')
+#print('Creating asset table')
 
-print('Creating collection')
-collection = test_schema.create_table('Collection',
-                         [em.Column.define('Name',
-                                           em.builtin_types['text']),
-                          em.Column.define('Description',
-                                           em.builtin_types['markdown']),
-                          em.Column.define('Status', em.builtin_types['text'])]
-                         )
-collection.configure_table_defaults()
-collection.associate_tables(schema_name, table_name)
-collection.associate_tables(schema_name, public_table_name)
-collection.create_default_visible_columns(really=True)
-collection.create_default_visible_foreign_keys(really=True)
 
-collection_status = test_schema.create_vocabulary('Collection_Status', 'TESTCATALOG:{RID}')
-collection.link_vocabulary('Status', collection_status)
+def create_collection(catalog):
+    test_schema = catalog.schema['TestSchema']
+    print('Creating collection')
+    collection = test_schema.create_table('Collection',
+                             [em.Column.define('Name',
+                                               em.builtin_types['text']),
+                              em.Column.define('Description',
+                                               em.builtin_types['markdown']),
+                              em.Column.define('Status', em.builtin_types['text'])]
+                             )
+    collection.configure_table_defaults()
+    collection.associate_tables(schema_name, table_name)
+    collection.associate_tables(schema_name, public_table_name)
+    collection.create_default_visible_columns(really=True)
+    collection.create_default_visible_foreign_keys(really=True)
+    
+    collection_status = test_schema.create_vocabulary('Collection_Status', 'TESTCATALOG:{RID}')
+    collection.link_vocabulary('Status', collection_status)
+    
+    print('Adding element to collection')
+    collection.datapath().insert([{'Name': 'Foo', 'Description':'My collection'}])
 
-print('Adding element to collection')
-collection.datapath().insert([{'Name': 'Foo', 'Description':'My collection'}])
+def create_link():
+    pass
 
-def test_create_columns():
+# table.create_asset_table('ID')
+
+
+def test_create_columns(catalog):
+    table = catalog.schema('TestSchema').table('Foo')
     table.create_columns(
-        [table.column_def('TestCol', em.builtin_types['text']),
+        [table.definition('TestCol', em.builtin_types['text']),
                         em.Column.define('TestCol1',em.builtin_types['text'])])
-    table.create_columns(DerivaColumnDef('TestCol3', em.builtin_types['text'], table), positions={'*'})
+    table.create_columns(DerivaColumnDef(table, 'TestCol3', em.builtin_types['text']), positions={'*'})
     
-def test_delete_columns():
+def test_delete_columns(catalog):
+    table = catalog.schema('TestSchema').table('Foo')
     table.delete_columns(['TestCol','TestCol1', 'TestCol3'])
+
+
+def test_copy_columns(catalog):
+    table = catalog.schema('TestSchema').table('Foo')
+    table.copy_columns({'Field_1':'Foobar', 'RCB':'RCB1', 'ID':'ID1'})
     
-def test_copy_columns():
-    table.copy_columns({'Field_1':'Foobar', 'RCB':'RCB1'})
+def test_copy_columns_between_tables(catalog):
+    table = catalog.schema('TestSchema').table('Foo')
+    table.copy_columns({'Field_1':'Foobar', 'RCB':'RCB1', 'ID':'ID1'})
     
-def test_copy():
+
+def test_rename_columns(catalog):
+    table = catalog.schema('TestSchema').table('Foo')
+    table.copy_columns({'Field_1':'Foobar', 'RCB':'RCB1', 'ID':'ID1'})
+    table.rename_columns({'Foobar':'Foobar1', 'RCB1':'RCB2', 'ID1':'ID2'})
+    
+    
+def test_create_key(catalog):
+    table = catalog.schema('TestSchema').table('Foo')
+    table.create_columns([table.definition('FKey_Column', em.builtin_types['text'])])    
+    table.create_key(em.Key.define(['Field_1','Field_2'], constraint_names=[(schema_name,'Foo_Field_1_Field_2')]))
+    table.create_fkey(em.Key.define(['Field_1', 'Field_2'], x))
+    
+def test_copy_table():
     column_map = {'Field_1':'Field_1A', 'Status': {'name':'Status1', 'nullok':False, 'fill': 1}}
     column_defs = [em.Column.define('Status', em.builtin_types['int4'], nullok=False)]
     global foo1 
     foo1 = table.copy_table('TestSchema','Foo1', column_map=column_map, column_defs=column_defs, column_fill={'Status':1} )
 
-
-def test_delete_column():
-    foo_table = DerivaTable(catalog, schema_name, "Foo")
-    foo_table.delete_columns(['Field_3'])
-
-
-def test_rename_column():
-    table.create_columns(DerivaColumnDef('TestCol',em.builtin_types['text']))
-    table.create_fkey(DerivaForeignKeyDef())
     
 def test_tables():
     print('Renaming column')
