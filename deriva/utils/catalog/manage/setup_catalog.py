@@ -9,7 +9,7 @@ import deriva.core.ermrest_model as em
 from deriva.utils.catalog.manage.deriva_csv import DerivaCSV
 from deriva.utils.catalog.components.configure_catalog import DerivaCatalogConfigure
 from deriva.utils.catalog.components.model_elements import DerivaTable, \
-    DerivaColumnDef, DerivaKeyDef, DerivaForeignKeyDef, DerivaVisibleSources, DerivaContext
+    DerivaColumnDef, DerivaKey, DerivaForeignKey, DerivaVisibleSources, DerivaContext
 
 
 def generate_test_csv(columncnt):
@@ -137,7 +137,20 @@ def create_test_catalog():
 
 #print('Creating asset table')
 
+def delete_tables(catalog, tlist):
+    for i in tlist:
+        try:
+            catalog.schema('TestSchema').table(i).delete()
+        except KeyError:
+            pass
+
+tlist = ['Collection_Foo', 'Collection1_Foo', 'Collection_Foo_Public', 'Collection1_Foo_Public','Collection','Collection1','Collection_Status']
 def create_collection(catalog):
+    schema = catalog.schema('TestSchema')
+    tlist = ['Collection_Foo', 'Collection1_Foo', 'Collection_Foo_Public', 'Collection1_Foo_Public', 'Collection',
+             'Collection1', 'Collection_Status']
+    delete_tables(catalog, tlist)
+        
     test_schema = catalog.schema('TestSchema')
     print('Creating collection')
     collection = test_schema.create_table('Collection',
@@ -159,6 +172,13 @@ def create_collection(catalog):
     print('Adding element to collection')
     collection.datapath().insert([{'Name': 'Foo', 'Description':'My collection'}])
     return collection
+
+def move_collection(catalog):
+    schema = catalog.schema('TestSchema')
+    tlist = ['Collection1_Foo','Collection1_Foo_Public','Collection1']
+    delete_tables(catalog, tlist)
+    schema.table('Collection').move_table('TestSchema', 'Collection1')
+    schema.table('Collection_Foo').move_table('TestSchema','Collection1_Foo')
 
 def create_link():
     pass

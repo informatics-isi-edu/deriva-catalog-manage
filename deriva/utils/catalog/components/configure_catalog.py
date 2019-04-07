@@ -451,12 +451,12 @@ class DerivaTableConfigure(DerivaTable):
             table = m.model().schemas[self.schema_name].tables[self.table_name]
 
             _, _, inbound_sources = self.sources()
-
+            logger.debug(f'visible_fkeys {inbound_sources}')
             # Don't overwrite existing annotations if they are already in place.
-            if chaise_tags.visible_foreign_keys not in table.annotations or really:
+            if chaise_tags.visible_foreign_keys not in table.annotations:
                 self.set_annotation(chaise_tags.visible_foreign_keys, {})
-            if '*' not in table.annotations[chaise_tags.visible_columns] or really:
-                self.visible_columns().insert_context(DerivaContext('*'), inbound_sources)
+            if '*' not in table.annotations[chaise_tags.visible_foreign_keys] or really:
+                self.visible_foreign_keys().insert_context(DerivaContext('*'), inbound_sources)
 
     def configure_table_defaults(self, set_policy=True, public=False, reset_visible_columns=True):
         """
