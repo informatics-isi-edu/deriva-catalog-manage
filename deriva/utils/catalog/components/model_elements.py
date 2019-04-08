@@ -564,7 +564,7 @@ class DerivaSourceSpec(object):
                 elif spec in self.table.foreign_keys().elements:
                     return {'source': [{'outbound': spec}, 'RID']}
                 else:
-                    raise DerivaCatalogError('Invalid source entry {}.format(spec)')
+                    raise DerivaCatalogError('Invalid source entry {}'.format(spec))
             else:
                 return self.normalize_source_entry(spec)
 
