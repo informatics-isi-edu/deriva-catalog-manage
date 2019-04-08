@@ -25,12 +25,11 @@ from deriva.core import ErmrestCatalog, get_credential
 from deriva.core.ermrest_config import tag as chaise_tags
 from deriva.utils.catalog.manage.deriva_file_templates import table_file_template, schema_file_template, \
     catalog_file_template
+from deriva.utils.catalog.version import __version__ as VERSION
 from deriva.utils.catalog.manage.graph_catalog import DerivaCatalogToGraph
 
 IS_PY2 = (sys.version_info[0] == 2)
 IS_PY3 = (sys.version_info[0] == 3)
-
-VERSION = '0.1.0'
 
 if IS_PY3:
     from urllib.parse import urlparse

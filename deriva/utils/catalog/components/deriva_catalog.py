@@ -20,9 +20,7 @@ from deriva.utils.catalog.version import __version__ as VERSION
 
 logger = logging.getLogger(__name__)
 
-
 chaise_tags.catalog_config = 'tag:isrd.isi.edu,2019:catalog-config'
-
 
 
 class DerivaModelElementsCLI(BaseCLI):
@@ -38,6 +36,7 @@ class DerivaModelElementsCLI(BaseCLI):
 
         # parent arg parser
         parser = self.parser
+
 
 class DerivaConfigureCatalogCLI(BaseCLI):
 
@@ -66,13 +65,11 @@ class DerivaConfigureCatalogCLI(BaseCLI):
                             help='Make the catalog or table accessible for reading without logging in')
         parser.add_argument('table', default=None, metavar='SCHEMA_NAME:TABLE_NAME',
                             help='Name of table to be configured')
-        parser.add_argument('--catalog', default=1, help="ID number of desired catalog (Default:1)")
         parser.add_argument('--asset-table', default=None, metavar='KEY_COLUMN',
                             help='Create an asset table linked to table on key_column')
         parser.add_argument('--visible-columns', action='store_true',
                             help='Create a default visible columns annotation')
         parser.add_argument('--replace', action='store_true', help='Overwrite existing value')
-
 
     @staticmethod
     def _get_credential(host_name, token=None):
@@ -135,6 +132,7 @@ def main():
     DESC = "DERIVA Configure Catalog Command-Line Interface"
     INFO = "For more information see: https://github.com/informatics-isi-edu/deriva-catalog-manage"
     return DerivaConfigureCatalogCLI(DESC, INFO).main()
+
 
 if __name__ == '__main__':
     sys.exit(main())
