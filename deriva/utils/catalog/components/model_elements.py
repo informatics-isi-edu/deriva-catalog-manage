@@ -36,7 +36,7 @@ class DerivaContext(Enum):
     all = "all"
 
 
-class DerivaModel:
+class DerivaModel(object):
     contexts = {i for i in DerivaContext if i is not DerivaContext("all")}
 
     def __init__(self, catalog):
@@ -64,7 +64,7 @@ class DerivaModel:
         return self.catalog.model.schemas[table.schema_name].tables[table.table_name]
 
 
-class DerivaCatalog:
+class DerivaCatalog(object):
     def __init__(self, catalog_or_host, scheme='https', catalog_id=1):
         """
         Initialize a DerivaCatalog.  This can be done one of two ways: by passing in an Ermrestcatalog object, or
@@ -136,7 +136,7 @@ class DerivaCatalog:
             raise DerivaCatalogError(msg='Attempting to configure table before catalog is configured')
 
 
-class DerivaSchema:
+class DerivaSchema(object):
     def __init__(self, catalog, schema_name):
         self.catalog = catalog
         self.schema_name = schema_name
@@ -216,7 +216,7 @@ class DerivaSchema:
 class DerivaColumnMap(OrderedDict):
     def __init__(self, table, column_map, dest_table):
         self.table = table
-        super().__init__(self._normalize_column_map(table, column_map, dest_table))
+        super(DerivaColumnMap).__init__(self._normalize_column_map(table, column_map, dest_table))
 
     def _normalize_column_map(self, table, column_map, dest_table):
         """
@@ -289,18 +289,19 @@ class DerivaColumnMap(OrderedDict):
                 }
             )
             column_map.update(
-                {fkey.names[0]:
-                    DerivaForeignKey(
-                        table=dest_table,
-                        columns=[column_name_map.get(c['column_name'], c['column_name']) for c in
-                                 fkey.foreign_key_columns],
-                        dest_table=table.catalog.schema(fkey.referenced_columns[0]['schema_name']).table(
-                            fkey.referenced_columns[0]['table_name']),
-                        dest_columns=[c['column_name'] for c in fkey.referenced_columns],
-                        comment=fkey.comment,
-                        acls=fkey.acls,
-                        acl_bindings=fkey.acl_bindings
-                    )
+                {
+                    fkey.names[0]:
+                        DerivaForeignKey(
+                            table=dest_table,
+                            columns=[column_name_map.get(c['column_name'], c['column_name']) for c in
+                                     fkey.foreign_key_columns],
+                            dest_table=table.catalog.schema(fkey.referenced_columns[0]['schema_name']).table(
+                                fkey.referenced_columns[0]['table_name']),
+                            dest_columns=[c['column_name'] for c in fkey.referenced_columns],
+                            comment=fkey.comment,
+                            acls=fkey.acls,
+                            acl_bindings=fkey.acl_bindings
+                        )
                     for fkey in m.table(table).foreign_keys
                     if table._key_in_columns(column_name_map.keys(),
                                              [i['column_name'] for i in fkey.foreign_key_columns],
@@ -324,13 +325,13 @@ class DerivaColumnMap(OrderedDict):
         return {k: getattr(v, field) for k, v in self.items() if getattr(v, field)}
 
 
-class DerivaVisibleSources:
+class DerivaVisibleSources(object):
     def __init__(self, table, tag):
         self.table = table
         self.tag = tag
 
     def __str__(self):
-        ''.join(['{}\n{}'.format(k,v) for k, v in self.table.get_annotation(self.tag)])
+        ''.join(['{}\n{}'.format(k, v) for k, v in self.table.get_annotation(self.tag)])
 
     def validate(self):
         for c, l in self.table.get_annotation(self.tag).items():
@@ -524,15 +525,15 @@ class DerivaVisibleSources:
 
 class DerivaVisibleColumns(DerivaVisibleSources):
     def __init__(self, table):
-        super().__init__(table, chaise_tags.visible_column)
+        super(DerivaVisibleColumns).__init__(table, chaise_tags.visible_column)
 
 
 class DerivaVisibleForeignKeys(DerivaVisibleSources):
     def __init__(self, table):
-        super().__init__(table, chaise_tags.visible_foreign_keys)
+        super(DerivaVisibleForeignKeys).__init__(table, chaise_tags.visible_foreign_keys)
 
 
-class DerivaSourceSpec:
+class DerivaSourceSpec(object):
     def __init__(self, table, spec):
         self.table = table
         self.spec = spec.spec if isinstance(spec, DerivaSourceSpec) else self.normalize_column_entry(spec)
@@ -637,7 +638,7 @@ class DerivaSourceSpec:
             return
 
 
-class DerivaColumnDef:
+class DerivaColumnDef(object):
     def __init__(self, table, name, type, nullok=True, default=None, fill=None, comment=None, acls={},
                  acl_bindings={}, annotations={}):
         self.name = name
@@ -668,7 +669,7 @@ class DerivaColumnDef:
         return DerivaColumnDef(table, **column_def)
 
 
-class DerivaKey:
+class DerivaKey(object):
     def __init__(self,
                  table,
                  columns,
@@ -692,7 +693,7 @@ class DerivaKey:
         )
 
 
-class DerivaForeignKey:
+class DerivaForeignKey(object):
     def __init__(self,
                  table, columns,
                  dest_table, dest_columns,
@@ -726,7 +727,7 @@ class DerivaForeignKey:
         )
 
 
-class DerivaTable:
+class DerivaTable(object):
     def __init__(self, catalog, schema_name, table_name):
         self.catalog = catalog
         self.schema_name = schema_name
@@ -910,7 +911,7 @@ class DerivaTable:
     def _rename_columns_in_annotations(self, column_map, skip_annotations=[]):
         new_annotations = {}
         for k, v in self.annotations().items():
-            if  k in skip_annotations:
+            if k in skip_annotations:
                 renamed = v
             elif k == chaise_tags.display:
                 renamed = self._rename_columns_in_display(v, column_map)
@@ -1007,7 +1008,7 @@ class DerivaTable:
                 DerivaVisibleSources(self, k).delete_visible_source(columns)
 
     def delete_fkeys(self, fkeys):
-        fkeys = fkeys if isinstance(fkeys,list) else [fkeys]
+        fkeys = fkeys if isinstance(fkeys, list) else [fkeys]
         with DerivaModel(self.catalog) as m:
             model = m.model()
             for fk in fkeys:
@@ -1021,7 +1022,7 @@ class DerivaTable:
                 del referenced.referenced_by[fkey.names[0]]
 
     def delete_keys(self, keys):
-        keys = keys if isinstance(keys,list) else [keys]
+        keys = keys if isinstance(keys, list) else [keys]
         with DerivaModel(self.catalog) as m:
             model = m.model()
             for k in keys:
