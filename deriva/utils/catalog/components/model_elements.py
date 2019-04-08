@@ -597,7 +597,7 @@ class DerivaSourceSpec:
                     raise DerivaCatalogError('Invalid source entry {}'.format(c))
 
             if source_entry[-1] not in path_table.column_definitions.elements:
-                raise DerivaCatalogError('Invalid source entry {}'.format(source_entry[-1])')
+                raise DerivaCatalogError('Invalid source entry {}'.format(source_entry[-1]))
         return spec
 
     def rename_column(self, column_map):
