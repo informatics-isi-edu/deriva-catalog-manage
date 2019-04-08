@@ -249,7 +249,7 @@ class DerivaColumnMap(OrderedDict):
             :return:
             """
 
-            if isinstance(v, DerivaColumnDef):
+            if isinstance(v, (DerivaColumnDef, DerivaKey, DerivaForeignKey)):
                 return v
 
             try:
@@ -438,6 +438,11 @@ class DerivaVisibleSources:
             self.table.set_annotation(self.tag, {**self.table.get_annotation(self.tag), **sources})
 
     def rename_columns(self, column_map):
+        """
+        Go through a list of visible specs and rename the spec, returning a new visible column spec.
+        :param column_map:
+        :return:
+        """
         vc = {
             k: [
                 j for i in v for j in (
@@ -599,8 +604,8 @@ class DerivaSourceSpec:
         # TODO This needs to be redone.....
         if self.source_type() == 'column':
             return {**self.spec,
-                    **{'source': column_map.get(self.source, self.source).name}
-                    }
+                    **{'source': column_map[self.source].name}
+                    } if self.source in column_map else self.spec
         elif self.source_type() == 'outbound':
             # We have a FK list.  Go through the elements and remap any matching FK names.
             return {
@@ -902,10 +907,12 @@ class DerivaTable:
             for k, v in dval.items()
         }
 
-    def _rename_columns_in_annotations(self, column_map):
+    def _rename_columns_in_annotations(self, column_map, skip_annotations=[]):
         new_annotations = {}
         for k, v in self.annotations().items():
-            if k == chaise_tags.display:
+            if  k in skip_annotations:
+                renamed = v
+            elif k == chaise_tags.display:
                 renamed = self._rename_columns_in_display(v, column_map)
             elif k == chaise_tags.visible_columns:
                 renamed = self.visible_columns().rename_columns(column_map)
@@ -1042,6 +1049,7 @@ class DerivaTable:
                 DerivaVisibleSources(self, k).delete_visible_source(columns)
 
     def delete_fkeys(self, fkeys):
+        fkeys = fkeys if isinstance(fkeys,list) else [fkeys]
         with DerivaModel(self.catalog) as m:
             model = m.model()
             for fk in fkeys:
@@ -1086,14 +1094,7 @@ class DerivaTable:
             for fk in table.foreign_keys:
                 fk_columns = [i['column_name'] for i in fk.foreign_key_columns]
                 if self._key_in_columns(columns, fk_columns, self):  # We are renaming one of the foreign key columns
-                    fk.delete(self.catalog.catalog, table)
-
-            for fk in table.referenced_by:
-                referenced_columns = [i['column_name'] for i in fk.referenced_columns]
-                if self._key_in_columns(columns, referenced_columns, self):
-                    # We are renaming one of the referenced columns.
-                    referring_table = model.schemas[fk.sname].tables[fk.tname]
-                    fk.delete(self.catalog.catalog, referring_table)
+                    self.delete_fkeys(fk)
 
             for column in columns:
                 self._delete_columns_from_annotations([column])
@@ -1113,7 +1114,6 @@ class DerivaTable:
         """
         dest_table = dest_table if dest_table else self
         column_map = self._column_map(column_map, dest_table)
-        print(column_map.get_columns())
 
         columns = column_map.get_columns()
         column_names = [k for k in column_map.get_columns().keys()]
@@ -1154,7 +1154,7 @@ class DerivaTable:
     def create_columns(self, columns, positions={}, visible=True):
         """
         Create a new column in the table.
-        :param columns: Either a DerivaColumnDef, or a
+        :param columns: Either a list of DerivaColumnDef, or a ERMrest column defiiniton.
         :param positions:  Where the column should be added into the visible columns spec.
         :param visible: Include this column in the visible columns spec.
         :return:
@@ -1174,7 +1174,6 @@ class DerivaTable:
 
             with DerivaModel(self.catalog) as m:
                 table = m.table(self)
-                print('Creating column', column_def)
                 table.create_column(m.catalog.catalog, column_def)
 
         if visible:
@@ -1211,7 +1210,9 @@ class DerivaTable:
             # self._rename_columns_in_acl_bindings(column_map)
 
             # Update annotations where the old spec was being used
-            m.table(self).annotations.update(self._rename_columns_in_annotations(column_map))
+            m.table(self).annotations.update(
+                self._rename_columns_in_annotations(column_map, skip_annotations=[chaise_tags.visible_columns])
+            )
             if delete:
                 columns = [k for k in column_map.get_columns().keys()]
                 self.delete_columns(columns)

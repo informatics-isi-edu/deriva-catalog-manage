@@ -217,9 +217,10 @@ def test_copy_columns_between_tables(catalog):
 
 def test_rename_columns(catalog):
     table = catalog.schema('TestSchema').table('Foo')
-    delete_columns(table, ['Foobar', 'RCB1', 'ID1'])
-    table.copy_columns({'Field_1':'Foobar', 'RCB':'RCB1', 'ID':'ID1'})
-    table.rename_columns({'Foobar':'Foobar1', 'RCB1':'RCB2', 'ID1':'ID2'})
+    delete_columns(table, ['Foobar', 'Foobar1', 'RCB1', 'RCB2','ID1'])
+    table.copy_columns({'Field_1':'Foobar', 'RCB':'RCB1'})
+    print('renaming columns....')
+    table.rename_columns({'Foobar':'Foobar1', 'RCB1':'RCB2'})
     
     
 def test_create_key(catalog):
