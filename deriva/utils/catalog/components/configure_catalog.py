@@ -451,7 +451,7 @@ class DerivaTableConfigure(DerivaTable):
             table = m.model().schemas[self.schema_name].tables[self.table_name]
 
             _, _, inbound_sources = self.sources()
-            logger.debug(f'visible_fkeys {inbound_sources}')
+            logger.debug('visible_fkeys {}'.format(inbound_sources))
             # Don't overwrite existing annotations if they are already in place.
             if chaise_tags.visible_foreign_keys not in table.annotations:
                 self.set_annotation(chaise_tags.visible_foreign_keys, {})

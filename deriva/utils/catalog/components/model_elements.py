@@ -330,7 +330,7 @@ class DerivaVisibleSources:
         self.tag = tag
 
     def __str__(self):
-        ''.join([f'{k}\n{v}' for k, v in self.table.get_annotation(self.tag)])
+        ''.join(['{}\n{}'.format(k,v) for k, v in self.table.get_annotation(self.tag)])
 
     def validate(self):
         for c, l in self.table.get_annotation(self.tag).items():
@@ -554,7 +554,7 @@ class DerivaSourceSpec:
             table_m = m.table(self.table)
             if type(spec) is str:
                 if spec not in table_m.column_definitions.elements:
-                    raise DerivaCatalogError(f'Invalid source entry {spec}')
+                    raise DerivaCatalogError('Invalid source entry {}'.format(spec))
                 return {'source': spec}
             if isinstance(spec, (tuple, list)) and len(spec) == 2:
                 spec = tuple(spec)
@@ -575,7 +575,7 @@ class DerivaSourceSpec:
             source_entry = spec['source']
             if type(source_entry) is str:
                 if source_entry not in table_m.column_definitions.elements:
-                    raise DerivaCatalogError(f'Invalid source entry {spec}')
+                    raise DerivaCatalogError('Invalid source entry {}'.format(spec))
                 else:
                     return spec
 
@@ -594,10 +594,10 @@ class DerivaSourceSpec:
                     target_table = path_table.foreign_keys[k].referenced_columns[0]['table_name']
                     path_table = model.schemas[target_schema].tables[target_table]
                 else:
-                    raise DerivaCatalogError(f'Invalid source entry {c}')
+                    raise DerivaCatalogError('Invalid source entry {}'.format(c))
 
             if source_entry[-1] not in path_table.column_definitions.elements:
-                raise DerivaCatalogError(f'Invalid source entry {source_entry[-1]}')
+                raise DerivaCatalogError('Invalid source entry {}'.format(source_entry[-1])')
         return spec
 
     def rename_column(self, column_map):
@@ -754,7 +754,7 @@ class DerivaTable:
             print('{}\t{}\tnullok:{}\tdefault:{}'.format(i.name, i.type.typename, i.nullok, i.default))
 
         for i in table.keys:
-            print(f'\t{i.names[0][0]}:{i.names[0][1]}\t{i.unique_columns}')
+            print('\t{}:{}\t{}'.format(i.names[0][0], i.names[0][1], i.unique_columns))
 
         for i in table.foreign_keys:
             print('    ', [c['column_name'] for c in i.foreign_key_columns],
@@ -946,7 +946,7 @@ class DerivaTable:
         if len(overlap) == 0:
             return False
         if not rename and len(overlap) < len(key_columns):
-            raise DerivaCatalogError(msg=f'Cannot rename part of compound key {key_columns}')
+            raise DerivaCatalogError(msg='Cannot rename part of compound key {}'.format(key_columns))
         return True
 
     def _check_composite_keys(self, columns, dest_table):
