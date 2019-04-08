@@ -143,6 +143,13 @@ def delete_tables(catalog, tlist):
             catalog.schema('TestSchema').table(i).delete()
         except KeyError:
             pass
+        
+def delete_columns(table, tlist):
+    for i in tlist:
+        try:
+            table.delete_columns([i])
+        except KeyError:
+            pass
 
 tlist = ['Collection_Foo', 'Collection1_Foo', 'Collection_Foo_Public', 'Collection1_Foo_Public','Collection','Collection1','Collection_Status']
 def create_collection(catalog):
@@ -189,7 +196,7 @@ def create_link():
 def test_create_columns(catalog):
     table = catalog.schema('TestSchema').table('Foo')
     table.create_columns(
-        [table.definition('TestCol', em.builtin_types['text']),
+        [em.Column.define('TestCol', em.builtin_types['text']),
                         em.Column.define('TestCol1',em.builtin_types['text'])])
     table.create_columns(DerivaColumnDef(table, 'TestCol3', em.builtin_types['text']), positions={'*'})
     
@@ -200,7 +207,8 @@ def test_delete_columns(catalog):
 
 def test_copy_columns(catalog):
     table = catalog.schema('TestSchema').table('Foo')
-    table.copy_columns({'Field_1':'Foobar', 'RCB':'RCB1', 'ID':'ID1'})
+    delete_columns(table, ['Foobar','RCB1','ID1'])
+    table.copy_columns({'Field_1':'Foobar', 'RCB':'RCB1'})
     
 def test_copy_columns_between_tables(catalog):
     table = catalog.schema('TestSchema').table('Foo')
@@ -209,6 +217,7 @@ def test_copy_columns_between_tables(catalog):
 
 def test_rename_columns(catalog):
     table = catalog.schema('TestSchema').table('Foo')
+    delete_columns(table, ['Foobar', 'RCB1', 'ID1'])
     table.copy_columns({'Field_1':'Foobar', 'RCB':'RCB1', 'ID':'ID1'})
     table.rename_columns({'Foobar':'Foobar1', 'RCB1':'RCB2', 'ID1':'ID2'})
     
@@ -237,7 +246,7 @@ def test_move_table(catalog):
         catalog.schema('TestSchema').table('Foo1').delete()
     except KeyError:
         pass
-    column_map = {'Field_1':'Field_1A', 'ID': {'name':'ID1', 'nullok':False, 'fill': 1}, 
+    column_map = {'Field_1':'Field_1A', 'Foobar':'int4', 'ID': {'name':'ID1', 'nullok':False, 'fill': 1}, 
                   'Status': {'type': 'int4', 'nullok': False, 'fill': 1}}
         
     table = catalog.schema('TestSchema').table('Foo')
