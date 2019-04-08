@@ -921,48 +921,6 @@ class DerivaTable:
             new_annotations[k] = renamed
         return new_annotations
 
-    def _rename_column_in_fkey(self, fk, columns, column_map, dest_table, incoming=False):
-        """
-        Given an existing FK, create a new FK that reflects column renaming caused by changing the column name, or
-        by moving the column to a new table and/or schema.
-        :param fk: The existing fkey that is being renamed.
-        :param columns: List of columns in this tablethat are being renamed.  Used to determine if FK is being impacted.
-        :param column_map: dictionary that indicates column name remapping.
-        :param dest_table: new table for the column
-        :param incoming: True if we are renaming an incoming FK definition.
-        :return:
-        """
-
-        fk_columns = [i['column_name'] for i in fk.foreign_key_columns]
-        referenced_columns = [i['column_name'] for i in fk.referenced_columns]
-        column_name_map = self._column_map(column_map, 'name')
-
-        # Rename the columns that appear in foreign keys...
-        if incoming:
-            fk_colnames = fk_columns
-            pk_sname = dest_table.schema_name
-            pk_tname = dest_table.table_name
-            pk_colnames = [column_name_map.get(i, i) for i in referenced_columns]
-            names = fk.names
-            map_key = self._key_in_columns(columns, referenced_columns, dest_table)
-        else:
-            fk_colnames = [column_name_map.get(i, i) for i in fk_columns]
-            pk_sname = fk.referenced_columns[0]['schema_name']
-            pk_tname = fk.referenced_columns[0]['table_name']
-            pk_colnames = referenced_columns
-            names = [self._update_key_name(n, column_map) for n in fk.names]
-            map_key = self._key_in_columns(columns, fk_columns, self)
-
-        return em.ForeignKey.define(
-            fk_colnames,
-            pk_sname, pk_tname, pk_colnames,
-            constraint_names=names,
-            comment=fk.comment,
-            acls=fk.acls,
-            acl_bindings=fk.acl_bindings,
-            annotations=fk.annotations
-        ) if map_key else fk
-
     def _rename_columns_in_acl_bindings(self, column_map):
         with DerivaModel(self.catalog) as m:
             table = m.table(self)
@@ -1061,6 +1019,14 @@ class DerivaTable:
                 ]
                 self.foreign_keys()[fkey.names[0]].delete(self.catalog.catalog, m.table(self))
                 del referenced.referenced_by[fkey.names[0]]
+
+    def delete_keys(self, keys):
+        keys = keys if isinstance(keys,list) else [keys]
+        with DerivaModel(self.catalog) as m:
+            model = m.model()
+            for k in keys:
+                key = k.definition() if isinstance(k, DerivaKey) else k
+                self.keys()[key.names[0]].delete(self.catalog.catalog, m.table(self))
 
     def column_def(self, name, type,
                    nullok=True,
