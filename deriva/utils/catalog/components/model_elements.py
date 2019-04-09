@@ -135,6 +135,15 @@ class DerivaCatalog(object):
         else:
             raise DerivaCatalogError(msg='Attempting to configure table before catalog is configured')
 
+    def __getitem__(self, schema_name):
+        return self.schema(schema_name)
+
+    def __iter__(self):
+        def schema_iterator(schemas):
+            for i in schemas:
+                yield self[i]
+
+        return schema_iterator(self.model.schemas)
 
 class DerivaSchema(object):
     def __init__(self, catalog, schema_name):
@@ -145,6 +154,10 @@ class DerivaSchema(object):
     def display(self):
         for t in self.catalog.model.schemas[self.schema_name].tables:
             print('{}'.format(t))
+
+    @property
+    def name(self):
+        return self.schema_name
 
     @property
     def comment(self):
@@ -212,11 +225,21 @@ class DerivaSchema(object):
                                        annotations=annotations)
         )
 
+    def __getitem__(self, table_name):
+        return self.table(table_name)
+
+    def __iter__(self):
+        def table_iterator(schemas):
+            for i in schemas:
+                yield self[i]
+
+        return table_iterator(self.model.schemas[self.schema_name].tables)
+
 
 class DerivaColumnMap(OrderedDict):
     def __init__(self, table, column_map, dest_table):
         self.table = table
-        super(DerivaColumnMap).__init__(self._normalize_column_map(table, column_map, dest_table))
+        super().__init__(self._normalize_column_map(table, column_map, dest_table))
 
     def _normalize_column_map(self, table, column_map, dest_table):
         """
@@ -602,25 +625,32 @@ class DerivaSourceSpec(object):
         return spec
 
     def rename_column(self, column_map):
-        # TODO This needs to be redone.....
         if self.source_type() == 'column':
-            return {**self.spec,
-                    **{'source': column_map[self.source].name}
-                    } if self.source in column_map else self.spec
-        elif self.source_type() == 'outbound':
-            # We have a FK list.  Go through the elements and remap any matching FK names.
+            # Get a dictionary keyed by column names in the child table.
+            if self.source in column_map:
+                fk_cols = {
+                    fk.columns[0]:
+                        (fk.name, fk.dest_columns[0])
+                    for fk in column_map.get_foreign_keys().values() if len(fk.columns) == 1
+                }
+                # If we are renaming a column, and it is used in a foreign_key, then make the spec be a outbound
+                # source using the FK.  Otherwise, just rename the column in the spec if needed.
+                if column_map[self.source].name in fk_cols:
+                    return {'source': [{'outbound': fk_cols[self.source][0]}, fk_cols[self.source][1]]}
+                else:
+                    return {**self.spec, **{'source': column_map[self.source].name}}
+            else:
+                return self.spec
+        else:
+            # We have a list of  inbound/outbound specs.  Go through the list and replace any names that are in the map.
             return {
                 **self.spec,
-                **{'source':
-                    (
-                        {
-                            'outbound': column_map[tuple(self.source[0]['outbound'])].name
-                        },
-                        self.source[1]
-                    )}
+                **{'source': [
+                    {next(iter(s)): column_map[next(iter(s.values()))].name} if next(iter(s)) in column_map
+                    else s
+                    for s in self.source[:-1]] + self.source[-1:]
+                }
             }
-        elif self.source_type() == 'inbound':
-            return self.spec
 
     def _referenced_columns(self):
         # Return the column name that is referenced in the source spec.
@@ -632,10 +662,6 @@ class DerivaSourceSpec(object):
             fk_cols = self.table.foreign_keys()[t].foreign_key_columns
             return fk_cols[0]['column_name'] if len(fk_cols) == 1 else {'pseudo_column': self.source}
         return 'pseudo_column'
-
-    def from_foreign_key(self, fkey):
-        if fkey.table == self.table.table_name:
-            return
 
 
 class DerivaColumnDef(object):
@@ -781,6 +807,10 @@ class DerivaTable(object):
         return self.datapath().entities(*attributes, **renamed_attributes)
 
     @property
+    def name(self):
+        return self.table_name
+
+    @property
     def comment(self):
         with DerivaModel(self.catalog) as m:
             return m.table(self).comment
@@ -899,7 +929,7 @@ class DerivaTable(object):
     def _rename_columns_in_display(dval, column_map):
         def rename_markdown_pattern(pattern):
             # Look for column names {{columnname}} in the templace and update.
-            for k, v in DerivaTable._column_map(column_map, 'name'):
+            for k, v in column_map.get_names(column_map):
                 pattern = pattern.replace('{{{}}}'.format(k), '{{{}}}'.format(v))
             return pattern
 
@@ -922,7 +952,7 @@ class DerivaTable(object):
             new_annotations[k] = renamed
         return new_annotations
 
-    def _rename_columns_in_acl_bindings(self, column_map):
+    def _rename_columns_in_acl_bindings(self, _column_map):
         with DerivaModel(self.catalog) as m:
             table = m.table(self)
             return table.acl_bindings
@@ -1024,7 +1054,6 @@ class DerivaTable(object):
     def delete_keys(self, keys):
         keys = keys if isinstance(keys, list) else [keys]
         with DerivaModel(self.catalog) as m:
-            model = m.model()
             for k in keys:
                 key = k.definition() if isinstance(k, DerivaKey) else k
                 self.keys()[key.names[0]].delete(self.catalog.catalog, m.table(self))
@@ -1047,7 +1076,6 @@ class DerivaTable(object):
         :return:
         """
         with DerivaModel(self.catalog) as m:
-            model = m.model()
             table = m.table(self)
 
             self._check_composite_keys(columns, self)
@@ -1085,7 +1113,7 @@ class DerivaTable(object):
         columns = column_map.get_columns()
         column_names = [k for k in column_map.get_columns().keys()]
 
-        with DerivaModel(self.catalog) as m:
+        with DerivaModel(self.catalog):
             # TODO we need to figure out what to do about ACL binding
 
             # Make sure that we can rename the columns
@@ -1155,9 +1183,9 @@ class DerivaTable(object):
         :param nullok:
         :return:
         """
-        column_map = {from_column: DerivaColumnDef(table=self, name=to_column, coltype=from_column.type, nullok=nullok,
+        column_map = {from_column: DerivaColumnDef(table=self, name=to_column, type=from_column.type, nullok=nullok,
                                                    default=default)}
-        self.rename_columns([from_column], self, column_map=column_map)
+        self.rename_columns(column_map=column_map)
         return
 
     def rename_columns(self, column_map, dest_table=None, delete=True):
@@ -1176,7 +1204,8 @@ class DerivaTable(object):
             # Update column name in ACL bindings....
             # self._rename_columns_in_acl_bindings(column_map)
 
-            # Update annotations where the old spec was being used
+            # Update annotations where the old spec was being used. We have already moved over
+            # the visible columns, so skip the visible columns annotation.
             m.table(self).annotations.update(
                 self._rename_columns_in_annotations(column_map, skip_annotations=[chaise_tags.visible_columns])
             )
@@ -1398,7 +1427,6 @@ class DerivaTable(object):
 
         with DerivaModel(self.catalog) as m:
             model = m.model()
-            table = model.schemas[self.schema_name].tables[self.table_name]
             if key_column not in self._column_names():
                 raise DerivaCatalogError(msg='Key column not found in target table')
 
@@ -1501,7 +1529,7 @@ class DerivaTable(object):
         :return:
         """
 
-        with DerivaModel(self.catalog) as m:
+        with DerivaModel(self.catalog):
             if type(column_name) is str:
                 column_name = [column_name]
             self.create_fkey(
