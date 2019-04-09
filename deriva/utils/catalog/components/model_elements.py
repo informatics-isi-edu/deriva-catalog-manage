@@ -36,7 +36,7 @@ class DerivaContext(Enum):
     all = "all"
 
 
-class DerivaModel(object):
+class DerivaModel:
     contexts = {i for i in DerivaContext if i is not DerivaContext("all")}
 
     def __init__(self, catalog):
@@ -64,7 +64,7 @@ class DerivaModel(object):
         return self.catalog.model.schemas[table.schema_name].tables[table.table_name]
 
 
-class DerivaCatalog(object):
+class DerivaCatalog:
     def __init__(self, catalog_or_host, scheme='https', catalog_id=1):
         """
         Initialize a DerivaCatalog.  This can be done one of two ways: by passing in an Ermrestcatalog object, or
@@ -145,7 +145,7 @@ class DerivaCatalog(object):
 
         return schema_iterator(self.model.schemas)
 
-class DerivaSchema(object):
+class DerivaSchema:
     def __init__(self, catalog, schema_name):
         self.catalog = catalog
         self.schema_name = schema_name
@@ -348,7 +348,7 @@ class DerivaColumnMap(OrderedDict):
         return {k: getattr(v, field) for k, v in self.items() if getattr(v, field)}
 
 
-class DerivaVisibleSources(object):
+class DerivaVisibleSources:
     def __init__(self, table, tag):
         self.table = table
         self.tag = tag
@@ -548,15 +548,15 @@ class DerivaVisibleSources(object):
 
 class DerivaVisibleColumns(DerivaVisibleSources):
     def __init__(self, table):
-        super(DerivaVisibleColumns).__init__(table, chaise_tags.visible_column)
+        super().__init__(table, chaise_tags.visible_column)
 
 
 class DerivaVisibleForeignKeys(DerivaVisibleSources):
     def __init__(self, table):
-        super(DerivaVisibleForeignKeys).__init__(table, chaise_tags.visible_foreign_keys)
+        super().__init__(table, chaise_tags.visible_foreign_keys)
 
 
-class DerivaSourceSpec(object):
+class DerivaSourceSpec:
     def __init__(self, table, spec):
         self.table = table
         self.spec = spec.spec if isinstance(spec, DerivaSourceSpec) else self.normalize_column_entry(spec)
@@ -664,7 +664,7 @@ class DerivaSourceSpec(object):
         return 'pseudo_column'
 
 
-class DerivaColumnDef(object):
+class DerivaColumnDef:
     def __init__(self, table, name, type, nullok=True, default=None, fill=None, comment=None, acls={},
                  acl_bindings={}, annotations={}):
         self.name = name
@@ -695,7 +695,7 @@ class DerivaColumnDef(object):
         return DerivaColumnDef(table, **column_def)
 
 
-class DerivaKey(object):
+class DerivaKey:
     def __init__(self,
                  table,
                  columns,
@@ -719,7 +719,7 @@ class DerivaKey(object):
         )
 
 
-class DerivaForeignKey(object):
+class DerivaForeignKey:
     def __init__(self,
                  table, columns,
                  dest_table, dest_columns,
@@ -753,7 +753,7 @@ class DerivaForeignKey(object):
         )
 
 
-class DerivaTable(object):
+class DerivaTable:
     def __init__(self, catalog, schema_name, table_name):
         self.catalog = catalog
         self.schema_name = schema_name
