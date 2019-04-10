@@ -662,6 +662,29 @@ class DerivaSourceSpec:
         return 'pseudo_column'
 
 
+class DerivaColumn():
+    def __init__(self, table):
+        self.table = table
+
+    @property
+    def name(self):
+        return self.table.catalog.model.schemas[self.schema_name].tables[self.table_name].name
+
+    @property
+    def type(self):
+        return self.table.catalog.model.schemas[self.schema_name].tables[self.table_name].name
+
+    self.type = type if isinstance(type, em.Type) else em.builtin_types[type]
+    self.table = table
+    self.nullok = nullok
+    self.default = default
+    self.fill = fill
+    self.comment = comment
+    self.acls = acls
+    self.acl_bindings = acl_bindings
+    self.annotations = annotations
+
+
 class DerivaColumnDef:
     def __init__(self, table, name, type, nullok=True, default=None, fill=None, comment=None, acls={},
                  acl_bindings={}, annotations={}):
@@ -827,8 +850,8 @@ class DerivaTable:
         return DerivaColumnDef(self.schema(column_name))
 
     def __iter__(self):
-        def schema_iterator(schemas):
-            for i in schemas:
+        def column_iterator(schemas):
+            for i in asdf:
                 yield self[i]
         return schema_iterator(self.model.schemas)
 
