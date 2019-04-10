@@ -227,7 +227,7 @@ def test_create_key(catalog):
     table = catalog.schema('TestSchema').table('Foo')
     table.create_columns([table.definition('FKey_Column', em.builtin_types['text'])])    
     table.create_key(em.Key.define(['Field_1','Field_2'], constraint_names=[(schema_name,'Foo_Field_1_Field_2')]))
-    table.create_fkey(em.Key.define(['Field_1', 'Field_2'], x))
+    table.create_fkey(DerivaForeignKey(table, ))
     
     
 def test_copy_table(catalog):

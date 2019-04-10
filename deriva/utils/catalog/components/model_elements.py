@@ -142,7 +142,6 @@ class DerivaCatalog:
         def schema_iterator(schemas):
             for i in schemas:
                 yield self[i]
-
         return schema_iterator(self.model.schemas)
 
 class DerivaSchema:
@@ -232,7 +231,6 @@ class DerivaSchema:
         def table_iterator(schemas):
             for i in schemas:
                 yield self[i]
-
         return table_iterator(self.model.schemas[self.schema_name].tables)
 
 
@@ -718,6 +716,10 @@ class DerivaKey:
             annotations=self.annotations
         )
 
+    @staticmethod
+    def convert_def(table, key_def):
+        return DerivaKey(table, **key_def)
+
 
 class DerivaForeignKey:
     def __init__(self,
@@ -725,6 +727,8 @@ class DerivaForeignKey:
                  dest_table, dest_columns,
                  name=None,
                  comment=None,
+                 on_update='NO ACTION',
+                 on_delete='NO ACTION',
                  acls={},
                  acl_bindings={},
                  annotations={}):
@@ -737,9 +741,16 @@ class DerivaForeignKey:
         self.dest_table = dest_table
         self.dest_columns = dest_columns
         self.comment = comment
+        self.on_update = on_update
+        self.on_delete = on_delete
         self.acls = acls
         self.acl_bindings = acl_bindings
         self.annotations = annotations
+
+        fk_ops = ['CASCADE', 'DELETE', 'RESTRICT', 'NO ACTION', 'SET NULL']
+
+        if on_update not in fk_ops or on_delete not in fk_ops:
+            raise ValueError('Invalid value for on_update/on_delete {} {}'.format(on_update, on_delete))
 
     def definition(self):
         return em.ForeignKey.define(
@@ -747,10 +758,16 @@ class DerivaForeignKey:
             self.dest_table.schema_name, self.dest_table.table_name, self.dest_columns,
             constraint_names=[self.name],
             comment=self.comment,
+            on_update=self.on_update,
+            on_delete=self.on_delete,
             acls=self.acls,
             acl_bindings=self.acl_bindings,
             annotations=self.annotations
         )
+
+    @staticmethod
+    def convert_def(table, fkey_def):
+        return DerivaForeignKey(table, **fkey_def)
 
 
 class DerivaTable:
@@ -805,6 +822,15 @@ class DerivaTable:
 
     def entities(self, *attributes, **renamed_attributes):
         return self.datapath().entities(*attributes, **renamed_attributes)
+
+    def __getitem__(self, column_name):
+        return DerivaColumnDef(self.schema(column_name))
+
+    def __iter__(self):
+        def schema_iterator(schemas):
+            for i in schemas:
+                yield self[i]
+        return schema_iterator(self.model.schemas)
 
     @property
     def name(self):
@@ -882,7 +908,17 @@ class DerivaTable:
         with DerivaModel(self.catalog) as m:
             return m.table(self).foreign_keys
 
-    def create_fkey(self, fkey_def, position={}):
+    def create_fkey(self, fkey_def,
+                    columns, child_table, child_columns,
+                    name=None,
+                    comment=None,
+                    on_update='NO_ACTION',
+                    on_delete='NO_ACTION',
+                    acls={},
+                    acl_bindings={},
+                    annotations={},
+                    position={}):
+        fkey_def = DerivaForeignKey(self, columns, comment=comment, acls=acls, annotations=annotations, )
         if isinstance(fkey_def, DerivaForeignKey):
             fkey_def = fkey_def.definition()
 
