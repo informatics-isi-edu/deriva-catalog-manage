@@ -918,6 +918,7 @@ class DerivaTable:
                     acl_bindings={},
                     annotations={},
                     position={}):
+        # TODO THis needs to be finished.
         fkey_def = DerivaForeignKey(self, columns, comment=comment, acls=acls, annotations=annotations, )
         if isinstance(fkey_def, DerivaForeignKey):
             fkey_def = fkey_def.definition()
