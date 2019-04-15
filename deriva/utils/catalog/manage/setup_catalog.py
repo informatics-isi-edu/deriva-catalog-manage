@@ -107,10 +107,10 @@ def load_csvs(catalog):
     csv_foo_public = DerivaCSV(csv_file_public, schema_name, column_map=True, key_columns='id')
     csv_foo_public.create_validate_upload_csv(catalog, convert=True, create=True, upload=True)
 
-    table = catalog.schema('TestSchema').table('Foo')
+    table = catalog.schema_model('TestSchema').table_model('Foo')
     table.configure_table_defaults(public=True)
     table.create_default_visible_columns(really=True)
-    table_public = catalog.schema('TestSchema').table('Foo')
+    table_public = catalog.schema_model('TestSchema').table_model('Foo')
     table_public.configure_table_defaults(public=True)
     table_public.create_default_visible_columns(really=True)
     
@@ -140,10 +140,11 @@ def create_test_catalog():
 def delete_tables(catalog, tlist):
     for i in tlist:
         try:
-            catalog.schema('TestSchema').table(i).delete()
+            catalog.schema_model('TestSchema').table_model(i).delete()
         except KeyError:
             pass
         
+
 def delete_columns(table, tlist):
     for i in tlist:
         try:
@@ -153,12 +154,12 @@ def delete_columns(table, tlist):
 
 tlist = ['Collection_Foo', 'Collection1_Foo', 'Collection_Foo_Public', 'Collection1_Foo_Public','Collection','Collection1','Collection_Status']
 def create_collection(catalog):
-    schema = catalog.schema('TestSchema')
+    schema = catalog.schema_model('TestSchema')
     tlist = ['Collection_Foo', 'Collection1_Foo', 'Collection_Foo_Public', 'Collection1_Foo_Public', 'Collection',
              'Collection1', 'Collection_Status']
     delete_tables(catalog, tlist)
         
-    test_schema = catalog.schema('TestSchema')
+    test_schema = catalog.schema_model('TestSchema')
     print('Creating collection')
     collection = test_schema.create_table('Collection',
                              [em.Column.define('Name',
@@ -181,11 +182,11 @@ def create_collection(catalog):
     return collection
 
 def move_collection(catalog):
-    schema = catalog.schema('TestSchema')
+    schema = catalog.schema_model('TestSchema')
     tlist = ['Collection1_Foo','Collection1_Foo_Public','Collection1']
     delete_tables(catalog, tlist)
-    schema.table('Collection').move_table('TestSchema', 'Collection1')
-    schema.table('Collection_Foo').move_table('TestSchema','Collection1_Foo')
+    schema.table_model('Collection').move_table('TestSchema', 'Collection1')
+    schema.table_model('Collection_Foo').move_table('TestSchema', 'Collection1_Foo')
 
 def create_link():
     pass
@@ -194,29 +195,30 @@ def create_link():
 
 
 def test_create_columns(catalog):
-    table = catalog.schema('TestSchema').table('Foo')
+    table = catalog['TestSchema']['Foo']
+    delete_columns(table,['TestCol', 'TestCol1', 'TestCol3'])
     table.create_columns(
         [em.Column.define('TestCol', em.builtin_types['text']),
                         em.Column.define('TestCol1',em.builtin_types['text'])])
     table.create_columns(DerivaColumnDef(table, 'TestCol3', em.builtin_types['text']), positions={'*'})
     
 def test_delete_columns(catalog):
-    table = catalog.schema('TestSchema').table('Foo')
+    table = catalog.schema_model('TestSchema').table_model('Foo')
     table.delete_columns(['TestCol','TestCol1', 'TestCol3'])
 
 
 def test_copy_columns(catalog):
-    table = catalog.schema('TestSchema').table('Foo')
+    table = catalog.schema_model('TestSchema').table_model('Foo')
     delete_columns(table, ['Foobar','RCB1','ID1'])
-    table.copy_columns({'Field_1':'Foobar', 'RCB':'RCB1'})
+    table.copy_columns({'Field_1':'Foobar', 'RCB':'RCB1', 'Bozo':'int4', 'Bozo1': {'type':'text', 'default':23}})
     
 def test_copy_columns_between_tables(catalog):
-    table = catalog.schema('TestSchema').table('Foo')
-    table.copy_columns({'Field_1':'Foobar', 'RCB':'RCB1', 'ID':'ID1'})
+    table = catalog.schema_model('TestSchema').table_model('Foo')
+    table.copy_columns({'Field_1': {'name': 'Foobar', 'default':23} , 'RCB':'RCB1', 'ID':'ID1', 'Bozo': 'text'})
     
 
 def test_rename_columns(catalog):
-    table = catalog.schema('TestSchema').table('Foo')
+    table = catalog.schema_model('TestSchema').table_model('Foo')
     delete_columns(table, ['Foobar', 'Foobar1', 'RCB1', 'RCB2','ID1'])
     table.copy_columns({'Field_1':'Foobar', 'RCB':'RCB1'})
     print('renaming columns....')
@@ -224,7 +226,7 @@ def test_rename_columns(catalog):
     
     
 def test_create_key(catalog):
-    table = catalog.schema('TestSchema').table('Foo')
+    table = catalog.schema_model('TestSchema').table_model('Foo')
     table.create_columns([table.definition('FKey_Column', em.builtin_types['text'])])    
     table.create_key(em.Key.define(['Field_1','Field_2'], constraint_names=[(schema_name,'Foo_Field_1_Field_2')]))
     table.create_fkey(DerivaForeignKey(table, ))
@@ -232,31 +234,31 @@ def test_create_key(catalog):
     
 def test_copy_table(catalog):
     try:
-        catalog.schema('TestSchema').table('Foo1').delete()
+        catalog.schema_model('TestSchema').table_model('Foo1').delete()
     except KeyError:
         pass
     column_map = {'Field_1':'Field_1A', 'ID': {'name':'ID1', 'nullok':False, 'fill': 1}, 
                   'Status': {'type': 'int4', 'nullok': False, 'fill': 1}}
-    table = catalog.schema('TestSchema').table('Foo')
+    table = catalog.schema_model('TestSchema').table_model('Foo')
     foo1 = table.copy_table('TestSchema','Foo1', column_map=column_map)
     return foo1
 
 
 def test_move_table(catalog):
     try:
-        catalog.schema('TestSchema').table('Foo1').delete()
+        catalog.schema_model('TestSchema').table_model('Foo1').delete()
     except KeyError:
         pass
     column_map = {'Field_1':'Field_1A', 'Foobar':'int4', 'ID': {'name':'ID1', 'nullok':False, 'fill': 1}, 
                   'Status': {'type': 'int4', 'nullok': False, 'fill': 1}}
         
-    table = catalog.schema('TestSchema').table('Foo')
+    table = catalog.schema_model('TestSchema').table_model('Foo')
     column_defs = [DerivaColumnDef(table, 'Status', 'int4', nullok=False)]
     foo1 = table.move_table('TestSchema','Foo1', column_map=column_map, delete=False)
     return foo1
 
 
-def test_tables():
+def test_tables(catalog):
     print('Renaming column')
     collection.rename_column('Status','MyStatus')
     print('Rename done')

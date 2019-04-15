@@ -64,7 +64,7 @@ class CatalogUpdater:
             self.update_annotations(self._catalog.model, annotations, replace=replace)
         elif mode == 'acls':
             self.update_acls(self._catalog.model, acls, replace=replace)
-        self.catalog.model.apply(self._catalog.catalog)
+        self.catalog.model.apply(self._catalog.catalog_model)
 
     def update_schema(self, mode, schema_def, replace=False):
         schema_name = schema_def['schema_name']
@@ -81,7 +81,7 @@ class CatalogUpdater:
                 print('Deleting schema ', schema.name)
                 ok = input('Type YES to confirm:')
                 if ok == 'YES':
-                    schema.delete(self._catalog.catalog, self._catalog.model)
+                    schema.delete(self._catalog.catalog_model, self._catalog.model)
             schema = self._catalog.model.create_schema(self._catalog, schema_def)
         else:
             schema = self._catalog.model.schemas[schema_name]
@@ -124,7 +124,7 @@ class CatalogUpdater:
             if skip_fkeys:
                 table_def.fkey_defs = []
             print('Creating table...', table_name)
-            table = schema.create_table(self._catalog.catalog, table_def)
+            table = schema.create_table(self._catalog.catalog_model, table_def)
             return table
 
         table = schema.tables[table_name]
@@ -202,4 +202,4 @@ class CatalogUpdater:
                 if c.name in column_acl_bindings:
                     self.update_acl_bindings(c, column_acl_bindings[c.name], replace=replace)
 
-        table.apply(self._catalog.catalog)
+        table.apply(self._catalog.catalog_model)

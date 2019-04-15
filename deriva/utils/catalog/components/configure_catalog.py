@@ -30,7 +30,7 @@ class DerivaConfigError(Exception):
 
 class DerivaCatalogConfigure(DerivaCatalog):
     def __init__(self, host, scheme='https', catalog_id=1):
-        super(DerivaCatalogConfigure, self).__init__(host, scheme=scheme, catalog_id=catalog_id)
+        super().__init__(host, scheme=scheme, catalog_id=catalog_id)
 
     def _make_schema_instance(self, schema_name):
         return DerivaSchemaConfigure(self, schema_name)
@@ -43,8 +43,7 @@ class DerivaCatalogConfigure(DerivaCatalog):
         """
 
         with DerivaModel(self) as m:
-
-            ermrest_client = m.table(self.schema('public').table('ERMrest_Client'))
+            ermrest_client = m.table_model(self.schema('public').table('ERMrest_Client'))
 
             # Make ermrest_client table visible.  If the GUID or member name is considered sensitivie, then this needs to be
             # changed.
@@ -108,7 +107,7 @@ class DerivaCatalogConfigure(DerivaCatalog):
 
         # Now set up the asset table
         try:
-            table = self.schema('WWW').table('Page')
+            table = self.schema('WWW').table_model('Page')
             table.create_asset_table('RID')
         except ValueError as e:
             if 'already exists' not in e.args[0]:
@@ -134,12 +133,12 @@ class DerivaCatalogConfigure(DerivaCatalog):
         """
         groups = {}
         # Get previous catalog configuration values if they exist
-        if chaise_tags.catalog_config in self.model.annotations and not replace:
+        if chaise_tags.catalog_config in self.annotations and not replace:
             groups.update({
-                'admin': self.model.annotations[chaise_tags.catalog_config]['groups']['admin'],
-                'curator': self.model.annotations[chaise_tags.catalog_config]['groups']['curator'],
-                'writer': self.model.annotations[chaise_tags.catalog_config]['groups']['writer'],
-                'reader': self.model.annotations[chaise_tags.catalog_config]['groups']['reader']
+                'admin': self.annotations[chaise_tags.catalog_config]['groups']['admin'],
+                'curator': self.annotations[chaise_tags.catalog_config]['groups']['curator'],
+                'writer': self.annotations[chaise_tags.catalog_config]['groups']['writer'],
+                'reader': self.annotations[chaise_tags.catalog_config]['groups']['reader']
             })
         else:
             if admin == '*' or curator == '*' or writer == '*':
@@ -177,9 +176,10 @@ class DerivaCatalogConfigure(DerivaCatalog):
         :param groups:
         :return:
         """
+        # TODO this needs to be rewitten to use new API....
 
         logging.info('Configuring groups')
-        ermrest_group = self.model.schemas['public'].tables['ERMrest_Group']
+        ermrest_group = self['public']['ERMrest_Group']
 
         # Make ERMrest_Group table visible to writers, curators, and admins.
         ermrest_group.acls['select'] = [groups['writer'], groups['curator'], groups['admin']]
@@ -194,7 +194,6 @@ class DerivaCatalogConfigure(DerivaCatalog):
         # Set compound key so that we can link up with Visible_Group table.
         try:
             ermrest_group.create_key(
-                self.catalog,
                 em.Key.define(['ID', 'URL', 'Display_Name', 'Description'],
                               constraint_names=[('public', 'ERMrest_Group_ID_URL_Display_Name_Description_key')],
                               comment='Group ID is unique.'
@@ -252,24 +251,23 @@ class DerivaCatalogConfigure(DerivaCatalog):
 
         # Create the visible groups table. Set ACLs so that writers or curators can add entries or edit.  Allow writers
         # to be able to create new entries.  No one is allowed to update, as this is only done via the CASCADE.
-        catalog_group = em.Table.define(
-            'Catalog_Group',
-            annotations={
-                chaise_tags.table_display: {'row_name': {'row_markdown_pattern': '{{{Display_Name}}}'}}},
-            column_defs=column_defs,
-            fkey_defs=fkey_defs, key_defs=key_defs,
-            acls={
-                # Make ERMrest_Group table visible to members of the group members, curators, and admins.
-                'select': [groups['reader']],
-                'insert': [groups['writer'], groups['curator']]
-            },
-        )
-
-        public_schema = self.model.schemas['public']
-
         # Get or create Catalog_Group table....
         try:
-            public_schema.create_table(self.catalog, catalog_group)
+            self['public'].create_table(
+                'Catalog_Group', column_defs=column_defs,
+                key_defs=key_defs, fkey_defs=fkey_defs,
+                comment=None,
+                acls={
+                    # Make ERMrest_Group table visible to members of the group members, curators, and admins.
+                    'select': [groups['reader']],
+                    'insert': [groups['writer'],
+                               groups['curator']]
+                },
+                acl_bindings={},
+                annotations={
+                    chaise_tags.table_display: {
+                        'row_name': {'row_markdown_pattern': '{{{Display_Name}}}'}}},
+            )
         except ValueError as e:
             if 'already exists' not in e.args[0]:
                 raise
@@ -300,21 +298,20 @@ class DerivaCatalogConfigure(DerivaCatalog):
 
         if not catalog_name:
             # If catalog name is not provided, default to the host name of the host.
-            catalog_name = urlparse(self.catalog.get_server_uri()).hostname.split('.')[0]
+            catalog_name = urlparse(self.ermrest_catalog.get_server_uri()).hostname.split('.')[0]
         groups = self.set_core_groups(catalog_name=catalog_name,
                                       admin=admin, curator=curator, writer=writer, reader=reader)
         with DerivaModel(self) as m:
-            model = m.model()
             # Record configuration of catalog so we can retrieve when we configure tables later on.
-            model.annotations[chaise_tags.catalog_config] = {'name': catalog_name, 'groups': groups}
+            self.annotations[chaise_tags.catalog_config] = {'name': catalog_name, 'groups': groups}
 
             # Set up default name style for all schemas.
-            for s in model.schemas.values():
+            for s in self.schemas:
                 s.annotations[chaise_tags.display] = {'name_style': {'underline_space': True}}
 
             # modify catalog ACL config to support basic admin/curator/writer/reader access.
             if set_policy:
-                model.acls.update({
+                self.acls.update({
                     "owner": [groups['admin']],
                     "insert": [groups['curator'], groups['writer']],
                     "update": [groups['curator']],
@@ -358,7 +355,7 @@ class DerivaTableConfigure(DerivaTable):
         return
 
     def apply(self):
-        self.catalog.model.schemas[self.schema_name].tables[self.table_name].apply(self.catalog.catalog)
+        self.catalog.model.schemas[self.schema_name].tables[self.table_name].apply(self.catalog.catalog_model)
 
     def configure_self_serve_policy(self, groups):
         """
@@ -369,14 +366,14 @@ class DerivaTableConfigure(DerivaTable):
         :return:
         """
         with DerivaModel(self.catalog) as m:
-            table = m.model().schemas[self.schema_name].tables[self.table_name]
+            table = m.table_element(self)
 
             # Configure table so that access can be assigned to a group.  This requires that we create a column and
             # establish a foreign key to an entry in the group table.  We will set the access control on the foreign key
             # so that you are only able to delagate access to a the creator of the entity belongs to.
             if 'Owner' not in [i.name for i in table.column_definitions]:
                 col_def = em.Column.define('Owner', em.builtin_types['text'], comment='Group that can update the record.')
-                table.create_column(self.catalog.catalog, col_def)
+                table.create_column(self.catalog.catalog_model, col_def)
 
             # Now configure the policy on the table...
             self_service_policy = {
@@ -420,10 +417,10 @@ class DerivaTableConfigure(DerivaTable):
             # Delete old fkey if there is one laying around....
             for fk in table.foreign_keys:
                 if len(fk.foreign_key_columns) == 1 and fk.foreign_key_columns[0]['column_name'] == 'Owner':
-                    fk.delete(self.catalog.catalog, table)
+                    fk.delete(self.catalog.catalog_model, table)
 
             # Now create the foreign key to the group table.
-            table.create_fkey(self.catalog.catalog, fk_def)
+            table.create_fkey(self.catalog.catalog_model, fk_def)
         return
 
     def create_default_visible_columns(self, really=False):
@@ -471,26 +468,22 @@ class DerivaTableConfigure(DerivaTable):
         :return:
         """
         with DerivaModel(self.catalog) as m:
-            model = m.model()
-            table = model.schemas[self.schema_name].tables[self.table_name]
+            table = m.table_model(self)
 
-            if chaise_tags.catalog_config not in model.annotations:
+            if chaise_tags.catalog_config not in self.catalog.annotations:
                 raise DerivaConfigError(msg='Attempting to configure table before catalog is configured')
 
             # Hack to update description and URL until we get these passed through ermrest....
             update_group_table(self.catalog)
 
-            schema = model.schemas[self.schema_name]
+            schema = m.schema_model(self.schema)
 
             if public:
-                # First copy dver any inherited ACLS.
-                if schema.acls:
-                    table.acls.update(schema.acls)
-                elif model.acls:
-                    table.acls.update(model.acls)
+                # First copy over any inherited ACLS.
+                self.acls.update({**schema.acls, **self.acl})
                 table.acls.pop("create", None)
                 # Now add permision for anyone to read.
-                table.acls['select'] = ['*']
+                self.acls['select'] = ['*']
 
             if set_policy:
                 self.configure_self_serve_policy(self.catalog.get_groups())
@@ -506,18 +499,13 @@ class DerivaTableConfigure(DerivaTable):
             for col, display in [('RCB', 'Created By'), ('RMB', 'Modified By')]:
                 fk_name = '{}_{}_fkey'.format(self.table_name, col)
                 # Delete old fkey if there is one laying around....
-                for fk in table.foreign_keys:
+                for fk in self.foreign_keys:
                     if len(fk.foreign_key_columns) == 1 and fk.foreign_key_columns[0]['column_name'] == col:
-                        fk.delete(self.catalog.catalog, table)
+                        fk.delete(self.catalog.catalog_model, table)
 
-                fk_def = em.ForeignKey.define([col],
-                                              'public', 'ERMrest_Client', ['ID'],
-                                              constraint_names=[(self.schema_name, fk_name)],
-                                              )
-                table.create_fkey(self.catalog.catalog, fk_def)
-
+                self.create_fkey([col], self.catalog['public']['Ermrest_Client'], ['ID'])
                 # Add a display annotation so that we have sensible name for RCB and RMB.
-                table.column_definitions[col].annotations.update({chaise_tags.display: {'name': display}})
+                self.column[col].annotations[chaise_tags.display] = {'name': display}
 
             table.column_definitions['RCT'].annotations.update({chaise_tags.display: {'name': 'Creation Time'}})
             table.column_definitions['RMT'].annotations.update({chaise_tags.display: {'name': 'Modified Time'}})
