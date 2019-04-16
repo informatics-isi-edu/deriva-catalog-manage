@@ -128,9 +128,9 @@ def create_test_catalog():
     catalog = DerivaCatalogConfigure(server, catalog_id=catalog_id)
 
     # Set up catalog into standard configuration
-    catalog.configure_baseline_catalog(catalog_name='test', admin='isrd-systems')
+    #catalog.configure_baseline_catalog(catalog_name='test', admin='isrd-systems')
 
-    schema = catalog.create_schema(schema_name)
+    #schema = catalog.create_schema(schema_name)
     return catalog   
 
 # Mess with tables:
@@ -224,7 +224,11 @@ def test_rename_columns(catalog):
     print('renaming columns....')
     table.rename_columns({'Foobar':'Foobar1', 'RCB1':'RCB2'})
     
-    
+
+def test_create_table(catalog):
+    catalog.create_table(
+        'Foo'
+    )
 def test_create_key(catalog):
     table = catalog.schema_model('TestSchema').table_model('Foo')
     table.create_columns([table.definition('FKey_Column', em.builtin_types['text'])])    

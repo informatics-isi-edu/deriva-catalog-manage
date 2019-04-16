@@ -70,6 +70,7 @@ class ElementList:
         return element_iterator(self.lst)
 
 class DerivaDictValue:
+    #TODO This is not really doing anything.  Could change to UserDict
     def __init__(self, value):
         self.value = value
 
@@ -88,6 +89,12 @@ class DerivaDictValue:
 
     def update(self, items):
         self.value.update(items)
+
+    def items(self):
+        return self.value.items()
+
+    def keys(self):
+        return self.value.keys()
 
     def __iter__(self):
         def dictval_iterator(val):
@@ -245,7 +252,7 @@ class DerivaCatalog(DerivaCore):
                 raise DerivaCatalogError('schema {} not defined'.format(schema_name))
 
     def create_schema(self, schema_name, comment=None, acls={}, annotations={}):
-        self.model_instance.create_schema(self.catalog,
+        self.model_instance.create_schema(self.ermrest_catalog,
                                  em.Schema.define(
                                      schema_name,
                                      comment=comment,
@@ -576,7 +583,7 @@ class DerivaVisibleSources:
 
         positions = self._normalize_positions({'all'} if positions == {} else positions)
 
-        with DerivaModel(self.table.catalog_model) as m:
+        with DerivaModel(self.table.catalog) as m:
             # Identify any columns that are references to assets and collect up associated columns.
             skip_columns, assets = [], []
             for col in [DerivaSourceSpec(self.table, i).column_name for i in source_list]:
@@ -587,7 +594,11 @@ class DerivaVisibleSources:
                     skip_columns.extend(self.table[col][chaise_tags.asset].values())
 
             sources = {}
-            for context, context_list in self.table.get_annotation(self.tag).items():
+            try:
+                s = self.table.annotations[self.tag]
+            except KeyError:
+                s = self.table.annotations[self.tag] = {}
+            for context, context_list in s.items():
                 if DerivaContext(context) not in positions.keys():
                     continue
 
@@ -608,7 +619,7 @@ class DerivaVisibleSources:
             sources = self._reorder_sources(sources, positions)
 
             # All is good, so update the visible columns annotation.
-            self.table.set_annotation(self.tag, {**self.table.get_annotation(self.tag), **sources})
+            self.table.annotations[self.tag] = {**self.table.annotations[self.tag], **sources}
 
     def rename_columns(self, column_map):
         """
@@ -631,7 +642,7 @@ class DerivaVisibleSources:
 
     def delete_visible_source(self, columns, contexts=[]):
         context_names = [i.value for i in (DerivaContext if contexts == [] else contexts)]
-        for context, vc_list in self.table.get_annotation(self.tag).items():
+        for context, vc_list in self.table.annotations[self.tag].items():
             # Get list of column names that are in the spec, mapping back simple FK references.
             if context not in context_names:
                 continue
@@ -723,7 +734,7 @@ class DerivaSourceSpec:
         return None
 
     def normalize_column_entry(self, spec):
-        with DerivaModel(self.table.catalog_model) as m:
+        with DerivaModel(self.table.catalog) as m:
             table_m = m.table_model(self.table)
             if type(spec) is str:
                 if spec not in table_m.column_definitions.elements:
@@ -1006,9 +1017,15 @@ class DerivaKey(DerivaCore):
         print('\tannotations: {}'.format(self.annotations))
 
     def create(self):
-        with DerivaModel(self.table.catalog_model) as m:
+        with DerivaModel(self.table.catalog) as m:
             self.key = m.table_model(self.table).create_key(self.key_definition.definition())
             self.key = None
+
+    def delete(self):
+        with DerivaModel(self.table.catalog) as m:
+            m.key_model(self).delete(self.table.ermrest_model, m.table_model(self.table))
+        self.table = None
+        self.key = None
 
     @staticmethod
     def define(table, columns, name=None, comment=None, annotations={}):
@@ -1032,7 +1049,7 @@ class DerivaKeyDef:
 
     def definition(self):
         return em.Key.define(
-            self.columns,
+            self.unique_columns,
             constraint_names=[self.name],
             comment=self.comment,
             annotations=self.annotations
@@ -1134,7 +1151,7 @@ class DerivaForeignKey(DerivaCore):
         return DerivaForeignKey(table, name, key_def=DerivaKeyDef(table, columns, name, comment, annotations))
 
 
-class DerivaForiegnKeyDef:
+class DerivaForeignKeyDef:
     def __init__(self,
                  table, columns,
                  dest_table, dest_columns,
@@ -1277,7 +1294,7 @@ class DerivaTable(DerivaCore):
 
     @visible_columns.setter
     def visible_columns(self, vcs):
-        self.set_annotation(chaise_tags.visible_columns, vcs)
+        self.annotations[chaise_tags.visible_columns] = vcs
 
     @property
     def visible_foreign_keys(self):
@@ -1285,15 +1302,12 @@ class DerivaTable(DerivaCore):
 
     @visible_foreign_keys.setter
     def visible_foreign_keys(self, keys):
-        self.set_annotation(chaise_tags.visible_foreign_keys, keys)
+        self.annotations[chaise_tags.visible_foreign_keys] = keys
 
-    def create_key(self, key_def):
-        if isinstance(key_def, DerivaKey):
-            key_def = key_def.definition()
-
-        print(key_def)
+    def create_key(self, columns, name=None,comment=None):
+        key_def = DerivaKeyDef(self, columns, name, comment)
         with DerivaModel(self.catalog) as m:
-            m.table_model(self).create_key(self.catalog.ermrest_catalog, key_def)
+            m.table_model(self).create_key(self.catalog.ermrest_catalog, key_def.definition())
 
     def column(self, column_name):
         return DerivaColumn(self.catalog[self.schema_name][self.table_name], column_name)
@@ -1329,7 +1343,7 @@ class DerivaTable(DerivaCore):
         with DerivaModel(self.catalog) as m:
             return ElementList(self.referenced, m.table_model(self).referenced_by)
 
-    def create_fkey(self,
+    def create_foreign_key(self,
                     columns, child_table, child_columns,
                     name=None,
                     comment=None,
@@ -1339,16 +1353,23 @@ class DerivaTable(DerivaCore):
                     acl_bindings={},
                     annotations={},
                     position={}):
-        # TODO THis needs to be finished.
-        fkey_def = DerivaForeignKey(self, columns, comment=comment, acls=acls, annotations=annotations, )
-        if isinstance(fkey_def, DerivaForeignKey):
-            fkey_def = fkey_def.definition()
+
+        fkey_def = DerivaForeignKeyDef(self, columns,
+                                       child_table,
+                                       child_columns,
+                                       comment=comment,
+                                       acls=acls,
+                                       acl_bindings=acl_bindings,
+                                       name=name,
+                                       on_update=on_update,
+                                       on_delete=on_delete,
+                                       annotations=annotations )
 
         dest_table = self.catalog.schema_model(fkey_def['referenced_columns'][0]['schema_name']). \
             table_model(fkey_def['referenced_columns'][0]['table_name'])
 
         with DerivaModel(self.catalog) as m:
-            fkey = m.table_model(self).create_fkey(self.ermrest_catalog, fkey_def)
+            fkey = m.table_model(self).create_fkey(self.ermrest_catalog, fkey_def.definition())
             # Add foreign key to appropriate referenced_by list
             m.table_model(dest_table).referenced_by.append(fkey)
 
@@ -1449,7 +1470,7 @@ class DerivaTable(DerivaCore):
         columns = set(columns)
 
         with DerivaModel(self.catalog) as m:
-            table = m.model().schemas[self.schema_name].tables[self.table_name]
+            table = m.table_model(self)
             for i in table.keys:
                 self._key_in_columns(columns, i.unique_columns, dest_table)
 
@@ -1489,7 +1510,7 @@ class DerivaTable(DerivaCore):
         raise DerivaCatalogError('Cannot delete column from display annotation')
 
     def _delete_columns_from_annotations(self, columns):
-        for k, v in self.annotations().items():
+        for k, v in self.annotations.items():
             if k == chaise_tags.display:
                 self._delete_columns_in_display(v, columns)
             elif k == chaise_tags.visible_columns or k == chaise_tags.visible_foreign_keys:
@@ -1551,7 +1572,7 @@ class DerivaTable(DerivaCore):
 
             for column in columns:
                 self._delete_columns_from_annotations([column])
-                table.column_definitions[column].delete(self.catalog.catalog_model, table)
+                table.column_definitions[column].delete(self.catalog.ermrest_catalog, table)
         return
 
     def copy_columns(self, column_map, dest_table=None):
@@ -1627,10 +1648,10 @@ class DerivaTable(DerivaCore):
 
             with DerivaModel(self.catalog) as m:
                 table = m.table_model(self)
-                table.create_column(m.catalog.catalog_model, column_def)
+                table.create_column(m.catalog.ermrest_catalog, column_def)
 
         if visible:
-            self.visible_columns.insert_sources(column_names, positions)
+                self.visible_columns.insert_sources(column_names, positions)
 
     def rename_column(self, from_column, to_column, default=None, nullok=None):
         """
