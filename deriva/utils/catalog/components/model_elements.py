@@ -981,7 +981,11 @@ class DerivaColumn(DerivaCore):
         print('\tacl_bindings: {}'.format(self.acl_bindings))
 
     def definition(self):
-        return self.column.definition()
+        # Column will either be a DerivaColumn or an ermrest column.
+        try:
+            return self.column.definition()
+        except AttributeError:
+            return self.column
 
     def create(self):
         with DerivaModel(self.table.catalog) as m:

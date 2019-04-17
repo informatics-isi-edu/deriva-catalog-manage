@@ -3,6 +3,7 @@ import datetime
 import string
 import os
 import csv
+import logging
 
 from deriva.core import get_credential, DerivaServer
 import deriva.core.ermrest_model as em
@@ -11,6 +12,8 @@ from deriva.utils.catalog.components.configure_catalog import DerivaCatalogConfi
 from deriva.utils.catalog.components.model_elements import DerivaTable, DerivaCatalogError, \
      DerivaKey, DerivaForeignKey, DerivaVisibleSources, DerivaContext, DerivaColumn
 
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
 
 def generate_test_csv(columncnt):
     """
