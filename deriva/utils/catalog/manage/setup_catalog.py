@@ -8,8 +8,8 @@ from deriva.core import get_credential, DerivaServer
 import deriva.core.ermrest_model as em
 from deriva.utils.catalog.manage.deriva_csv import DerivaCSV
 from deriva.utils.catalog.components.configure_catalog import DerivaCatalogConfigure
-from deriva.utils.catalog.components.model_elements import DerivaTable, \
-    DerivaColumnDef, DerivaKey, DerivaForeignKey, DerivaVisibleSources, DerivaContext
+from deriva.utils.catalog.components.model_elements import DerivaTable, DerivaCatalogError, \
+     DerivaKey, DerivaForeignKey, DerivaVisibleSources, DerivaContext, DerivaColumn
 
 
 def generate_test_csv(columncnt):
@@ -125,13 +125,35 @@ def create_test_catalog():
     catalog_id = new_catalog._catalog_id
     #new_catalog = ErmrestCatalog('https',host, catalog_id, credentials=credentials)
     print('Catalog_id is', catalog_id)
-    catalog = DerivaCatalogConfigure(server, catalog_id=catalog_id)
+    return DerivaCatalogConfigure(server, catalog_id=catalog_id)
+
+
+def set_default_config(catalog):
 
     # Set up catalog into standard configuration
-    #catalog.configure_baseline_catalog(catalog_name='test', admin='isrd-systems')
+    catalog.configure_baseline_catalog(catalog_name='test', admin='isrd-systems')
+    schema = catalog.create_schema(schema_name)
+    return catalog
 
-    #schema = catalog.create_schema(schema_name)
-    return catalog   
+def test_column_funcs(catalog):
+    table = catalog['public']['ERMrest_Client']
+    table.create_columns(DerivaColumn(table, 'Foo','text'))
+    assert(table['Foo'].name == 'Foo')
+    print('Column added')
+    table.visible_columns.dump()
+    print('visible columns.')
+    table.column('Foo').delete()
+    try:
+        table.column('Foo')
+    except DerivaCatalogError:
+        print('Column deleted')
+
+def test_key_funcs(catalog):
+    table = catalog['public']['ERMrest_Client']
+    table.create_columns(DerivaColumn(table, 'Foo','text'))
+    table.create_key()
+
+
 
 # Mess with tables:
 
