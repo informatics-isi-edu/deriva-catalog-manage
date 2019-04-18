@@ -1,82 +1,175 @@
 from unittest import TestCase
-import os
-import csv
-import sys
-import tempfile
 import warnings
 import logging
 
-from deriva.utils.catalog.manage.deriva_csv import DerivaCSV
-import configure_catalog as configure_catalog
-from deriva.core import get_credential
+from deriva.core import get_credential, DerivaServer
 import deriva.core.ermrest_model as em
-from deriva.utils.catalog.manage.utils import TempErmrestCatalog
-from deriva.utils.catalog.manage.tests.test_derivaCSV import generate_test_csv
-from deriva.utils.catalog.components import create_asset_upload_spec, create_asset_table
-
+from deriva.utils.catalog.components.deriva_model import *
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 logger.addHandler(logging.StreamHandler())
 
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 
-if sys.version_info >= (3, 0):
-    pass
-if sys.version_info < (3, 0) and sys.version_info >= (2, 5):
-    pass
+server = 'dev.isrd.isi.edu'
+catalog_id = 1
+catalog = None
+schema_name = 'TestSchema'
+ermrest_catalog = None
 
 
-class TestCreate_model_elements(TestCase):
+def clean_schema(schema_name):
+    model = ermrest_catalog.getCatalogModel()
+    for t in model.schemas[schema_name].tables.values():
+        print(t)
+        for k in t.foreign_keys:
+            k.delete(catalog.ermrest_catalog, t)
+    for t in [i for i in model.schemas[schema_name].tables.values()]:
+        t.delete(catalog.ermrest_catalog,model.schemas[schema_name])
+
+
+def setUpModule():
+    global catalog, catalog_id, ermrest_catalog
+
+    credentials = get_credential(server)
+    catalog = DerivaServer('https', server, credentials=credentials).create_ermrest_catalog()
+    catalog_id = catalog._catalog_id
+    logger.info('Catalog_id is {}'.format(catalog_id))
+
+    catalog = DerivaCatalog(server, catalog_id=catalog_id)
+    ermrest_catalog = catalog.ermrest_catalog
+    with DerivaModel(catalog) as m:
+        model = m.catalog_model()
+        model.create_schema(catalog.ermrest_catalog, em.Schema.define(schema_name))
+
+def tearDownModule():
+    catalog.ermrest_catalog.delete_ermrest_catalog(really=True)
+
+
+class TestVisibleSources(TestCase):
+    t1 = None
+    t2 = None
+    @classmethod
+    def setUpClass(cls):
+        model = catalog.ermrest_catalog.getCatalogModel()
+        t1 = model.schemas[schema_name].create_table(catalog.ermrest_catalog, em.Table.define('TestTable', []))
+        t2 = model.schemas[schema_name].create_table(catalog.ermrest_catalog, em.Table.define('TestTable1', []))
+
+        for i in ['Foo', 'Foo1', 'Foo2']:
+            t1.create_column(ermrest_catalog, em.Column.define(i, em.builtin_types['text']))
+            t2.create_column(ermrest_catalog, em.Column.define(i, em.builtin_types['text']))
+
+        t2.create_key(
+            ermrest_catalog,
+            em.Key.define(['Foo2'], constraint_names=[(schema_name, 'TestTable_Foo2_key')])
+        )
+
+        t1.create_fkey(
+            ermrest_catalog,
+            em.ForeignKey.define(['Foo2'], schema_name, 'TestTable1', ['Foo2'],
+                                 constraint_names=[[schema_name, 'TestTable1_Foo2_fkey']])
+        )
+
     def setUp(self):
-        self.server = 'dev.isrd.isi.edu'
-        self.credentials = get_credential(self.server)
-        self.catalog_id = None
-        self.schema_name = 'TestSchema'
-        self.table_name = 'TestTable'
+        clean_schema('TestSchema')
 
-        self.table_size = 10
-        self.column_count = 5
-        self.test_dir = tempfile.mkdtemp()
+    def test_normalize(self):
+        table = self.t1
+        self.assertEqual(DerivaSourceSpec(table, 'Foo').spec, {'source': 'Foo'},
+                         msg="column spec failed")
+        self.assertEqual(DerivaSourceSpec(table, 'Foo').column_name, 'Foo',
+                         msg="column name for source spec failed")
+        self.assertEqual(DerivaSourceSpec(table, {'source':'Foo'}).spec, {'source': 'Foo'},
+                         msg="simple source spec failed")
+        self.assertEqual(DerivaSourceSpec(table, [self.schema_name, 'TestTable1_Foo2_fkey']).spec,
+            {'source': [{'outbound': ['TestSchema', 'TestTable1_Foo2_fkey']}, 'RID']})
+        with self.assertRaises(DerivaCatalogError):
+            DerivaSourceSpec(table, 'Foo3')
 
-        (row, self.headers) = generate_test_csv(self.column_count)
-        self.tablefile = '{}/{}.csv'.format(self.test_dir, self.table_name)
+    def test_normalize_positions(self):
+        DerivaVisibleSources._normalize_positions({'all'})
 
-        with open(self.tablefile, 'w', newline='') as f:
-            tablewriter = csv.writer(f)
-            for i, j in zip(range(self.table_size + 1), row):
-                tablewriter.writerow(j)
+    def test_insert_sources(self):
+        table = ermrest_catalog.getCatalogModel()[schema_name][self.table_name]
+        table.annotations[chaise_tags.visible_columns] = {}
 
-        self.configfile = os.path.dirname(os.path.realpath(__file__)) + '/config.py'
-        self.catalog = TempErmrestCatalog('https', self.server, credentials=self.credentials)
-
-        model = self.catalog.getCatalogModel()
-        model.create_schema(self.catalog, em.Schema.define(self.schema_name))
-
-        self.table = DerivaCSV(self.tablefile, self.schema_name, column_map=True, key_columns='id')
-      #  self._create_test_table()
-        self.table.create_validate_upload_csv(self.catalog, create=True, upload=True)
-        configure_catalog.configure_baseline_catalog(self.catalog, catalog_name='test', admin='isrd-systems')
-
-        configure_catalog.configure_table_defaults(self.catalog, model.schemas[self.schema_name].tables[self.table_name],
-                                                   public=True)
-
-        logger.debug('Setup done....')
-        # Make upload directory:
-        # mkdir schema_name/table/
-        #    schema/file/id/file1, file2, ....for
-
-    def tearDown(self):
-        self.catalog.delete_ermrest_catalog(really=True)
-        logger.debug('teardown...')
+        vs = table.visible_columns
+        vs.insert_context('*')
+        vs.insert_sources([DerivaSourceSpec(table, 'Foo'), DerivaSourceSpec(table, 'Foo2')])
+        vs.dump()
 
 
-    def test_create_asset_table(self):
-        model = self.catalog.getCatalogModel()
-        table = model.schemas[self.schema_name].tables[self.table_name]
+class TestDerivaTable(TestCase):
+    def setUp(self):
+        clean_schema(schema_name)
+        model = ermrest_catalog.getCatalogModel()
+        t1 = model.schemas[schema_name].create_table(catalog.ermrest_catalog, em.Table.define('TestTable', []))
+        t2 = model.schemas[schema_name].create_table(catalog.ermrest_catalog, em.Table.define('TestTable1', []))
 
-        create_asset_table(self.catalog, table, 'ID')
+        for i in ['Foo', 'Foo1', 'Foo2']:
+            t1.create_column(ermrest_catalog, em.Column.define(i, em.builtin_types['text']))
+            t2.create_column(ermrest_catalog, em.Column.define(i, em.builtin_types['text']))
+
+        t2.create_key(
+            catalog.ermrest_catalog,
+            em.Key.define(['Foo2'], constraint_names=[(schema_name, 'TestTable_Foo2_key')])
+        )
+
+        t1.create_fkey(
+            catalog.ermrest_catalog,
+            em.ForeignKey.define(['Foo2'], schema_name, 'TestTable1', ['Foo2'],
+                                 constraint_names=[[schema_name, 'TestTable1_Foo2_fkey']])
+        )
+
+    def test_visible_columns(self):
+        table = catalog[schema_name][self.table_name]
+
+    def test_column(self):
+        table = catalog['public']['ERMrest_Client']
+        self.assertEqual(table['RID'].name, 'RID')
+        self.assertEqual(table.column('RID').name, 'RID')
+        self.assertEqual(table.columns['RID'].name, 'RID')
+        self.assertTrue( {'RID','RCB','RMB','RCT','RMT'} < {i.name for i in table.columns})
+        table['RID'].dump()
+        self.assertIsInstance(table['RID'].definition(), em.Column)
+
+    def test_derivacolumn_create_delete(self):
+        table = model.schemas[schema_name].create_table(catalog.ermrest_catalog, em.Table.define('TestTable', []))
+        col = DerivaColumn(table, 'Foo','text')
+        col.create()
+        self.assertEqual(table['Foo'].name, 'Foo')
+        col.delete()
+        with self.assertRaises(DerivaCatalogError):
+            table['Foo']
+
+    def test_table_column_funcs(self):
+        table = self.t1
+        table.visible_columns.insert_context('*')
+        table.create_columns(DerivaColumn(table, 'Foo', 'text'))
+        assert (table['Foo'].name == 'Foo')
+        print('Column added')
+        table.visible_columns.dump()
+        print('visible columns.')
+        table.column('Foo').delete()
+
+    def test_keys(self):
+        table = self.t1
+        table.visible_columns.insert_context('*')
+        table.create_columns([DerivaColumn(table, 'Foo1', 'text'),
+                              DerivaColumn(table, 'Foo2', 'text'),
+                              DerivaColumn(table, 'Foo3', 'text')])
+
+    def test_columns(self):
+        pass
+
+    def test_create_columns(self):
+        pass
+
+    def test_rename_column(self):
+        pass
+
+    def test_rename_columns(self):
+        pass
 
 
-    def test_create_asset_upload_spec(self):
-        create_asset_upload_spec()
-        self.fail()
+
