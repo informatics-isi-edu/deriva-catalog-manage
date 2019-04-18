@@ -167,7 +167,6 @@ class DerivaModel:
 
     def key_exists(self, table, key_name):
         key_name = (table.schema_name, key_name) if type(key_name) == str else key_name
-        print('key exists', key_name)
         try:
             return self.table_model(table).keys[key_name]
         except KeyError:
@@ -534,7 +533,7 @@ class DerivaVisibleSources:
         ''.join(['{}\n{}'.format(k, v) for k, v in self.table.annotations[self.tag]])
 
     def validate(self):
-        for c, l in self.table.get_annotation(self.tag).items():
+        for c, l in self.table.annotations[self.tag].items():
             for j in l:
                 DerivaSourceSpec(self.table, j)
 
@@ -585,11 +584,15 @@ class DerivaVisibleSources:
             # Keys are not valid context name, so we must have keylist dictionary.
             return OrderedDict({k: positions for k in DerivaModel.contexts})
 
-    def insert_context(self, context, sources=[]):
+    def insert_context(self, context, sources=[], replace=False):
         context = DerivaContext(context)
         # Map over sources and make sure that they are all ok before we inster...
         sources = [DerivaSourceSpec(self.table, j).spec for j in sources]
-        self.table.get_annotation(self.tag).update({context.value: sources})
+        if self.tag not in self.table.annotations:
+            self.table.annotations[self.tag] = {context.value: sources}
+        elif context.value not in self.table.annotations[self.tag] or replace:
+                self.table.annotations[self.tag][context.value] = sources
+        return
 
     def insert_sources(self, source_list, positions={}):
         """
@@ -753,26 +756,23 @@ class DerivaSourceSpec:
         return None
 
     def normalize_column_entry(self, spec):
-        with DerivaModel(self.table.catalog) as m:
-            table_m = m.table_model(self.table)
-            if type(spec) is str:
-                if spec not in table_m.column_definitions.elements:
-                    raise DerivaCatalogError('Invalid source entry {}'.format(spec))
-                return {'source': spec}
-            if isinstance(spec, (tuple, list)) and len(spec) == 2:
-                spec = tuple(spec)
-                if spec in [i.name for i in self.table.keys]:
-                    return {'source': self.table.keys[spec].columns[0]}
-                elif spec in [i.name for i in self.table.foreign_keys]:
-                    return {'source': [{'outbound': spec}, 'RID']}
-                else:
-                    raise DerivaCatalogError('Invalid source entry {}'.format(spec))
+        if type(spec) is str:
+            if spec not in self.table.columns:
+                raise DerivaCatalogError('Invalid source entry {}'.format(spec))
+            return {'source': spec}
+        if isinstance(spec, (tuple, list)) and len(spec) == 2 and spec[0] == self.table.schema_name:
+            if spec[1] in [i.name for i in self.table.keys]:
+                return {'source': self.table.keys[spec].columns[0]}
+            elif spec[1] in [i.name for i in self.table.foreign_keys]:
+                return {'source': [{'outbound': spec}, 'RID']}
             else:
-                return self.normalize_source_entry(spec)
+                raise DerivaCatalogError('Invalid source entry {}'.format(spec))
+        else:
+            return self.normalize_source_entry(spec)
 
     def normalize_source_entry(self, spec):
-        with DerivaModel(self.table.catalog_model) as m:
-            model = m.model()
+        with DerivaModel(self.table.catalog) as m:
+            model = m.catalog_model()
             table_m = m.table_model(self.table)
 
             source_entry = spec['source']
@@ -1060,7 +1060,6 @@ class DerivaKey(DerivaCore):
 
     @property
     def name(self):
-        print(self.key)
         return self.key.names[0][1]
 
     def _key_column(self, column_name):
@@ -1122,10 +1121,10 @@ class DerivaForeignKey(DerivaCore):
 
         if isinstance(name, tuple) and len(name) == 2 and name[0] == table.schema_name:
             name = name[1]
-        try:
-            with DerivaModel(table.catalog) as m:
-                self.fkey = m.foreign_key_exists((table, name))
-        except (TypeError, KeyError):
+
+        with DerivaModel(table.catalog) as m:
+                self.fkey = m.foreign_key_exists(table, name)
+        if not self.fkey:
             # See if we can look up the key by its unique columns
             cols = set(name) if isinstance(name, list) else {name}
             for k in m.table_model(table).foreign_keys:
@@ -1159,7 +1158,7 @@ class DerivaForeignKey(DerivaCore):
 
     @comment.setter
     def comment(self, comment):
-        if isinstance(self.fkey, DerivaKeyDef):
+        if isinstance(self.fkey, DerivaKey):
             self.fkey.comment = comment
         else:
             raise DerivaCatalogError('Cannot alter defined key type')
@@ -1574,6 +1573,17 @@ class DerivaTable(DerivaCore):
                 ]
                 self.foreign_keys()[fkey.names[0]].delete(self.catalog.catalog_model, m.table_model(self))
                 del referenced.referenced_by[fkey.names[0]]
+
+    def create_keys(self, keys):
+        """
+        Create a new column in the table.
+        :param keys: A list of DerivaKey.
+        :return:
+        """
+        keys = keys if type(keys) is list else [keys]
+
+        for key in keys:
+            key.create()
 
     def delete_keys(self, keys):
         keys = keys if isinstance(keys, list) else [keys]

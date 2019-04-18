@@ -2,7 +2,7 @@ import argparse
 from requests.exceptions import HTTPError
 
 from deriva.core import ErmrestCatalog, get_credential
-from deriva.utils.catalog.components.model_elements import DerivaCatalog
+from deriva.utils.catalog.components.deriva_model import DerivaCatalog
 
 def parse_args(server, catalog_id, is_table=False, is_catalog=False):
     parser = argparse.ArgumentParser(description='Update catalog configuration')

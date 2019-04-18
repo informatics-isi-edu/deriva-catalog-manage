@@ -24,7 +24,7 @@ from deriva.core.ermrest_config import tag as chaise_tags
 import deriva.core.ermrest_model as em
 from deriva.utils.catalog.manage.dump_catalog import DerivaCatalogToString
 from deriva.utils.catalog.manage.utils import LoopbackCatalog
-from deriva.utils.catalog.components.model_elements import DerivaCatalog
+from deriva.utils.catalog.components.deriva_model import DerivaCatalog
 from deriva.core.utils import eprint
 from deriva.core.base_cli import BaseCLI
 from deriva.utils.catalog.version import __version__ as VERSION

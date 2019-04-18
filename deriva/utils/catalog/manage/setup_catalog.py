@@ -9,7 +9,7 @@ from deriva.core import get_credential, DerivaServer
 import deriva.core.ermrest_model as em
 from deriva.utils.catalog.manage.deriva_csv import DerivaCSV
 from deriva.utils.catalog.components.configure_catalog import DerivaCatalogConfigure
-from deriva.utils.catalog.components.model_elements import DerivaTable, DerivaCatalogError, \
+from deriva.utils.catalog.components.deriva_model import DerivaTable, DerivaCatalogError, \
      DerivaKey, DerivaForeignKey, DerivaVisibleSources, DerivaContext, DerivaColumn
 
 logger = logging.getLogger(__name__)
@@ -138,18 +138,7 @@ def set_default_config(catalog):
     schema = catalog.create_schema(schema_name)
     return catalog
 
-def test_column_funcs(catalog):
-    table = catalog['public']['ERMrest_Client']
-    table.create_columns(DerivaColumn(table, 'Foo','text'))
-    assert(table['Foo'].name == 'Foo')
-    print('Column added')
-    table.visible_columns.dump()
-    print('visible columns.')
-    table.column('Foo').delete()
-    try:
-        table.column('Foo')
-    except DerivaCatalogError:
-        print('Column deleted')
+
 
 def test_key_funcs(catalog):
     table = catalog['public']['ERMrest_Client']

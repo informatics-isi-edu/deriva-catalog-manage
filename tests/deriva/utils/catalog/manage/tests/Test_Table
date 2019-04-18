@@ -1,0 +1,211 @@
+{
+    "fields": [
+        {
+            "name": "Id",
+            "type": "integer",
+            "constraints": {
+                "unique": true,
+                "required": true
+            },
+            "format": "default"
+        },
+        {
+            "name": "Field_0",
+            "type": "integer",
+            "constraints": {},
+            "format": "default"
+        },
+        {
+            "name": "Field_1",
+            "type": "integer",
+            "constraints": {},
+            "format": "default"
+        },
+        {
+            "name": "Field_2",
+            "type": "boolean",
+            "constraints": {},
+            "trueValues": [
+                "true",
+                "True",
+                "TRUE",
+                "1",
+                "T",
+                "t"
+            ],
+            "falseValues": [
+                "false",
+                "False",
+                "FALSE",
+                "0",
+                "F",
+                "f"
+            ],
+            "format": "default"
+        },
+        {
+            "name": "Field_3",
+            "type": "number",
+            "constraints": {},
+            "format": "default"
+        },
+        {
+            "name": "Field_4",
+            "type": "datetime",
+            "constraints": {},
+            "format": "any"
+        },
+        {
+            "name": "Field_5",
+            "type": "string",
+            "constraints": {},
+            "format": "default"
+        },
+        {
+            "name": "Field_6",
+            "type": "integer",
+            "constraints": {},
+            "format": "default"
+        },
+        {
+            "name": "Field_7",
+            "type": "boolean",
+            "constraints": {},
+            "trueValues": [
+                "true",
+                "True",
+                "TRUE",
+                "1",
+                "T",
+                "t"
+            ],
+            "falseValues": [
+                "false",
+                "False",
+                "FALSE",
+                "0",
+                "F",
+                "f"
+            ],
+            "format": "default"
+        },
+        {
+            "name": "Field_8",
+            "type": "number",
+            "constraints": {},
+            "format": "default"
+        },
+        {
+            "name": "Field_9",
+            "type": "datetime",
+            "constraints": {},
+            "format": "any"
+        },
+        {
+            "name": "Field_10",
+            "type": "string",
+            "constraints": {},
+            "format": "default"
+        },
+        {
+            "name": "Field_11",
+            "type": "integer",
+            "constraints": {},
+            "format": "default"
+        },
+        {
+            "name": "Field_12",
+            "type": "boolean",
+            "constraints": {},
+            "trueValues": [
+                "true",
+                "True",
+                "TRUE",
+                "1",
+                "T",
+                "t"
+            ],
+            "falseValues": [
+                "false",
+                "False",
+                "FALSE",
+                "0",
+                "F",
+                "f"
+            ],
+            "format": "default"
+        },
+        {
+            "name": "Field_13",
+            "type": "number",
+            "constraints": {},
+            "format": "default"
+        },
+        {
+            "name": "Field_14",
+            "type": "datetime",
+            "constraints": {},
+            "format": "any"
+        },
+        {
+            "name": "Field_15",
+            "type": "string",
+            "constraints": {},
+            "format": "default"
+        },
+        {
+            "name": "Field_16",
+            "type": "integer",
+            "constraints": {},
+            "format": "default"
+        },
+        {
+            "name": "Field_17",
+            "type": "boolean",
+            "constraints": {},
+            "trueValues": [
+                "true",
+                "True",
+                "TRUE",
+                "1",
+                "T",
+                "t"
+            ],
+            "falseValues": [
+                "false",
+                "False",
+                "FALSE",
+                "0",
+                "F",
+                "f"
+            ],
+            "format": "default"
+        },
+        {
+            "name": "Field_18",
+            "type": "number",
+            "constraints": {},
+            "format": "default"
+        },
+        {
+            "name": "Field_19",
+            "type": "datetime",
+            "constraints": {},
+            "format": "any"
+        },
+        {
+            "name": "Field_20",
+            "type": "string",
+            "constraints": {},
+            "format": "default"
+        }
+    ],
+    "missingValues": [
+        "",
+        "N/A",
+        "NULL"
+    ],
+    "primaryKey": [
+        "Id"
+    ]
+}
