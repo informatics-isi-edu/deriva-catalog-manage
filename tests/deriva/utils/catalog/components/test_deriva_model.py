@@ -1,3 +1,4 @@
+import unittest
 from unittest import TestCase
 import warnings
 import logging
@@ -19,13 +20,14 @@ ermrest_catalog = None
 
 
 def clean_schema(schema_name):
-    model = ermrest_catalog.getCatalogModel()
-    for t in model.schemas[schema_name].tables.values():
-        print(t)
-        for k in t.foreign_keys:
-            k.delete(catalog.ermrest_catalog, t)
-    for t in [i for i in model.schemas[schema_name].tables.values()]:
-        t.delete(catalog.ermrest_catalog,model.schemas[schema_name])
+    with DerivaModel(catalog) as m:
+        model = m.catalog_model()
+        for t in model.schemas[schema_name].tables.values():
+            print(t)
+            for k in t.foreign_keys:
+                k.delete(catalog.ermrest_catalog, t)
+        for t in [i for i in model.schemas[schema_name].tables.values()]:
+            t.delete(catalog.ermrest_catalog, model.schemas[schema_name])
 
 
 def setUpModule():
@@ -45,13 +47,14 @@ def setUpModule():
 def tearDownModule():
     catalog.ermrest_catalog.delete_ermrest_catalog(really=True)
 
-
+@unittest.skip
 class TestVisibleSources(TestCase):
     t1 = None
     t2 = None
     @classmethod
     def setUpClass(cls):
         model = catalog.ermrest_catalog.getCatalogModel()
+        clean_schema('TestSchema')
         t1 = model.schemas[schema_name].create_table(catalog.ermrest_catalog, em.Table.define('TestTable', []))
         t2 = model.schemas[schema_name].create_table(catalog.ermrest_catalog, em.Table.define('TestTable1', []))
 
@@ -73,7 +76,7 @@ class TestVisibleSources(TestCase):
     def setUp(self):
         clean_schema('TestSchema')
 
-    def test_normalize(self):
+    def test_source_spec(self):
         table = self.t1
         self.assertEqual(DerivaSourceSpec(table, 'Foo').spec, {'source': 'Foo'},
                          msg="column spec failed")
@@ -100,64 +103,128 @@ class TestVisibleSources(TestCase):
 
 
 class TestDerivaTable(TestCase):
+
     def setUp(self):
         clean_schema(schema_name)
-        model = ermrest_catalog.getCatalogModel()
-        t1 = model.schemas[schema_name].create_table(catalog.ermrest_catalog, em.Table.define('TestTable', []))
-        t2 = model.schemas[schema_name].create_table(catalog.ermrest_catalog, em.Table.define('TestTable1', []))
+
+    def test_lookup_table(self):
+        with DerivaModel(catalog) as m:
+            model = m.catalog_model()
+            t1 = model.schemas[schema_name].create_table(catalog.ermrest_catalog, em.Table.define('TestTable', []))
+            table = catalog[schema_name].tables['TestTable']
+            print(table, catalog[schema_name])
+            self.assertEqual(table.name, 'TestTable')
+
+    def test_create_table(self):
+        table = catalog[schema_name].create_table('TestTable1',[],comment='My test table')
+        self.assertEqual(table.name, 'TestTable1')
+        self.assertEqual(table.comment, 'My test table')
+        table.comment = "My new comment"
+        self.assertEqual(table.comment, 'My new comment')
+        table = catalog[schema_name].create_table('TestTable2', [DerivaColumn.define('Foo',type='text')])
+        self.assertEqual(table.name, 'TestTable2')
+        self.assertEqual(table.visible_columns['*'],
+                         [{'source': 'RID'},
+                          {'source': 'RCT'},
+                          {'source': 'RMT'},
+                          {'source': 'RCB'},
+                          {'source': 'RMB'},
+                          {'source': 'Foo'}])
+
+    def test_column_access(self):
+        table = catalog['public']['ERMrest_Client']
+        self.assertEqual(table['RID'].name, 'RID')
+        self.assertEqual(table.column('RID').name, 'RID')
+        self.assertEqual(table.columns['RID'].name, 'RID')
+        self.assertTrue( {'RID','RCB','RMB','RCT','RMT'} < {i.name for i in table.columns})
+        print(table['RID'])
+        self.assertIsInstance(table['RID'].definition(), em.Column)
+        with self.assertRaises(DerivaCatalogError):
+            catalog['public']['foobar']
+
+    def test_column_add(self):
+        table = catalog[schema_name].create_table('TestTable1', [])
+        table.create_columns(DerivaColumn(table,'Foo1','text'))
+        self.assertIn('Foo1', table.columns)
+        self.assertIn({'source': 'Foo1'}, table.visible_columns['*'])
+
+    def test_deriva_column_delete(self):
+        table = catalog[schema_name].create_table('TestTable', [DerivaColumn.define('Foo', 'text')])
+        table.visible_columns.insert_context('*')
+        self.assertEqual(table['RID'].name, 'RID')
+        print(table.visible_columns)
+        table['Foo'].delete()
+        with self.assertRaises(DerivaCatalogError):
+            table['Foo']
+        self.assertNotIn({'source' 'Foo1'}, table.visible_columns)
+        with self.assertRaises(DerivaCatalogError):
+            DerivaSourceSpec(table, 'Foo1') in table.visible_columns['*']
+        print(table.visible_columns)
+
+    def test_keys(self):
+        table = catalog[schema_name].create_table('TestTable1',
+                                                  [DerivaColumn.define('Foo1', 'text'),
+                                                   DerivaColumn.define('Foo2', 'text'),
+                                                   DerivaColumn.define('Foo3', 'text')],
+                                                  key_defs=[DerivaKey.define(['Foo1', 'Foo2'])])
+        table.create_key(['Foo1'], comment='My Key')
+        self.assertEqual(table.key('Foo1').name, 'TestTable1_Foo1_key')
+        self.assertEqual([i.name for i in table.key('Foo1').columns], ['Foo1'])
+        self.assertEqual(table.key(['Foo1','Foo2']).name, 'TestTable1_Foo1_Foo2_key')
+        self.assertEqual({i.name for i in table.key(['Foo1', 'Foo2']).columns}, {'Foo1', 'Foo2'})
+        self.assertEqual(table.key('TestTable1_Foo1_key').name, 'TestTable1_Foo1_key')
+        self.assertEqual(table.keys['TestTable1_Foo1_key'].name, 'TestTable1_Foo1_key')
+        self.assertIn('TestTable1_Foo1_key', table.keys)
+        with self.assertRaises(DerivaCatalogError):
+            table.create_key(['Foo1'], comment='My Key')
+        with self.assertRaises(DerivaCatalogError):
+            table.keys['TestTable1_Foo1']
+        print(table)
+
+    def test_fkeys(self):
+        table1 = catalog[schema_name].create_table('TestTable1',
+                                                  [DerivaColumn.define('Foo1', 'text'),
+                                                   DerivaColumn.define('Foo2', 'text'),
+                                                   DerivaColumn.define('Foo3', 'text')],
+                                                  key_defs=[DerivaKey.define(['Foo1'])])
+        fk = DerivaForeignKey.define(['Foo1'], table1, ['Foo1'])
+        print(fk)
+
+        table2 = catalog[schema_name].create_table('TestTable2',
+                                                  [DerivaColumn.define('Foo1', 'text'),
+                                                   DerivaColumn.define('Foo2', 'text'),
+                                                   DerivaColumn.define('Foo3', 'text')],
+                                                  key_defs=[DerivaKey.define(['Foo1'])],
+                                                  fkey_defs=[DerivaForeignKey.define(
+                                                      ['Foo1'], table1, ['Foo1'])]
+                                                  )
+        print(table1)
+        print(table2)
+
+    def test_visible_columns(self):
+        t1 = catalog[schema_name].create_table('TestTable', [])
+        t2 = catalog[schema_name].create_table('TestTable1', [])
 
         for i in ['Foo', 'Foo1', 'Foo2']:
             t1.create_column(ermrest_catalog, em.Column.define(i, em.builtin_types['text']))
             t2.create_column(ermrest_catalog, em.Column.define(i, em.builtin_types['text']))
 
         t2.create_key(
-            catalog.ermrest_catalog,
             em.Key.define(['Foo2'], constraint_names=[(schema_name, 'TestTable_Foo2_key')])
         )
 
         t1.create_fkey(
-            catalog.ermrest_catalog,
+            ermrest_catalog,
             em.ForeignKey.define(['Foo2'], schema_name, 'TestTable1', ['Foo2'],
                                  constraint_names=[[schema_name, 'TestTable1_Foo2_fkey']])
         )
 
-    def test_visible_columns(self):
-        table = catalog[schema_name][self.table_name]
-
-    def test_column(self):
-        table = catalog['public']['ERMrest_Client']
-        self.assertEqual(table['RID'].name, 'RID')
-        self.assertEqual(table.column('RID').name, 'RID')
-        self.assertEqual(table.columns['RID'].name, 'RID')
-        self.assertTrue( {'RID','RCB','RMB','RCT','RMT'} < {i.name for i in table.columns})
-        table['RID'].dump()
-        self.assertIsInstance(table['RID'].definition(), em.Column)
-
-    def test_derivacolumn_create_delete(self):
-        table = model.schemas[schema_name].create_table(catalog.ermrest_catalog, em.Table.define('TestTable', []))
-        col = DerivaColumn(table, 'Foo','text')
-        col.create()
-        self.assertEqual(table['Foo'].name, 'Foo')
-        col.delete()
-        with self.assertRaises(DerivaCatalogError):
-            table['Foo']
-
-    def test_table_column_funcs(self):
-        table = self.t1
-        table.visible_columns.insert_context('*')
-        table.create_columns(DerivaColumn(table, 'Foo', 'text'))
-        assert (table['Foo'].name == 'Foo')
-        print('Column added')
-        table.visible_columns.dump()
-        print('visible columns.')
-        table.column('Foo').delete()
-
-    def test_keys(self):
         table = self.t1
         table.visible_columns.insert_context('*')
         table.create_columns([DerivaColumn(table, 'Foo1', 'text'),
                               DerivaColumn(table, 'Foo2', 'text'),
                               DerivaColumn(table, 'Foo3', 'text')])
+
 
     def test_columns(self):
         pass
