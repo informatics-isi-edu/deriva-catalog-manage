@@ -618,6 +618,7 @@ class DerivaVisibleSources(DerivaLogging):
         super().__init__()
         self.table = table
         self.tag = tag
+        self.logger.debug('table: %s tag: %s', table.name, tag)
 
     def __str__(self):
         return pprint.pformat(self.table.annotations[self.tag])
@@ -699,8 +700,8 @@ class DerivaVisibleSources(DerivaLogging):
         """
 
         positions = self._normalize_positions({'all'} if positions == {} else positions)
-        self.logger.debug('%s %s', self.table.name, source_list)
-        with DerivaModel(self.table.catalog) as m:
+        self.logger.debug('table: %s sources: %s', self.table.name, [i.spec for i in source_list])
+        with DerivaModel(self.table.catalog):
             # Identify any columns that are references to assets and collect up associated columns.
             skip_columns, assets = [], []
 
@@ -946,19 +947,11 @@ class DerivaSourceSpec(DerivaLogging):
     def _referenced_columns(self):
         # Return the column name that is referenced in the source spec.
         # This will require us to look up the column behind an outbound foreign key reference.
-        self.logger.debug('referenced column %s %s', len(self.source), self.source[0])
 
         if type(self.source) is str:
             return self.source
         elif len(self.source) == 2 and 'outbound' in self.source[0]:
             t = self.source[0]['outbound'][1]
-            self.logger.debug(f'looking for {self.table.name} {t}')
-            with DerivaModel(self.table.catalog) as m:
-                self.logger.debug('fkey values %s %s %s %s',
-                              self.table.foreign_key(t).name,
-                              [i.name for i in self.table.foreign_key(t).columns],
-                                  m.foreign_key_exists(self.table, t).names,
-                                  m.foreign_key_exists(self.table, t).foreign_key_columns)
             fk_cols = self.table.foreign_key(t).columns
             self.logger.debug('fk_cols %s %s', fk_cols, list(fk_cols)[0])
             return list(fk_cols)[0] if len(fk_cols) == 1 else {'pseudo_column': self.source}
@@ -1108,8 +1101,8 @@ class DerivaColumn(DerivaCore):
 
     @acls.setter
     def acls(self, acls):
-        with DerivaModel(self.table.catalog_model) as m:
-            m.table_model(self).acls.update(acls)
+        with DerivaModel(self.table.catalog) as m:
+            m.column_model(self).acls.update(acls)
 
     @property
     def acl_bindings(self):
@@ -1118,7 +1111,7 @@ class DerivaColumn(DerivaCore):
     @acl_bindings.setter
     def acl_bindings(self, item):
         with DerivaModel(self.catalog) as m:
-            m.table_model(self).acl_bindings.update(item)
+            m.column_model(self).acl_bindings.update(item)
 
     def __str__(self):
         return '\n'.join(
@@ -1157,6 +1150,9 @@ class DerivaKey(DerivaCore):
                      name=None,
                      comment=None,
                      annotations={}):
+
+            super().__init__()
+
             self.unique_columns = columns
             self.table = table
             self.name = name
@@ -1289,10 +1285,10 @@ class DerivaKey(DerivaCore):
 
 
 class DerivaForeignKey(DerivaCore):
-    class _DerivaForeignKeyDef(DerivaLogging):
+    class _DerivaForeignKeyDef:
         def __init__(self,
                      table, columns,
-                     dest_table, dest_columns,
+                     referenced_table, referenced_columns,
                      name=None,
                      comment=None,
                      on_update='NO ACTION',
@@ -1300,11 +1296,12 @@ class DerivaForeignKey(DerivaCore):
                      acls={},
                      acl_bindings={},
                      annotations={}):
+
             self.name = name
             self.table = table
             self.columns = columns
-            self.dest_table = dest_table
-            self.dest_columns = dest_columns
+            self.referenced_table = referenced_table
+            self.referenced_columns = referenced_columns
             self.comment = comment
             self.on_update = on_update
             self.on_delete = on_delete
@@ -1321,7 +1318,7 @@ class DerivaForeignKey(DerivaCore):
         def definition(self):
             return em.ForeignKey.define(
                 self.columns,
-                self.dest_table.schema_name, self.dest_table.table_name, self.dest_columns,
+                self.referenced_table.schema_name, self.referenced_table.table_name, self.referenced_columns,
                 constraint_names=[(self.table.schema_name, self.name)],
                 comment=self.comment,
                 on_update=self.on_update,
@@ -1541,19 +1538,22 @@ class DerivaTable(DerivaCore):
 
     def __str__(self):
         return '\n'.join([
+            'Table {}'.format(self.name),
             tabulate.tabulate(
                 [[i.name, i.type.typename, i.nullok, i.default] for i in self.columns],
                 headers=['Name', 'Type', 'NullOK', 'Default']
             ),
             '\n',
             'Keys:',
-            tabulate.tabulate([[i.name, [c.name for c in i.columns]] for i in self.keys], headers=['Name', 'Columns']),
+            tabulate.tabulate([[i.name, [c.name for c in i.columns]] for i in self.keys],
+                              headers=['Name', 'Columns']),
             '\n',
             'Foreign Keys:',
             tabulate.tabulate(
-                [[i.name, [c.name for c in i.columns], '->', i.referenced_table, i.referenced_columns]
+                [[i.name, [c.name for c in i.columns], '->',
+                  i.referenced_table.name, [c.name for c in i.referenced_columns]]
                  for i in self.foreign_keys],
-                headers=['Name', 'Columns', '', '', 'Referenced Columns']),
+                headers=['Name', 'Columns', '', 'Referenced Table', 'Referenced Columns']),
             '\n\n',
             'Referenced By:',
             tabulate.tabulate(

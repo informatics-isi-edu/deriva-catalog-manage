@@ -195,10 +195,10 @@ class TestDerivaTable(TestCase):
     def test_fkeys(self):
         table1 = catalog[schema_name].create_table('TestTable1',
                                                   [DerivaColumn.define('Foo1a', 'text'),
-                                                   DerivaColumn.define('Foo2', 'text'),
-                                                   DerivaColumn.define('Foo3', 'text')],
+                                                   DerivaColumn.define('Foo2a', 'text'),
+                                                   DerivaColumn.define('Foo3a', 'text')],
                                                   key_defs=[DerivaKey.define(['Foo1a']),
-                                                            DerivaKey.define(['Foo1a', 'Foo2'])])
+                                                            DerivaKey.define(['Foo1a', 'Foo2a'])])
 
         table2 = catalog[schema_name].create_table('TestTable2',
                                                   [DerivaColumn.define('Foo1', 'text'),
@@ -206,7 +206,7 @@ class TestDerivaTable(TestCase):
                                                    DerivaColumn.define('Foo3', 'text')],
                                                   key_defs=[DerivaKey.define(['Foo1'])],
                                                   fkey_defs=[DerivaForeignKey.define(['Foo1'], table1, ['Foo1a']),
-                                                             DerivaForeignKey.define(['Foo1', 'Foo2'],table1, ['Foo1a', 'Foo2'])]
+                                                             DerivaForeignKey.define(['Foo1', 'Foo2'],table1, ['Foo1a', 'Foo2a'])]
                                                   )
         logger.info('test table created')
 
@@ -214,11 +214,10 @@ class TestDerivaTable(TestCase):
         self.assertEqual(table2.foreign_keys['Foo1'].name, 'TestTable2_Foo1_fkey')
         self.assertEqual(table2.foreign_keys['TestTable2_Foo1_fkey'].name, 'TestTable2_Foo1_fkey')
 
-        self.assertEqual({i.name for i in table2.foreign_keys['TestTable2_Foo1_Foo2_fkey'].columns}, {'Foo1'})
+        self.assertEqual({i.name for i in table2.foreign_keys['TestTable2_Foo1_Foo2_fkey'].columns}, {'Foo1', 'Foo2'})
         self.assertEqual({i.name for i in table2.foreign_keys['TestTable2_Foo1_Foo2_fkey'].referenced_columns},
-                         {'Foo1','Foo2'})
-        self.assertEqual(table2.foreign_keys['TestTable2_Foo1_Foo2_fkey'].referenced_columns['Foo1'].name, "Foo1")
-        self.assertEqual(table2.foreign_keys['TestTable2_Foo1_Foo2_fkey'].referenced_columns[0].name, "Foo1")
+                         {'Foo1a','Foo2a'})
+        self.assertEqual(table2.foreign_keys['TestTable2_Foo1_Foo2_fkey'].referenced_columns['Foo1a'].name, "Foo1a")
 
         self.assertTrue(table1.referenced_by['TestTable2_Foo1_fkey'])
         self.assertTrue(table1.referenced_by['Foo1a'])
@@ -253,7 +252,14 @@ class TestDerivaTable(TestCase):
         table2.create_key(['Foo2'])
         table2.create_foreign_key(['Foo1'], table1, ['Foo1a'])
         table2.create_foreign_key(['Foo1', 'Foo2'], table1, ['Foo1a', 'Foo2a'])
+        print(table1)
+        print([i for i in table1.visible_columns])
+        print([i for i in table1.visible_foreign_keys])
+
         print(table2)
+        print([i for i in table2.visible_columns])
+        print([i for i in table2.visible_foreign_keys])
+
         self.assertEqual(table2.foreign_key(['Foo1']).name, 'TestTable2_Foo1_fkey')
         self.assertEqual(table2.foreign_keys['Foo1'].name, 'TestTable2_Foo1_fkey')
         self.assertEqual(table2.foreign_keys['TestTable2_Foo1_fkey'].name, 'TestTable2_Foo1_fkey')
