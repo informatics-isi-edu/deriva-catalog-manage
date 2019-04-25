@@ -253,12 +253,12 @@ class TestDerivaTable(TestCase):
         table2.create_foreign_key(['Foo1'], table1, ['Foo1a'])
         table2.create_foreign_key(['Foo1', 'Foo2'], table1, ['Foo1a', 'Foo2a'])
         print(table1)
-        print([i for i in table1.visible_columns])
-        print([i for i in table1.visible_foreign_keys])
+        print('columns',[ {k:v for k,v in i.items()} for i in table1.visible_columns])
+        print('keys',[ {k:v for k,v in i.items()} for i in table1.visible_foreign_keys])
 
         print(table2)
-        print([i for i in table2.visible_columns])
-        print([i for i in table2.visible_foreign_keys])
+        print('columns',[ {k:v for k,v in i.items()} for i in table2.visible_columns])
+        print('keys',[ {k:v for k,v in i.items()} for i in table2.visible_foreign_keys])
 
         self.assertEqual(table2.foreign_key(['Foo1']).name, 'TestTable2_Foo1_fkey')
         self.assertEqual(table2.foreign_keys['Foo1'].name, 'TestTable2_Foo1_fkey')

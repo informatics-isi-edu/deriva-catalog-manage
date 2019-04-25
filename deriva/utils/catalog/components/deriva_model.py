@@ -740,7 +740,9 @@ class DerivaVisibleSources(DerivaLogging):
             sources = self._reorder_sources(sources, positions)
 
             # All is good, so update the visible columns annotation.
+            self.logger.debug('updated sources: %s %s', sources, self.table.annotations[self.tag])
             self.table.annotations[self.tag] = {**self.table.annotations[self.tag], **sources}
+            self.logger.debug('updated sources: %s', self.table.annotations[self.tag])
 
     def rename_columns(self, column_map):
         """
