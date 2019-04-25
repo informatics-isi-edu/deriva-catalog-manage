@@ -1,19 +1,20 @@
 import logging
-from enum import Enum
-from collections import namedtuple, OrderedDict
+import logging.config
 import pprint
-import tabulate
+from collections import namedtuple, OrderedDict
+from enum import Enum
+from urllib.parse import urlparse
 
 # test
 import deriva.core.ermrest_model as em
-from deriva.core.ermrest_config import MultiKeyedList
-
-from deriva.core.ermrest_config import tag as chaise_tags
+import tabulate
 from deriva.core import ErmrestCatalog, get_credential
-
-from urllib.parse import urlparse
+from deriva.core.ermrest_config import MultiKeyedList
+from deriva.core.ermrest_config import tag as chaise_tags
 
 logger = logging.getLogger(__name__)
+logging.basicConfig(format='[%(lineno)d] %(funcName)20s() %(message)s')
+logger.setLevel(logging.DEBUG)
 
 chaise_tags['catalog_config'] = 'tag:isrd.isi.edu,2019:catalog-config'
 CATALOG_CONFIG__TAG = 'tag:isrd.isi.edu,2019:catalog-config'
@@ -22,6 +23,59 @@ CATALOG_CONFIG__TAG = 'tag:isrd.isi.edu,2019:catalog-config'
 class DerivaCatalogError(Exception):
     def __init__(self, msg):
         self.msg = msg
+
+
+logger_config = {
+    'disable_existing_loggers': True,
+    'version': 1,
+    'formatters': {
+        'class': {
+            'style': '{',
+            'format': '{levelname} {name}.{funcName}: {message}'
+        },
+    },
+    'handlers': {
+        'console': {
+            'level': 'DEBUG',
+            'formatter': 'class',
+            'class': 'logging.StreamHandler',
+        },
+    },
+    'loggers': {
+        'deriva_model': {
+            'handlers': ['console'],
+            'level': 'INFO',
+            'propagate': False
+        },
+        'deriva_model.DerviaModel': {
+        },
+        'deriva_model.DerivaCatalog': {
+        },
+        'deriva_model.DerivaSchema': {
+
+        },
+        'deriva_model.DerivaVisibleSources': {
+            'level': 'DEBUG'
+        },
+        'deriva_model.DerivaSourceSpec': {
+        },
+        'deriva_model.DerivaTable': {
+        },
+        'deriva_model.DerviaColumn': {
+        },
+        'deriva_model.DerivaKey': {
+        },
+        'deriva_model.DerivaForeignKey': {
+        }
+    },
+}
+
+logging.config.dictConfig(logger_config)
+
+
+class DerivaLogging:
+    def __init__(self):
+        self.logger = logging.getLogger('{}.{}'.format('deriva_model', type(self).__name__))
 
 
 class DerivaContext(Enum):
@@ -111,22 +165,20 @@ class DerivaDictValue:
         return dictval_iterator(self.value)
 
 
-class DerivaModel:
+class DerivaModel(DerivaLogging):
     contexts = {i for i in DerivaContext if i is not DerivaContext("all")}
 
     def __init__(self, catalog):
+        super().__init__()
         self.catalog = catalog
 
     def __enter__(self):
         self.catalog.nesting += 1
-        logger.debug("Deriva model nesting %s" % self.catalog.nesting)
         return self
 
     def __exit__(self, exc_type, exc_val, exc_tb):
         self.catalog.nesting -= 1
-        logger.debug("Deriva model nesting %s" % self.catalog.nesting)
         if self.catalog.nesting == 0:
-            logger.debug('DerivaModel updated')
             self.catalog.apply()
 
     def model_element(self, obj):
@@ -184,7 +236,9 @@ class DerivaModel:
 
     def foreign_key_exists(self, table, fkey_id):
         fkey_name = (table.schema_name, fkey_id) if type(fkey_id) == str else fkey_id
+        self.logger.debug('table: %s fkey_id: %s fkey_name %s', table.name, fkey_id, fkey_name)
         try:
+            self.logger.debug('foreign keys %s', self.table_model(table).foreign_keys[fkey_name])
             return self.table_model(table).foreign_keys[fkey_name]
         except (KeyError, TypeError):
             with DerivaModel(self.catalog) as m:
@@ -214,9 +268,10 @@ class DerivaModel:
         return self.table_model(fkey.table).foreign_keys[(fkey.table.schema_name, fkey.name)]
 
 
-class DerivaCore:
+class DerivaCore(DerivaLogging):
     def __init__(self, catalog):
         self.catalog = catalog
+        super().__init__()
 
     @property
     def annotations(self):
@@ -376,7 +431,7 @@ class DerivaSchema(DerivaCore):
                      annotations={}):
 
         # Now that we know the table name, patch up the key and fkey defs to have the correct name.
-        proto_table = namedtuple('ProtoTable', ['catalog','schema','schema_name', 'table_name'])
+        proto_table = namedtuple('ProtoTable', ['catalog', 'schema', 'schema_name', 'table_name'])
         for k in key_defs:
             k.update_table(proto_table(self.catalog, self.schema, self.schema_name, table_name))
         for k in fkey_defs:
@@ -394,7 +449,7 @@ class DerivaSchema(DerivaCore):
             for fkey in fkey_defs:
                 # Add foreign key to appropriate referenced_by list
                 m.table_model(fkey.referenced_table).referenced_by.append((m.foreign_key_model(fkey)))
-                _,_, inbound_sources = fkey.referenced_table.sources()
+                _, _, inbound_sources = fkey.referenced_table.sources()
                 fkey.referenced_table.visible_foreign_keys.insert_sources(inbound_sources)
 
         column_sources, outbound_sources, inbound_sources = table.sources(merge_outbound=True)
@@ -410,7 +465,7 @@ class DerivaSchema(DerivaCore):
             schema = m.schema_model(self)
             schema.create_table(self.catalog.ermrest_catalog, table_def)
         table = self.table(table_def['table_name'])
-        table.deleted = False   # Table may have been previously been deleted.
+        table.deleted = False  # Table may have been previously been deleted.
         return table
 
     def create_vocabulary(self, vocab_name, curie_template, uri_template='/id/{RID}', column_defs=[],
@@ -509,7 +564,7 @@ class DerivaColumnMap(OrderedDict):
         # Collect up all of the column name maps.
         column_name_map = {k: v.name for k, v in column_map.items()}
 
-        with DerivaModel(self.table.catalog_model):
+        with DerivaModel(self.table.catalog):
             # Get new key and fkey definitions by mapping to new column names.
             column_map.update(
                 {key.name:
@@ -558,8 +613,9 @@ class DerivaColumnMap(OrderedDict):
         return {k: getattr(v, field) for k, v in self.items() if getattr(v, field)}
 
 
-class DerivaVisibleSources:
+class DerivaVisibleSources(DerivaLogging):
     def __init__(self, table, tag):
+        super().__init__()
         self.table = table
         self.tag = tag
 
@@ -630,7 +686,7 @@ class DerivaVisibleSources:
         if self.tag not in self.table.annotations:
             self.table.annotations[self.tag] = {context.value: sources}
         elif context.value not in self.table.annotations[self.tag] or replace:
-                self.table.annotations[self.tag][context.value] = sources
+            self.table.annotations[self.tag][context.value] = sources
         return
 
     def insert_sources(self, source_list, positions={}):
@@ -643,11 +699,13 @@ class DerivaVisibleSources:
         """
 
         positions = self._normalize_positions({'all'} if positions == {} else positions)
-
+        self.logger.debug('%s %s', self.table.name, source_list)
         with DerivaModel(self.table.catalog) as m:
             # Identify any columns that are references to assets and collect up associated columns.
             skip_columns, assets = [], []
-            for col in [DerivaSourceSpec(self.table, i).column_name for i in source_list]:
+
+            for col in [i.column_name for i in source_list]:
+                self.logger.debug('source col %s', col)
                 if col == 'pseudo_column':
                     continue
                 if chaise_tags.asset in self.table[col].annotations:
@@ -664,6 +722,7 @@ class DerivaVisibleSources:
                     continue
 
                 # Get list of column names that are in the spec, mapping back simple FK references.
+                self.logger.debug('getting source names')
                 source_names = [DerivaSourceSpec(self.table, i).column_name for i in context_list]
                 new_context = context_list[:]
 
@@ -694,7 +753,7 @@ class DerivaVisibleSources:
                     [i] if (DerivaSourceSpec(self.table, i).rename_column(column_map) == i)
                     else [DerivaSourceSpec(self.table, i).rename_column(column_map)]
                 )
-            ] for k, v in self.table.get_annotation(self.tag).items()
+            ] for k, v in self.table.annotations[self.tag].items()
         }
         return vc
 
@@ -777,12 +836,20 @@ class DerivaVisibleForeignKeys(DerivaVisibleSources):
         super().__init__(table, chaise_tags.visible_foreign_keys)
 
 
-class DerivaSourceSpec:
+class DerivaSourceSpec(DerivaLogging):
     def __init__(self, table, spec):
+        super().__init__()
+        self.logger.debug('table: %s spec: %s', table.name, spec)
+
         self.table = table
         self.spec = spec.spec if isinstance(spec, DerivaSourceSpec) else self.normalize_column_entry(spec)
         self.source = self.spec['source']
         self.column_name = self._referenced_columns()
+
+        self.logger.debug('initialized: table %s spec: %s column_name: %s', table.name, self.spec, self.column_name)
+
+    def __str__(self):
+        return pprint.pformat(self.spec)
 
     def source_type(self):
         if type(self.source) is str:
@@ -796,7 +863,13 @@ class DerivaSourceSpec:
 
     def normalize_column_entry(self, spec):
         if type(spec) is str:
-            if spec not in self.table.columns:
+            if spec in self.table.columns:
+                return {'source': spec}
+            elif spec in self.table.foreign_keys:
+                return {'source': [{'outbound': (self.table.schema_name, spec)}, 'RID']}
+            elif spec in self.table.referenced_by:
+                return {'source': [{'inbound': (self.table.schema_name, spec)}, 'RID']}
+            else:
                 raise DerivaCatalogError('Invalid source entry {}'.format(spec))
             return {'source': spec}
         if isinstance(spec, (tuple, list)) and len(spec) == 2 and spec[0] == self.table.schema_name:
@@ -873,19 +946,31 @@ class DerivaSourceSpec:
     def _referenced_columns(self):
         # Return the column name that is referenced in the source spec.
         # This will require us to look up the column behind an outbound foreign key reference.
+        self.logger.debug('referenced column %s %s', len(self.source), self.source[0])
+
         if type(self.source) is str:
             return self.source
         elif len(self.source) == 2 and 'outbound' in self.source[0]:
-            t = tuple(self.source[0]['outbound'])
-            fk_cols = self.table.foreign_keys[t].columns
-            return fk_cols[0] if len(fk_cols) == 1 else {'pseudo_column': self.source}
+            t = self.source[0]['outbound'][1]
+            self.logger.debug(f'looking for {self.table.name} {t}')
+            with DerivaModel(self.table.catalog) as m:
+                self.logger.debug('fkey values %s %s %s %s',
+                              self.table.foreign_key(t).name,
+                              [i.name for i in self.table.foreign_key(t).columns],
+                                  m.foreign_key_exists(self.table, t).names,
+                                  m.foreign_key_exists(self.table, t).foreign_key_columns)
+            fk_cols = self.table.foreign_key(t).columns
+            self.logger.debug('fk_cols %s %s', fk_cols, list(fk_cols)[0])
+            return list(fk_cols)[0] if len(fk_cols) == 1 else {'pseudo_column': self.source}
         return 'pseudo_column'
 
 
 class DerivaColumn(DerivaCore):
-    class _DerivaColumnDef:
+    class _DerivaColumnDef(DerivaLogging):
         def __init__(self, table, name, type, nullok=True, default=None, fill=None, comment=None, acls={},
                      acl_bindings={}, annotations={}):
+            super().__init__()
+
             self.name = name
             self.type = type if isinstance(type, em.Type) else em.builtin_types[type]
             self.table = table
@@ -912,7 +997,7 @@ class DerivaColumn(DerivaCore):
     def __init__(self, table, name, type=type,
                  nullok=True, default=None, fill=None, comment=None,
                  acls={}, acl_bindings={},
-                 annotations={}
+                 annotations={}, define=False
                  ):
         """
         The
@@ -922,27 +1007,35 @@ class DerivaColumn(DerivaCore):
         :param name: Name of the column.  If a em.Column is passed in as a name, then its name is used.
         """
 
+        super().__init__(table.catalog if table else None)
+
+        self.logger.debug('table: %s name: %s type: %s', table.name if table else "None", name, type)
+
         if isinstance(name, em.Column):  # We are providing a em.Column as the name argument.
             name = name.name
 
         self.column = None
         self.table = table
+
         if table:
-            super().__init__(table.catalog)
             self.schema = self.catalog[table.schema_name]
             with DerivaModel(self.catalog) as m:
                 self.column = m.column_exists(table, name)
 
-        if not self.column:
-            try:
+        if self.column:
+            if define:
+                raise DerivaCatalogError('Column already exists: {}'.format(name))
+            else:
+                return
+        else:
+            if define:
                 self.column = DerivaColumn._DerivaColumnDef(table, name, type,
                                                             nullok=nullok, default=default, fill=fill,
                                                             comment=comment,
                                                             acls=acls, acl_bindings=acl_bindings,
                                                             annotations=annotations)
-            except KeyError:
-                raise DerivaCatalogError(
-                    'Column must either exist or table, name and type be provided: {}'.format(name)
+            else:
+                raise DerivaCatalogError('Column does not exist: {}'.format(name)
                 )
 
     @classmethod
@@ -952,7 +1045,7 @@ class DerivaColumn(DerivaCore):
                acls={}, acl_bindings={},
                annotations={}):
         return DerivaColumn(None, name, type, nullok=nullok, default=default, fill=fill, comment=comment,
-                            acls=acls, acl_bindings=acl_bindings, annotations=annotations)
+                            acls=acls, acl_bindings=acl_bindings, annotations=annotations, define=True)
 
     @staticmethod
     def convert_def(table, column_def):
@@ -1030,7 +1123,7 @@ class DerivaColumn(DerivaCore):
     def __str__(self):
         return '\n'.join(
             [
-                '{}: {}'.format(self.name, self.type),
+                '{}: {}'.format(self.name, self.type.typename),
                 '\tnullok: {} default: {}'.format(self.nullok, self.default),
                 '\tcomment: {}'.format(self.comment),
                 '\tacls: {}'.format(self.acls),
@@ -1049,6 +1142,7 @@ class DerivaColumn(DerivaCore):
         with DerivaModel(self.table.catalog) as m:
             self.column = m.table_model(self.table).create_column(self.catalog.ermrest_catalog,
                                                                   self.column.definition())
+
     def delete(self):
         with DerivaModel(self.table.catalog) as m:
             m.column_model(self).delete(self.catalog.ermrest_catalog, m.table_model(self.table))
@@ -1056,7 +1150,7 @@ class DerivaColumn(DerivaCore):
 
 
 class DerivaKey(DerivaCore):
-    class _DerivaKeyDef:
+    class _DerivaKeyDef(DerivaLogging):
         def __init__(self,
                      table,
                      columns,
@@ -1066,10 +1160,10 @@ class DerivaKey(DerivaCore):
             self.unique_columns = columns
             self.table = table
             self.name = name
-            self.update_name()
-
             self.comment = comment
             self.annotations = annotations
+
+            self.update_name()
 
         def definition(self):
             return em.Key.define(
@@ -1081,7 +1175,7 @@ class DerivaKey(DerivaCore):
 
         def update_name(self):
             if not self.name and self.table:
-                self.name ='{}_'.format(self.table.table_name) + '_'.join([i for i in self.unique_columns] + ['key'])
+                self.name = '{}_'.format(self.table.table_name) + '_'.join([i for i in self.unique_columns] + ['key'])
 
     def __init__(self, table, columns, name=None, comment=None, annotations={}, define=False):
         """
@@ -1089,6 +1183,7 @@ class DerivaKey(DerivaCore):
         :param table: Table in which this key exists
         :param name: Either the name of the key or the unique columns in the key.
         """
+        super().__init__(table.catalog if table else None)
 
         if isinstance(name, em.Key):  # We are providing a em.Key as the name argument.
             name = name.names[0]
@@ -1103,23 +1198,23 @@ class DerivaKey(DerivaCore):
         self.table = table
 
         if table:
-            super().__init__(table.catalog)
             self.schema = self.catalog[table.schema_name]
             with DerivaModel(self.catalog) as m:
                 self.key = m.key_exists(table, name if name else columns)
 
-        if define:
-            if self.key:
-                raise DerivaCatalogError('Key already exists'.format(columns))
+        # If we are defining a Key and it already exists, then we have an error, otherwise, we are done.
+        if self.key:
+            if define:
+                raise DerivaCatalogError('Key already exists: {}'.format(columns))
             else:
-                try:
-                    self.key = DerivaKey._DerivaKeyDef(table, columns,
-                                                       name=name, comment=comment, annotations=annotations)
-                except KeyError:
-                    raise DerivaCatalogError('Must provide key definition')
+                return
         else:
-            if not self.key:
-                raise DerivaCatalogError('Key not defined:'.format(columns))
+            if define:
+                # We are creating a new key, so create a DerivaKeyDef
+                self.key = DerivaKey._DerivaKeyDef(table, columns,
+                                                   name=name, comment=comment, annotations=annotations)
+            else:
+                raise DerivaCatalogError("Key doesn't exist".format(name))
 
     @staticmethod
     def define(columns, name=None, comment=None, annotations={}):
@@ -1176,6 +1271,7 @@ class DerivaKey(DerivaCore):
 
     def create(self):
         with DerivaModel(self.table.catalog) as m:
+            self.logger.debug('key %s %s', type(self.key.definition()), self.key.definition())
             self.key = m.table_model(self.table).create_key(self.catalog.ermrest_catalog, self.key.definition())
 
     def delete(self):
@@ -1193,7 +1289,7 @@ class DerivaKey(DerivaCore):
 
 
 class DerivaForeignKey(DerivaCore):
-    class _DerivaForeignKeyDef:
+    class _DerivaForeignKeyDef(DerivaLogging):
         def __init__(self,
                      table, columns,
                      dest_table, dest_columns,
@@ -1204,10 +1300,8 @@ class DerivaForeignKey(DerivaCore):
                      acls={},
                      acl_bindings={},
                      annotations={}):
-
             self.name = name
             self.table = table
-            self.update_name()
             self.columns = columns
             self.dest_table = dest_table
             self.dest_columns = dest_columns
@@ -1218,6 +1312,7 @@ class DerivaForeignKey(DerivaCore):
             self.acl_bindings = acl_bindings
             self.annotations = annotations
 
+            self.update_name()
             fk_ops = ['CASCADE', 'DELETE', 'RESTRICT', 'NO ACTION', 'SET NULL']
 
             if on_update not in fk_ops or on_delete not in fk_ops:
@@ -1238,7 +1333,7 @@ class DerivaForeignKey(DerivaCore):
 
         def update_name(self):
             if not self.name and self.table:
-                self.name ='{}_'.format(self.table.table_name) + '_'.join([i for i in self.columns] + ['fkey'])
+                self.name = '{}_'.format(self.table.table_name) + '_'.join([i for i in self.columns] + ['fkey'])
 
     def __init__(self, table, columns,
                  dest_table=None, dest_columns=None,
@@ -1250,12 +1345,17 @@ class DerivaForeignKey(DerivaCore):
                  acl_bindings={},
                  annotations={},
                  define=False):
-        """
+        """"
+        Create a DerivaForeignKey object from an existing ERMrest FKey, or initalize an object for a key to be created
+            at some point in the future.
 
         :param table: Table in which this key exists
-        :param name: Either the name of the key or the unique columns in the key.
-        :param fkey_def:
+        :param: dest_table: A DerivaTable that is the target of this FK.
+        :param name: Either the name of the key, an existing ERMrest FK or the unique columns in the key.
+        :param define:
         """
+        super().__init__(table.catalog if table else None)
+        self.logger.debug('%s %s %s', table.name if table else None, columns, define)
 
         if isinstance(name, em.ForeignKey):  # We are providing a em.ForeignKey as the name argument.
             name = name.names[0]
@@ -1269,29 +1369,31 @@ class DerivaForeignKey(DerivaCore):
         self.fkey = None
         self.table = table
 
+        # We may not have a table yet for this FK if we are creating it as part of creating a table.
         if table:
-            super().__init__(table.catalog)
             self.schema = self.catalog[table.schema_name]
             with DerivaModel(self.catalog) as m:
                 self.fkey = m.foreign_key_exists(table, name if name else columns)
 
-
-        if define:
-            if self.fkey:
+        # If we are defining a FK and it already exists, then we have an error, otherwise, we are done.
+        if self.fkey:
+            if define:
                 raise DerivaCatalogError('Foreign Key already exists'.format(columns))
             else:
-                try:
-                    self.fkey = DerivaForeignKey._DerivaForeignKeyDef(table, columns,
-                                                                     dest_table, dest_columns,
-                                                                     name=name, comment=comment,
-                                                                     on_update=on_update, on_delete=on_delete,
-                                                                     acls=acls, acl_bindings=acl_bindings,
-                                                                     annotations=annotations)
-                except KeyError:
-                    raise DerivaCatalogError('Must provide foreign key definition')
+                return
+
+        # We are defining a new FK, so create a DerivaForeignKeyDef to hold the info until the key is created.
+        logging.debug('creating fkey def {}', define)
+        if define:
+            self.fkey = DerivaForeignKey._DerivaForeignKeyDef(table, columns,
+                                                              dest_table, dest_columns,
+                                                              name=name, comment=comment,
+                                                              on_update=on_update, on_delete=on_delete,
+                                                              acls=acls, acl_bindings=acl_bindings,
+                                                              annotations=annotations)
         else:
-            if not self.fkey:
-                raise DerivaCatalogError('Foreign Key not defined:'.format(columns))
+            raise DerivaCatalogError("Key doesn't exist".format(name))
+        self.logger.debug('fkey def %s', self.fkey)
 
     @staticmethod
     def define(
@@ -1314,7 +1416,7 @@ class DerivaForeignKey(DerivaCore):
                                 define=True)
 
     @staticmethod
-    def convert_def(table, fkey_def):
+    def convert_def(table, fkey_def: em.ForeignKey):
         if not isinstance(fkey_def, em.Key):
             raise DerivaCatalogError('convert_def must have em.ForeignKey as an argument')
         c = fkey_def.referenced_columns[0]
@@ -1326,6 +1428,7 @@ class DerivaForeignKey(DerivaCore):
                                 on_update=fkey_def.on_update, on_delete=fkey_def.on_delete,
                                 acls=fkey_def.acls, acl_bindings=fkey_def.acl_bindings,
                                 annotations=fkey_def.annotations)
+
     def update_table(self, table):
         if self.table:
             return
@@ -1343,20 +1446,22 @@ class DerivaForeignKey(DerivaCore):
             return self.fkey.names[0][1]
 
     def _key_column(self, column_name):
+        self.logger.debug('column_name %s', column_name)
         # May have a emrest column name, or just the name of the column
         return DerivaColumn(
             self.table,
-            column_name if isinstance(column_name, (str, int))  else column_name['column_name'])
+            column_name if isinstance(column_name, str) else column_name['column_name'])
 
     @property
     def columns(self):
         with DerivaModel(self.catalog) as m:
+            self.logger.debug('%s %s', m.foreign_key_model(self), m.foreign_key_model(self).foreign_key_columns)
             return ElementList(self._key_column, m.foreign_key_model(self).foreign_key_columns)
 
     @property
     def referenced_table(self):
         try:
-            return self.fkey.dest_table
+            return self.fkey.referenced_table
         except AttributeError:
             src_schema = self.fkey.referenced_columns[0]['schema_name']
             src_table = self.fkey.referenced_columns[0]['table_name']
@@ -1366,11 +1471,12 @@ class DerivaForeignKey(DerivaCore):
         # May have a emrest column name, or just the name of the column
         return DerivaColumn(
             self.referenced_table,
-            column_name if isinstance(column_name, (str, int))  else column_name['column_name'])
+            column_name if isinstance(column_name, str) else column_name['column_name'])
 
     @property
     def referenced_columns(self):
         with DerivaModel(self.catalog) as m:
+            return ElementList(self._referenced_column, m.foreign_key_model(self).referenced_columns)
             return ElementList(self._referenced_column, m.foreign_key_model(self).referenced_columns)
 
     @property
@@ -1386,14 +1492,29 @@ class DerivaForeignKey(DerivaCore):
 
     def __str__(self):
         return '\n'.join([
-        '{}: {}'.format(self.name, self.columns),
-        '\tcomment: {}'.format(self.comment),
-        '\tannotations: {}'.format(self.annotations)
+            '{}: {}'.format(self.name, self.columns),
+            '\tcomment: {}'.format(self.comment),
+            '\tannotations: {}'.format(self.annotations)
         ])
 
     def create(self):
-        with DerivaModel(self.table.catalog_model) as m:
-            self.fkey = m.table_model(self.table).create_foreign_key(self.fkey.definition())
+        with DerivaModel(self.table.catalog) as m:
+            self.logger.debug('creating fkey %s', self.definition)
+            self.fkey = m.table_model(self.table).create_fkey(self.catalog.ermrest_catalog, self.definition())
+
+    def delete(self):
+        referenced_table = self.referenced_table
+        name = (self.table.schema_name, self.name)
+
+        with DerivaModel(self.table.catalog) as m:
+            m.foreign_key_model(self).delete(self.catalog.ermrest_catalog, m.table_model(self.table))
+
+        referenced_table.referenced_by.delete(name)
+        referenced_table.visible_foreign_keys.delete(name)
+        self.visible_columns.delete(name)
+
+        self.table = None
+        self.fkey = None
 
     def definition(self):
         # Key will either be a DerivaForeignKey or an ermrest fkey.
@@ -1412,14 +1533,11 @@ class DerivaTable(DerivaCore):
         self.table_name = table_name
         self.deleted = False
 
-    def validate(self):
-        self.visible_columns().validate()
+    def __getitem__(self, column_name):
+        return self.column(column_name)
 
-    def _column_names(self):
-        return [i.name for i in self.columns]
-
-    def _column_map(self, column_map, dest_table):
-        return DerivaColumnMap(self, column_map, dest_table)
+    def __iter__(self):
+        return self.columns.__iter__()
 
     def __str__(self):
         return '\n'.join([
@@ -1440,36 +1558,17 @@ class DerivaTable(DerivaCore):
             'Referenced By:',
             tabulate.tabulate(
                 [
-                    [
-                        [c.name for i in self.referenced_by for c in i.referenced_columns],
-                        '<-',
-                        '{}:{}:'.format(i.referenced_table.schema_name,
-                                        i.referenced_table.table_name),
-                        [c.name for c in i.columns]
-                    ]
+                    [i.name,
+                     [c.name for i in self.referenced_by for c in i.referenced_columns],
+                     '<-',
+                     '{}:{}:'.format(i.referenced_table.schema_name,
+                                     i.referenced_table.table_name),
+                     [c.name for c in i.columns]
+                     ]
                     for i in self.referenced_by],
                 headers=['Name', 'Columns', '', '', 'Referenced Columns'])
         ]
         )
-
-    def chaise_uri(self):
-        p = urlparse(self.catalog.catalog_model.get_server_uri())
-        catalog_id = p.path.split('/')[-1]
-        print('{}://{}/chaise/recordset/#{}/{}:{}'.format(
-            p.scheme, p.hostname, catalog_id, self.schema_name, self.table_name)
-        )
-
-    def datapath(self):
-        return self.catalog.getPathBuilder().schemas[self.schema_name].tables[self.table_name]
-
-    def entities(self, *attributes, **renamed_attributes):
-        return self.datapath().entities(*attributes, **renamed_attributes)
-
-    def __getitem__(self, column_name):
-        return self.column(column_name)
-
-    def __iter__(self):
-        return self.columns.__iter__()
 
     @property
     def name(self):
@@ -1512,20 +1611,10 @@ class DerivaTable(DerivaCore):
     def visible_foreign_keys(self, keys):
         self.annotations[chaise_tags.visible_foreign_keys] = keys
 
-    def create_key(self, columns, name=None, comment=None, annotations={}):
-        key = DerivaKey(self, columns, name, comment, annotations, define=True)
-        key.create()
-
-    def column(self, column_name):
-        return DerivaColumn(self.catalog[self.schema_name][self.table_name], column_name)
-
     @property
     def columns(self):
         with DerivaModel(self.catalog) as m:
             return ElementList(self.column, m.table_model(self).column_definitions)
-
-    def key(self, key_name):
-        return DerivaKey(self.catalog[self.schema_name][self.table_name], key_name)
 
     @property
     def keys(self):
@@ -1533,6 +1622,7 @@ class DerivaTable(DerivaCore):
             return ElementList(self.key, m.table_model(self).keys)
 
     def foreign_key(self, fkey_name):
+        self.logger.debug('%s', fkey_name)
         return DerivaForeignKey(self.catalog[self.schema_name][self.table_name], fkey_name)
 
     @property
@@ -1540,57 +1630,128 @@ class DerivaTable(DerivaCore):
         with DerivaModel(self.catalog) as m:
             return ElementList(self.foreign_key, m.table_model(self).foreign_keys)
 
-    def _referenced(self, fk):
-        print('fk', fk)
-        with DerivaModel(self.table.catalog) as m:
-            # Now find the schema and table of the referring table
-            src_schema = fk.foreign_key_columns[0]['schema_name']
-            src_table = fk.foreign_key_columns[0]['table_name']
-            return DerivaForeignKey(self.table.catalog[src_schema][src_table], fk.names[0])
-
     @property
     def referenced_by(self):
         with DerivaModel(self.catalog) as m:
-            print('elements', m.table_model(self).referenced_by.elements)
-            print('iteration', [type(i) for i in m.table_model(self).referenced_by])
-            return ElementList(self._referenced , [i for i in m.table_model(self).referenced_by])
+            return ElementList(lambda x: self._referenced(x, m.table_model(self).referenced_by),
+                               m.table_model(self).referenced_by)
+
+    def _referenced(self, fkey_id, referenced_by):
+        """
+        Return the DerivaForeignKey associated with fk_id.  The Referenced_by list is different in that it is
+        keys ih other tables which that the current table as the target.  We will name the FK we are interested
+        in by providing eather 1) the name of that FK, 2) the columns in the current table that are being referenced
+        or 3) a ERMrest Foreign Key.  In order to reassociate the key with the source table, we need to look into
+        the list of referenced_by keys and search for the schema so we get the table that the key is in.
+        :param fk:
+        :return:
+        """
+        fkey = None
+        if isinstance(fkey_id, em.ForeignKey):
+            fkey = fkey_id
+        else:
+            # We have either a constraint name or a column name.
+            try:
+                # See if we already have akey name
+                fkey = referenced_by[fkey_id]
+            except (KeyError, TypeError):
+                for schema in self.catalog:
+                    try:
+                        fkey = referenced_by[(schema.name, fkey_id)]
+                    except (TypeError, KeyError):
+                        continue
+        if not fkey:
+            # Only remaining possiblity is that we have been given columns names
+            cols = set([fkey_id] if isinstance(fkey_id, str) else fkey_id)
+            for fk in referenced_by:
+                if (self.schema_name == fk.referenced_columns[0]['schema_name'] and
+                        self.table_name == fk.referenced_columns[0]['table_name'] and
+                        cols == {i['column_name'] for i in fk.referenced_columns}):
+                    fkey = fk
+                    break
+        if not fkey:
+            raise DerivaCatalogError('referenced by requires name or key type: {}'.format(fkey_id))
+
+        with DerivaModel(self.table.catalog) as m:
+            # Now find the schema and table of the referring table
+            src_schema = fkey.foreign_key_columns[0]['schema_name']
+            src_table = fkey.foreign_key_columns[0]['table_name']
+            return DerivaForeignKey(self.table.catalog[src_schema][src_table], fkey.names[0])
+
+    def key(self, key_name):
+        return DerivaKey(self.catalog[self.schema_name][self.table_name], key_name)
+
+    def datapath(self):
+        return self.catalog.getPathBuilder().schemas[self.schema_name].tables[self.table_name]
+
+    def _column_names(self):
+        return [i.name for i in self.columns]
+
+    def create_key(self, columns, name=None, comment=None, annotations={}):
+        key = DerivaKey(self, columns, name, comment, annotations, define=True)
+        self.logger.debug('creating key....')
+        key.create()
+
+    def column(self, column_name):
+        return DerivaColumn(self.catalog[self.schema_name][self.table_name], column_name)
+
+    def validate(self):
+        self.visible_columns().validate()
+
+    def _column_map(self, column_map, dest_table):
+        return DerivaColumnMap(self, column_map, dest_table)
+
+    def chaise_uri(self):
+        p = urlparse(self.catalog.catalog_model.get_server_uri())
+        catalog_id = p.path.split('/')[-1]
+        print('{}://{}/chaise/recordset/#{}/{}:{}'.format(
+            p.scheme, p.hostname, catalog_id, self.schema_name, self.table_name)
+        )
+
+    def entities(self, *attributes, **renamed_attributes):
+        return self.datapath().entities(*attributes, **renamed_attributes)
 
     def create_foreign_key(self,
-                           columns, child_table, child_columns,
+                           columns, referenced_table, child_columns,
                            name=None,
                            comment=None,
-                           on_update='NO_ACTION',
-                           on_delete='NO_ACTION',
+                           on_update='NO ACTION',
+                           on_delete='NO ACTION',
                            acls={},
                            acl_bindings={},
                            annotations={},
                            position={}):
-
-        fkey_def = DerivaForeignKeyDef(self, columns,
-                                       child_table,
-                                       child_columns,
-                                       comment=comment,
-                                       acls=acls,
-                                       acl_bindings=acl_bindings,
-                                       name=name,
-                                       on_update=on_update,
-                                       on_delete=on_delete,
-                                       annotations=annotations)
-
-        dest_table = self.catalog.schema_model(fkey_def['referenced_columns'][0]['schema_name']). \
-            table_model(fkey_def['referenced_columns'][0]['table_name'])
+        self.logger.debug('')
+        try:
+            fkey = DerivaForeignKey(self, columns,
+                                    referenced_table,
+                                    child_columns,
+                                    comment=comment,
+                                    acls=acls,
+                                    acl_bindings=acl_bindings,
+                                    name=name,
+                                    on_update=on_update,
+                                    on_delete=on_delete,
+                                    annotations=annotations,
+                                    define=True)
+        except DerivaCatalogError:
+            raise DerivaCatalogError('Invalid arguments for foreign key')
+        fkey.create()
 
         with DerivaModel(self.catalog) as m:
-            fkey = m.table_model(self).create_fkey(self.ermrest_catalog, fkey_def.definition())
             # Add foreign key to appropriate referenced_by list
-            m.table_model(dest_table).referenced_by.append(fkey)
+            m.table_model(fkey.referenced_table).referenced_by.append((m.foreign_key_model(fkey)))
+            _, _, inbound_sources = referenced_table.sources(filter=[fkey.name])
+            # Pick out the source for this key:
 
-            self.visible_foreign_keys().insert_sources(
-                [DerivaSourceSpec(self, fkey.names[0])],
-                position)
-            # TODO Need to go over source list and update to change column spec to FK spec.
+            self.logger.debug('inbound sources %s', inbound_sources)
+            referenced_table.visible_foreign_keys.insert_sources(inbound_sources, position)
 
-    def sources(self, merge_outbound=False):
+            if len(columns) == 1:
+                _, outbound_sources, _ = self.sources(merge_outbound=True)
+                self.visible_columns.rename_columns(DerivaColumnMap(self, {columns[0]: columns[0]}, self))
+
+    def sources(self, merge_outbound=False, filter=None):
         def full_key_name(k):
             return (k.table.schema_name, k.name)
 
@@ -1605,17 +1766,27 @@ class DerivaTable(DerivaCore):
                     fkey_names[ckey[0]] = fk
             # TODO We should check to see if target is vocabulary and if so use ID rather then RID
             column_sources = [
-                {'source': (
-                    [{'outbound': full_key_name(fkey_names[col.name])}, 'RID']
-                    if col.name in fkey_names and merge_outbound
-                    else col.name
-                )
-                }
-                for col in self.table.columns
+                DerivaSourceSpec(self,
+                                 {'source': (
+                                     [{'outbound': full_key_name(fkey_names[col.name])}, 'RID']
+                                     if col.name in fkey_names and merge_outbound
+                                     else col.name
+                                 )}
+                                 )
+            for col in self.table.columns if not filter or col.name in filter
             ]
 
-            outbound_sources = [{'source': [{'outbound': full_key_name(i)}, 'RID']} for i in self.table.foreign_keys]
-            inbound_sources = [{'source': [{'inbound': full_key_name(i)}, 'RID']} for i in self.table.referenced_by]
+            outbound_sources = [
+                DerivaSourceSpec(self,
+                                 {'source': [{'outbound': full_key_name(i)}, 'RID']}) for i in self.table.foreign_keys
+                if not filter or i.name in filter]
+
+            inbound_sources = [
+                DerivaSourceSpec(self,
+                                 {'source': [{'inbound': full_key_name(i)}, 'RID']}) for i in self.table.referenced_by
+                if not filter or i.name in filter
+            ]
+
             return column_sources, outbound_sources, inbound_sources
 
     @staticmethod
@@ -1958,8 +2129,8 @@ class DerivaTable(DerivaCore):
         :param annotations:
         :return:
         """
-        proto_table = namedtuple('ProtoTable', ['catalog','schema_name', 'table_name'],
-            (self.catalog, schema_name, table_name))
+        proto_table = namedtuple('ProtoTable', ['catalog', 'schema_name', 'table_name'],
+                                 (self.catalog, schema_name, table_name))
 
         with DerivaModel(self.catalog) as m:
             model = m.model()
