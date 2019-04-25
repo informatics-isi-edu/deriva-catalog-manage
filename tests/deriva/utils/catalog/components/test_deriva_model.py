@@ -23,7 +23,6 @@ def clean_schema(schema_name):
     with DerivaModel(catalog) as m:
         model = m.catalog_model()
         for t in model.schemas[schema_name].tables.values():
-            print(t)
             for k in t.foreign_keys:
                 k.delete(catalog.ermrest_catalog, t)
         for t in [i for i in model.schemas[schema_name].tables.values()]:
@@ -48,44 +47,46 @@ def tearDownModule():
     #catalog.ermrest_catalog.delete_ermrest_catalog(really=True)
     pass
 
-@unittest.skip
+
 class TestVisibleSources(TestCase):
-    t1 = None
-    t2 = None
+
     @classmethod
     def setUpClass(cls):
-        model = catalog.ermrest_catalog.getCatalogModel()
+        global catalog
         clean_schema('TestSchema')
-        t1 = model.schemas[schema_name].create_table(catalog.ermrest_catalog, em.Table.define('TestTable', []))
-        t2 = model.schemas[schema_name].create_table(catalog.ermrest_catalog, em.Table.define('TestTable1', []))
 
-        for i in ['Foo', 'Foo1', 'Foo2']:
-            t1.create_column(ermrest_catalog, em.Column.define(i, em.builtin_types['text']))
-            t2.create_column(ermrest_catalog, em.Column.define(i, em.builtin_types['text']))
-
-        t2.create_key(
-            ermrest_catalog,
-            em.Key.define(['Foo2'], constraint_names=[(schema_name, 'TestTable_Foo2_key')])
-        )
-
-        t1.create_fkey(
-            ermrest_catalog,
-            em.ForeignKey.define(['Foo2'], schema_name, 'TestTable1', ['Foo2'],
-                                 constraint_names=[[schema_name, 'TestTable1_Foo2_fkey']])
-        )
 
     def setUp(self):
-        clean_schema('TestSchema')
+        clean_schema(schema_name)
+        with DerivaModel(catalog) as m:
+            model = m.catalog_model()
+            t1 = model.schemas[schema_name].create_table(catalog.ermrest_catalog, em.Table.define('TestTable1', []))
+            t2 = model.schemas[schema_name].create_table(catalog.ermrest_catalog, em.Table.define('TestTable2', []))
+
+            for i in ['Foo', 'Foo1', 'Foo2']:
+                t1.create_column(ermrest_catalog, em.Column.define(i, em.builtin_types['text']))
+                t2.create_column(ermrest_catalog, em.Column.define(i, em.builtin_types['text']))
+
+            t2.create_key(
+                ermrest_catalog,
+                em.Key.define(['Foo2'], constraint_names=[(schema_name, 'TestTable1_Foo2_key')])
+            )
+
+            t1.create_fkey(
+                ermrest_catalog,
+                em.ForeignKey.define(['Foo2'], schema_name, 'TestTable2', ['Foo2'],
+                                     constraint_names=[[schema_name, 'TestTable1_Foo2_fkey']])
+            )
 
     def test_source_spec(self):
-        table = self.t1
+        table = catalog['TestSchema']['TestTable1']
         self.assertEqual(DerivaSourceSpec(table, 'Foo').spec, {'source': 'Foo'},
                          msg="column spec failed")
         self.assertEqual(DerivaSourceSpec(table, 'Foo').column_name, 'Foo',
                          msg="column name for source spec failed")
         self.assertEqual(DerivaSourceSpec(table, {'source':'Foo'}).spec, {'source': 'Foo'},
                          msg="simple source spec failed")
-        self.assertEqual(DerivaSourceSpec(table, [self.schema_name, 'TestTable1_Foo2_fkey']).spec,
+        self.assertEqual(DerivaSourceSpec(table, [table.schema_name, 'TestTable1_Foo2_fkey']).spec,
             {'source': [{'outbound': ['TestSchema', 'TestTable1_Foo2_fkey']}, 'RID']})
         with self.assertRaises(DerivaCatalogError):
             DerivaSourceSpec(table, 'Foo3')
@@ -94,14 +95,14 @@ class TestVisibleSources(TestCase):
         DerivaVisibleSources._normalize_positions({'all'})
 
     def test_insert_sources(self):
-        table = ermrest_catalog.getCatalogModel()[schema_name][self.table_name]
-        table.annotations[chaise_tags.visible_columns] = {}
+        t1 = ermrest_catalog.getCatalogModel().schemas['TestSchema'].tables['TestTable1']
+        t1.annotations[chaise_tags.visible_columns] = {}
 
+        table = catalog['TestSchema']['TestTable1']
         vs = table.visible_columns
         vs.insert_context('*')
         vs.insert_sources([DerivaSourceSpec(table, 'Foo'), DerivaSourceSpec(table, 'Foo2')])
-        vs.dump()
-
+        self.assertIn({'source': 'Foo2'}, table.visible_columns['*'])  
 
 class TestDerivaTable(TestCase):
 

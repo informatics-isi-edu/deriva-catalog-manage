@@ -256,7 +256,7 @@ class DerivaModel(DerivaLogging):
         return self.catalog_model().schemas[schema.name]
 
     def table_model(self, table):
-        return self.schema_model(table.schema).tables[table.table_name]
+        return self.schema_model(table.schema).tables[table.name]
 
     def column_model(self, column):
         return self.table_model(column.table).column_definitions[column.name]
@@ -419,9 +419,9 @@ class DerivaSchema(DerivaCore):
         with DerivaModel(self.catalog) as m:
             if m.table_exists(self, table_name):
                 return self.table_classes.setdefault(table_name,
-                                                     self._make_table_instance(self.schema_name, table_name))
+                                                     self._make_table_instance(self.name, table_name))
             else:
-                raise DerivaCatalogError('table {}:{} not defined'.format(self.schema_name, table_name))
+                raise DerivaCatalogError('table {}:{} not defined'.format(self.name, table_name))
 
     def create_table(self, table_name, column_defs,
                      key_defs=[], fkey_defs=[],
@@ -433,9 +433,9 @@ class DerivaSchema(DerivaCore):
         # Now that we know the table name, patch up the key and fkey defs to have the correct name.
         proto_table = namedtuple('ProtoTable', ['catalog', 'schema', 'schema_name', 'table_name'])
         for k in key_defs:
-            k.update_table(proto_table(self.catalog, self.schema, self.schema_name, table_name))
+            k.update_table(proto_table(self.catalog, self.schema, self.name, table_name))
         for k in fkey_defs:
-            k.update_table(proto_table(self.catalog, self.schema, self.schema_name, table_name))
+            k.update_table(proto_table(self.catalog, self.schema, self.name, table_name))
 
         table = self._create_table(em.Table.define(
             table_name, [col.definition() for col in column_defs],
@@ -1173,7 +1173,7 @@ class DerivaKey(DerivaCore):
 
         def update_name(self):
             if not self.name and self.table:
-                self.name = '{}_'.format(self.table.table_name) + '_'.join([i for i in self.unique_columns] + ['key'])
+                self.name = '{}_'.format(self.table.name) + '_'.join([i for i in self.unique_columns] + ['key'])
 
     def __init__(self, table, columns, name=None, comment=None, annotations={}, define=False):
         """
@@ -1320,7 +1320,7 @@ class DerivaForeignKey(DerivaCore):
         def definition(self):
             return em.ForeignKey.define(
                 self.columns,
-                self.referenced_table.schema_name, self.referenced_table.table_name, self.referenced_columns,
+                self.referenced_table.schema_name, self.referenced_table.name, self.referenced_columns,
                 constraint_names=[(self.table.schema_name, self.name)],
                 comment=self.comment,
                 on_update=self.on_update,
@@ -1332,7 +1332,7 @@ class DerivaForeignKey(DerivaCore):
 
         def update_name(self):
             if not self.name and self.table:
-                self.name = '{}_'.format(self.table.table_name) + '_'.join([i for i in self.columns] + ['fkey'])
+                self.name = '{}_'.format(self.table.name) + '_'.join([i for i in self.columns] + ['fkey'])
 
     def __init__(self, table, columns,
                  dest_table=None, dest_columns=None,
@@ -1529,7 +1529,7 @@ class DerivaTable(DerivaCore):
         self.schema = catalog[schema_name]
         self.table = self
         self.schema_name = schema_name
-        self.table_name = table_name
+        self._table_name = table_name
         self.deleted = False
 
     def __getitem__(self, column_name):
@@ -1564,7 +1564,7 @@ class DerivaTable(DerivaCore):
                      [c.name for i in self.referenced_by for c in i.referenced_columns],
                      '<-',
                      '{}:{}:'.format(i.referenced_table.schema_name,
-                                     i.referenced_table.table_name),
+                                     i.referenced_table.name),
                      [c.name for c in i.columns]
                      ]
                     for i in self.referenced_by],
@@ -1574,7 +1574,7 @@ class DerivaTable(DerivaCore):
 
     @property
     def name(self):
-        return self.table_name
+        return self._table_name
 
     @property
     def comment(self):
@@ -1625,7 +1625,7 @@ class DerivaTable(DerivaCore):
 
     def foreign_key(self, fkey_name):
         self.logger.debug('%s', fkey_name)
-        return DerivaForeignKey(self.catalog[self.schema_name][self.table_name], fkey_name)
+        return DerivaForeignKey(self.catalog[self.schema_name][self.name], fkey_name)
 
     @property
     def foreign_keys(self):
@@ -1667,7 +1667,7 @@ class DerivaTable(DerivaCore):
             cols = set([fkey_id] if isinstance(fkey_id, str) else fkey_id)
             for fk in referenced_by:
                 if (self.schema_name == fk.referenced_columns[0]['schema_name'] and
-                        self.table_name == fk.referenced_columns[0]['table_name'] and
+                        self.name == fk.referenced_columns[0]['table_name'] and
                         cols == {i['column_name'] for i in fk.referenced_columns}):
                     fkey = fk
                     break
@@ -1681,10 +1681,10 @@ class DerivaTable(DerivaCore):
             return DerivaForeignKey(self.table.catalog[src_schema][src_table], fkey.names[0])
 
     def key(self, key_name):
-        return DerivaKey(self.catalog[self.schema_name][self.table_name], key_name)
+        return DerivaKey(self.catalog[self.schema_name][self.name], key_name)
 
     def datapath(self):
-        return self.catalog.getPathBuilder().schemas[self.schema_name].tables[self.table_name]
+        return self.catalog.getPathBuilder().schemas[self.schema_name].tables[self.name]
 
     def _column_names(self):
         return [i.name for i in self.columns]
@@ -1695,7 +1695,7 @@ class DerivaTable(DerivaCore):
         key.create()
 
     def column(self, column_name):
-        return DerivaColumn(self.catalog[self.schema_name][self.table_name], column_name)
+        return DerivaColumn(self.catalog[self.schema_name][self.name], column_name)
 
     def validate(self):
         self.visible_columns().validate()
@@ -1707,7 +1707,7 @@ class DerivaTable(DerivaCore):
         p = urlparse(self.catalog.catalog_model.get_server_uri())
         catalog_id = p.path.split('/')[-1]
         print('{}://{}/chaise/recordset/#{}/{}:{}'.format(
-            p.scheme, p.hostname, catalog_id, self.schema_name, self.table_name)
+            p.scheme, p.hostname, catalog_id, self.schema_name, self.name)
         )
 
     def entities(self, *attributes, **renamed_attributes):
@@ -1838,7 +1838,7 @@ class DerivaTable(DerivaCore):
 
         overlap = set(columns).intersection(set(key_columns))
         # Determine if we are moving the column within the same table, or between tables.
-        rename = self.schema_name == dest_table.schema_name and self.table_name == dest_table.table_name
+        rename = self.schema_name == dest_table.schema_name and self.name == dest_table.name
 
         if len(overlap) == 0:
             return False
@@ -1869,7 +1869,7 @@ class DerivaTable(DerivaCore):
 
     def _update_key_name(self, name, column_map, dest_table):
         # Helper function that creates a new constraint name by replacing table and column names.
-        name = name[1].replace('{}_'.format(self.table_name), '{}_'.format(dest_table.table_name))
+        name = name[1].replace('{}_'.format(self.name), '{}_'.format(dest_table.name))
 
         for k, v in self._column_map(column_map, 'name').items():
             # Value can be either a column or key name which would have a schema component.
@@ -2136,7 +2136,7 @@ class DerivaTable(DerivaCore):
 
         with DerivaModel(self.catalog) as m:
             model = m.model()
-            table = model.schemas[self.schema_name].tables[self.table_name]
+            table = model.schemas[self.schema_name].tables[self.name]
 
             # Augment the column_map with entries for columns in the table, but not in the map.
             new_map = {i.name: column_map.get(i.name, i.name) for i in table.column_definitions}
@@ -2165,7 +2165,7 @@ class DerivaTable(DerivaCore):
             # Copy over values from original to the new one, mapping column names where required. Use the column_fill
             # argument to provide values for non-null columns.
             pb = self.catalog.getPathBuilder()
-            from_path = pb.schemas[self.schema_name].tables[self.table_name]
+            from_path = pb.schemas[self.schema_name].tables[self.name]
             to_path = pb.schemas[schema_name].tables[table_name]
 
             rows = map(
@@ -2248,8 +2248,8 @@ class DerivaTable(DerivaCore):
                     'ext_pattern': '^.*[.](?P<file_ext>json|csv)$',
                     'asset_type': 'table',
                     'file_pattern': '^((?!/assets/).)*/records/(?P<schema>%s?)/(?P<table>%s)[.]' %
-                                    (self.schema_name, self.table_name),
-                    'target_table': [self.schema_name, self.table_name],
+                                    (self.schema_name, self.name),
+                    'target_table': [self.schema_name, self.name],
                 },
                 # Assets are in format assets/schema_name/table_name/correlation_key/file.ext
                 {
@@ -2257,12 +2257,12 @@ class DerivaTable(DerivaCore):
                     'column_map': {
                         'URL': '{URI}',
                         'Length': '{file_size}',
-                        self.table_name: '{table_rid}',
+                        self.name: '{table_rid}',
                         'Filename': '{file_name}',
                         'MD5': '{md5}',
                     },
                     'dir_pattern': '^.*/(?P<schema>%s)/(?P<table>%s)/(?P<key_column>.*)/' %
-                                   (self.schema_name, self.table_name),
+                                   (self.schema_name, self.name),
                     'ext_pattern': extension_pattern,
                     'file_pattern': file_pattern,
                     'hatrac_templates': {'hatrac_uri': '/hatrac/{schema}/{table}/{md5}.{file_name}'},
@@ -2277,7 +2277,7 @@ class DerivaTable(DerivaCore):
                 }
             ]
 
-        asset_table_name = '{}_Asset'.format(self.table_name)
+        asset_table_name = '{}_Asset'.format(self.name)
 
         if set_policy and chaise_tags.catalog_config not in self.catalog.model.annotations:
             raise DerivaCatalogError(msg='Attempting to configure table before catalog is configured')
@@ -2288,11 +2288,11 @@ class DerivaTable(DerivaCore):
                 raise DerivaCatalogError(msg='Key column not found in target table')
 
         column_defs = [
-                          em.Column.define('{}'.format(self.table_name),
+                          em.Column.define('{}'.format(self.name),
                                            em.builtin_types['text'],
                                            nullok=False,
                                            comment="The {} entry to which this asset is attached".format(
-                                               self.table_name)),
+                                               self.name)),
                       ] + column_defs
 
         # Set up policy so that you can only add an asset to a record that you own.
@@ -2319,15 +2319,15 @@ class DerivaTable(DerivaCore):
 
         # Link asset table to metadata table with additional information about assets.
         asset_fkey_defs = [
-                              em.ForeignKey.define(['{}'.format(self.table_name)],
-                                                   self.schema_name, self.table_name, ['RID'],
+                              em.ForeignKey.define(['{}'.format(self.name)],
+                                                   self.schema_name, self.name, ['RID'],
                                                    acls=fkey_acls, acl_bindings=fkey_acl_bindings,
                                                    constraint_names=[
                                                        (self.schema_name,
-                                                        '{}_{}_fkey'.format(asset_table_name, self.table_name))],
+                                                        '{}_{}_fkey'.format(asset_table_name, self.name))],
                                                    )
                           ] + fkey_defs
-        comment = comment if comment else 'Asset table for {}'.format(self.table_name)
+        comment = comment if comment else 'Asset table for {}'.format(self.name)
 
         if chaise_tags.table_display not in annotations:
             annotations[chaise_tags.table_display] = {'row_name': {'row_markdown_pattern': '{{{Filename}}}'}}
@@ -2368,7 +2368,7 @@ class DerivaTable(DerivaCore):
                          i.get('target_table', []) == [self.schema_name, asset_table_name]
                          or
                          (
-                                 i.get('target_table', []) == [self.schema_name, self.table_name]
+                                 i.get('target_table', []) == [self.schema_name, self.name]
                                  and
                                  i.get('asset_type', '') == 'table'
                          )
@@ -2391,11 +2391,11 @@ class DerivaTable(DerivaCore):
                 column_name = [column_name]
             self.create_fkey(
                 em.ForeignKey.define(column_name,
-                                     target_table.schema_name, target_table.table_name,
+                                     target_table.schema_name, target_table.name,
                                      target_column if type(target_column) is list else [
                                          target_column],
                                      constraint_names=[(self.schema_name,
-                                                        '_'.join([self.table_name] +
+                                                        '_'.join([self.name] +
                                                                  column_name +
                                                                  ['fkey']))],
                                      )
@@ -2416,7 +2416,7 @@ class DerivaTable(DerivaCore):
         return
 
     def disassociate_tables(self, target_table):
-        association_table_name = '{}_{}'.format(self.table_name, target_table.table_name)
+        association_table_name = '{}_{}'.format(self.name, target_table.name)
         try:
             self.catalog.schema_model(self.schema_name).table_model(association_table_name).delete()
         except KeyError:
@@ -2434,26 +2434,26 @@ class DerivaTable(DerivaCore):
         :return: Association table.
         """
 
-        association_table_name = '{}_{}'.format(self.table_name, target_table)
+        association_table_name = '{}_{}'.format(self.name, target_table)
 
         column_defs = [
-            em.Column.define('{}'.format(self.table_name), em.builtin_types['text'], nullok=False),
+            em.Column.define('{}'.format(self.name), em.builtin_types['text'], nullok=False),
             em.Column.define('{}'.format(target_table), em.builtin_types['text'], nullok=False)
         ]
 
         key_defs = [
-            em.Key.define([self.table_name, target_table],
+            em.Key.define([self.name, target_table],
                           constraint_names=[
                               (self.schema_name,
-                               '{}_{}_{}_key'.format(association_table_name, self.table_name, target_table))],
+                               '{}_{}_{}_key'.format(association_table_name, self.name, target_table))],
                           )
         ]
 
         fkey_defs = [
-            em.ForeignKey.define([self.table_name],
-                                 self.schema_name, self.table_name, [table_column],
+            em.ForeignKey.define([self.name],
+                                 self.schema_name, self.name, [table_column],
                                  constraint_names=[
-                                     (self.schema_name, '{}_{}_fkey'.format(association_table_name, self.table_name))],
+                                     (self.schema_name, '{}_{}_fkey'.format(association_table_name, self.name))],
                                  ),
             em.ForeignKey.define([target_table],
                                  target_schema, target_table, [target_column],
