@@ -138,7 +138,7 @@ class TestDerivaTable(TestCase):
         self.assertEqual(table['RID'].name, 'RID')
         self.assertEqual(table.column('RID').name, 'RID')
         self.assertEqual(table.columns['RID'].name, 'RID')
-        self.assertEqual(table.columns[2], 'RMT')
+        self.assertEqual(table.columns[2].name, 'RMT')
         self.assertTrue( {'RID','RCB','RMB','RCT','RMT'} < {i.name for i in table.columns})
         print(table['RID'])
         self.assertIsInstance(table['RID'].definition(), em.Column)
@@ -147,7 +147,7 @@ class TestDerivaTable(TestCase):
 
     def test_column_add(self):
         table = catalog[schema_name].create_table('TestTable1', [])
-        table.create_columns(DerivaColumn(table,'Foo1','text'))
+        table.create_columns(DerivaColumn.define('Foo1','text'))
         self.assertIn('Foo1', table.columns)
         self.assertIn({'source': 'Foo1'}, table.visible_columns['*'])
 
@@ -155,13 +155,14 @@ class TestDerivaTable(TestCase):
         table = catalog[schema_name].create_table('TestTable', [DerivaColumn.define('Foo', 'text')])
         table.visible_columns.insert_context('*')
         self.assertEqual(table['RID'].name, 'RID')
+        print(DerivaSourceSpec(table, 'Foo').spec)
         print(table.visible_columns)
         table['Foo'].delete()
         with self.assertRaises(DerivaCatalogError):
             table['Foo']
-        self.assertNotIn({'source' 'Foo1'}, table.visible_columns)
-        with self.assertRaises(DerivaCatalogError):
-            DerivaSourceSpec(table, 'Foo1') in table.visible_columns['*']
+        self.assertNotIn({'source':'Foo'}, table.visible_columns)
+        self.assertNotIn({'source':'Foo'}, table.visible_columns['*'])
+        self.assertNotIn({'source':'Foo'}, table.visible_columns['entry'])
         print(table.visible_columns)
 
     def test_keys(self):
@@ -181,7 +182,7 @@ class TestDerivaTable(TestCase):
         self.assertIn('TestTable1_Foo1_key', table.keys)
 
         self.assertEqual(table.key('Foo1').columns['Foo1'].name, 'Foo1')
-        self.assertEquatl(table.key('Foo1').columns[1].name, 'Foo2')
+        self.assertEqual(table.key('Foo1').columns[6].name, 'Foo2')
         with self.assertRaises(DerivaCatalogError):
             table.create_key(['Foo1'], comment='My Key')
         with self.assertRaises(DerivaCatalogError):
@@ -229,10 +230,13 @@ class TestDerivaTable(TestCase):
         with self.assertRaises(DerivaCatalogError):
             table2.foreign_keys['Bar']
 
+        print(table2.visible_columns['*'])
         self.assertIn({'source': [{'outbound': ('TestSchema', 'TestTable2_Foo1_fkey')},'RID']},
                       table2.visible_columns['*'])
 
         self.assertIn({'source': [{'inbound': ('TestSchema', 'TestTable2_Foo1_fkey')},'RID']},
+                      table1.visible_foreign_keys['*'])
+        self.assertIn({'source': [{'inbound': ('TestSchema', 'TestTable2_Foo1_Foo2_fkey')},'RID']},
                       table1.visible_foreign_keys['*'])
 
     def test_fkey_add(self):
@@ -254,12 +258,12 @@ class TestDerivaTable(TestCase):
         table2.create_foreign_key(['Foo1'], table1, ['Foo1a'])
         table2.create_foreign_key(['Foo1', 'Foo2'], table1, ['Foo1a', 'Foo2a'])
         print(table1)
-        print('columns',[ {k:v for k,v in i.items()} for i in table1.visible_columns])
-        print('keys',[ {k:v for k,v in i.items()} for i in table1.visible_foreign_keys])
+        print('columns', table1.visible_columns)
+        print('keys',table1.visible_foreign_keys)
 
         print(table2)
-        print('columns',[ {k:v for k,v in i.items()} for i in table2.visible_columns])
-        print('keys',[ {k:v for k,v in i.items()} for i in table2.visible_foreign_keys])
+        print('columns', table2.visible_columns)
+        print('keys',table2.visible_foreign_keys)
 
         self.assertEqual(table2.foreign_key(['Foo1']).name, 'TestTable2_Foo1_fkey')
         self.assertEqual(table2.foreign_keys['Foo1'].name, 'TestTable2_Foo1_fkey')
@@ -275,6 +279,8 @@ class TestDerivaTable(TestCase):
                       table2.visible_columns['*'])
 
         self.assertIn({'source': [{'inbound': ('TestSchema', 'TestTable2_Foo1_fkey')}, 'RID']},
+                      table1.visible_foreign_keys['*'])
+        self.assertIn({'source': [{'inbound': ('TestSchema', 'TestTable2_Foo1_Foo2_fkey')}, 'RID']},
                       table1.visible_foreign_keys['*'])
 
     def test_fkey_delete(self):
