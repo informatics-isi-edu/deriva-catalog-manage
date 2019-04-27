@@ -7,54 +7,70 @@ import tempfile
 import warnings
 import logging
 
+from deriva.core import get_credential, DerivaServer
+import deriva.core.ermrest_model as em
+from deriva.utils.catalog.components.configure_catalog import *
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
 
-@unittest.skip("showing class skipping")
-class TestCreate_model_elements(TestCase):
+server = 'dev.isrd.isi.edu'
+schema_name = 'TestSchema'
+
+def clean_schema(schema_name):
+    with DerivaModel(catalog) as m:
+        model = m.catalog_model()
+        for t in model.schemas[schema_name].tables.values():
+            for k in t.foreign_keys:
+                k.delete(catalog.ermrest_catalog, t)
+        for t in [i for i in model.schemas[schema_name].tables.values()]:
+            t.delete(catalog.ermrest_catalog, model.schemas[schema_name])
+
+
+def setUpModule():
+    global catalog, catalog_id, ermrest_catalog
+
+    credentials = get_credential(server)
+    catalog = DerivaServer('https', server, credentials=credentials).create_ermrest_catalog()
+    catalog_id = catalog._catalog_id
+    logger.info('Catalog_id is {}'.format(catalog_id))
+
+    catalog = DerivaCatalogConfigure(server, catalog_id=catalog_id)
+    ermrest_catalog = catalog.ermrest_catalog
+    with DerivaModel(catalog) as m:
+        model = m.catalog_model()
+        model.create_schema(catalog.ermrest_catalog, em.Schema.define(schema_name))
+
+
+class TestConfigureCatalog(TestCase):
+    @classmethod
+    def setUpClass(cls):
+        global catalog
+        clean_schema('TestSchema')
+
     def setUp(self):
-        self.table_name = 'TestTable'
+        clean_schema(schema_name)
+        with DerivaModel(catalog) as m:
+            model = m.catalog_model()
+            t1 = model.schemas[schema_name].create_table(catalog.ermrest_catalog, em.Table.define('TestTable1', []))
+            t2 = model.schemas[schema_name].create_table(catalog.ermrest_catalog, em.Table.define('TestTable2', []))
 
-        self.table_size = 10
-        self.column_count = 5
-        self.test_dir = tempfile.mkdtemp()
+            for i in ['Foo', 'Foo1', 'Foo2']:
+                t1.create_column(ermrest_catalog, em.Column.define(i, em.builtin_types['text']))
+                t2.create_column(ermrest_catalog, em.Column.define(i, em.builtin_types['text']))
 
-        (row, self.headers) = generate_test_csv(self.column_count)
-        self.tablefile = '{}/{}.csv'.format(self.test_dir, self.table_name)
+            t2.create_key(
+                ermrest_catalog,
+                em.Key.define(['Foo2'], constraint_names=[(schema_name, 'TestTable1_Foo2_key')])
+            )
 
-        with open(self.tablefile, 'w', newline='') as f:
-            tablewriter = csv.writer(f)
-            for i, j in zip(range(self.table_size + 1), row):
-                tablewriter.writerow(j)
+            t1.create_fkey(
+                ermrest_catalog,
+                em.ForeignKey.define(['Foo2'], schema_name, 'TestTable2', ['Foo2'],
+                                     constraint_names=[[schema_name, 'TestTable1_Foo2_fkey']])
+            )
 
-        self.configfile = os.path.dirname(os.path.realpath(__file__)) + '/config.py'
+    def test_catalog_defaults(self):
+        catalog.configure_baseline_catalog(catalog_name='test', admin='isrd-systems')
 
-        model = self.catalog.getCatalogModel()
-        model.create_schema(self.catalog, em.Schema.define(self.schema_name))
-
-        self.table = DerivaCSV(self.tablefile, self.schema_name, column_map=True, key_columns='id')
-      #  self._create_test_table()
-        self.table.create_validate_upload_csv(self.catalog, create=True, upload=True)
-        configure_catalog.configure_baseline_catalog(self.catalog, catalog_name='test', admin='isrd-systems')
-
-        configure_catalog.configure_table_defaults(self.catalog, model.schemas[self.schema_name].tables[self.table_name],
-                                                   public=True)
-
-        logger.debug('Setup done....')
-        # Make upload directory:
-        # mkdir schema_name/table/
-        #    schema/file/id/file1, file2, ....for
-
-    def tearDown(self):
-        self.catalog.delete_ermrest_catalog(really=True)
-        logger.debug('teardown...')
-
-
-    def test_create_asset_table(self):
-        model = self.catalog.getCatalogModel()
-        table = model.schemas[self.schema_name].tables[self.table_name]
-
-        create_asset_table(self.catalog, table, 'ID')
-
-
-    def test_create_asset_upload_spec(self):
-        create_asset_upload_spec()
-        self.fail()
+    def test_table_defaults(self):
+        catalog[schema_name]['TestTable1'].configure_table_defaults(public=True)
