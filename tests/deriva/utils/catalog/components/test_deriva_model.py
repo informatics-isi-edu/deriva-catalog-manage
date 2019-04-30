@@ -301,10 +301,6 @@ class TestDerivaTable(TestCase):
         with self.assertRaises(DerivaCatalogError):
             self.assertTrue(table1.referenced_by['Foo1a'])
 
-        print(table2)
-        print('columns', table2.visible_columns)
-        print('keys', table1.visible_foreign_keys)
-
         self.assertNotIn({'source': [{'outbound': ('TestSchema', 'TestTable2_Foo1_fkey')}, 'RID']},
                       table2.visible_columns['*'])
 

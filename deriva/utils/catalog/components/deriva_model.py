@@ -25,6 +25,10 @@ class DerivaCatalogError(Exception):
         self.msg = msg
         self.obj = obj
 
+class DerivaSourceError(DerivaCatalogError):
+    def __init__(self, obj, msg):
+        super().__init__(obj, msg)
+
 class DerivaMethodFilter:
     def __init__(self, include=None, exclude=None):
         self.include = include
@@ -533,6 +537,7 @@ class DerivaColumnMap(DerivaLogging, OrderedDict):
     def __init__(self, table, column_map, dest_table):
         self.table = table
         super().__init__()
+        self.logger.debug('table: %s dest_table: %s column_map: %s ', table.name, dest_table.name, column_map)
         self.update(self._normalize_column_map(table, column_map, dest_table))
 
     def _normalize_column_map(self, table, column_map, dest_table):
@@ -562,10 +567,10 @@ class DerivaColumnMap(DerivaLogging, OrderedDict):
             if provided.
 
             :param k: Name of the column being mapped
-            :param v: Either the name of the new column or a dictionary of new column attributes.
+            :param v: Either the name of the new colu\n or a dictionary of new column attributes.
             :return:
             """
-
+            self.logger.debug('column: %s map_value: %s', k, v)
             if isinstance(v, (DerivaColumn, DerivaKey, DerivaForeignKey)):
                 return v
 
@@ -593,15 +598,20 @@ class DerivaColumnMap(DerivaLogging, OrderedDict):
         # Go through the columns in order and add map entries, converting any map entries that are just column names
         # or dictionaries to DerivaColumnDefs
 
-        self.logger.debug('table: %s column map %s', table.name, column_map)
         column_map = {k: normalize_column(k, v) for k, v in column_map.items()}
 
         # Collect up all of the column name maps.
         column_name_map = {k: v.name for k, v in column_map.items()}
-        self.logger.debug('map %s fkey_name %s name_map %s', column_map, [fkey.name for fkey in table.foreign_keys], column_name_map)
+        self.logger.debug('column_map: %s column_name_map %s', column_map, column_name_map)
+        self.logger.debug('keys: %s \nfkeys %s',
+                          [key.name for key in table.keys],
+                          [fkey.name for fkey in table.foreign_keys])
 
-        for key in table.keys:
-            self.logger.debug('mapped columns %s', [column_name_map.get(c.name, c.name) for c in key.columns])
+        self.logger.debug('mapped key columns %s',
+                          [[column_name_map.get(c.name, c.name) for c in key.columns] for key in table.keys])
+        self.logger.debug('mapped fkey columns %s %s',
+                          [[column_name_map.get(c.name, c.name) for c in fkey.columns] for fkey in table.foreign_keys],
+            [(len(fkey.columns), next(iter(fkey.columns)).name in column_name_map) for fkey in table.foreign_keys])
 
         # Get new key and fkey definitions by mapping to new column names.
         column_map.update(
@@ -613,12 +623,9 @@ class DerivaColumnMap(DerivaLogging, OrderedDict):
                     annotations=key.annotations
                 )
                 for key in table.keys if
-                table._key_in_columns(column_name_map.keys(), key.columns, dest_table)
+                len(key.columns) == 1 and table._key_in_columns(column_name_map.keys(), key.columns, dest_table)
             }
         )
-
-        for fkey in table.foreign_keys:
-            self.logger.debug('mapped columns %s', [column_name_map.get(c.name, c.name) for c in fkey.columns])
 
         column_map.update(
             {
@@ -633,7 +640,7 @@ class DerivaColumnMap(DerivaLogging, OrderedDict):
                         acl_bindings=fkey.acl_bindings
                     )
                 for fkey in table.foreign_keys
-                if table._key_in_columns(column_name_map.keys(), fkey.columns, dest_table)
+                if len(fkey.columns) == 1 and table._key_in_columns(column_name_map.keys(), fkey.columns, dest_table)
             }
         )
         self.logger.debug('normalized column map %s', column_map)
@@ -791,7 +798,7 @@ class DerivaVisibleSources(DerivaLogging):
         :param column_map:
         :return:
         """
-        self.logger.debug('column_map %s', column_map)
+        self.logger.debug('column_map %s %s', column_map, pprint.pformat(self.table.annotations[self.tag]))
         vc = {
             k: [
                 j for i in v for j in (
@@ -925,7 +932,7 @@ class DerivaSourceSpec(DerivaLogging):
             elif spec in self.table.referenced_by:
                 return {'source': [{'inbound': (self.table.schema_name, spec)}, 'RID']}
             else:
-                raise DerivaCatalogError(self, 'Invalid source entry {}'.format(spec))
+                raise DerivaSourceError(self, 'Invalid source entry {}'.format(spec))
             return {'source': spec}
         if isinstance(spec, (tuple, list)) and len(spec) == 2 and spec[0] == self.table.schema_name:
             if spec[1] in self.table.keys:
@@ -933,7 +940,7 @@ class DerivaSourceSpec(DerivaLogging):
             elif spec[1] in self.table.foreign_keys:
                 return {'source': [{'outbound': spec}, 'RID']}
             else:
-                raise DerivaCatalogError(self, 'Invalid source entry {}'.format(spec))
+                raise DerivaSourceError(self, 'Invalid source entry {}'.format(spec))
         else:
             return self._normalize_source_entry(spec) if validate else spec
 
@@ -941,7 +948,7 @@ class DerivaSourceSpec(DerivaLogging):
         source_entry = spec['source']
         if type(source_entry) is str:
             if source_entry not in [i.name for i in self.table.columns]:
-                raise DerivaCatalogError(self, 'Invalid source entry {}'.format(spec))
+                raise DerivaSourceError(self, 'Invalid source entry {}'.format(spec))
             else:
                 return spec
 
@@ -961,24 +968,30 @@ class DerivaSourceSpec(DerivaLogging):
         return spec
 
     def rename_column(self, column_map):
-        self.logger.debug('spec: %s source %s type %s', self.spec, self.source, self.source_type())
-        self.logger.debug('column_map %s source %s in_map %s', column_map, self.source, self.source in column_map)
-        if self.source_type() == 'column':
-            if self.source in column_map:
+        self.logger.debug('spec: %s map %s ', self.spec, column_map)
+        if self.column_name != 'pseudo_column':
+            if self.column_name in column_map:
                 # See if the column is used as a simple foreign key.
-                fkey_name = self.table.foreign_keys[self.source].name
-                self.logger.debug('column %s foreign key name %s %s', self.source, fkey_name, fkey_name in column_map)
+                try:
+
+                    fkey_name = self.table.foreign_keys[self.source].name
+                    self.logger.debug('column %s foreign key name %s %s', self.source, fkey_name, fkey_name in column_map)
+                except DerivaCatalogError:
+                    fkey_name = None
 
                 # If we are renaming a column, and it is used in a foreign_key, then make the spec be a outbound
                 # source using the FK.  Otherwise, just rename the column in the spec if needed.
-                if fkey_name in column_map:
+                if fkey_name and fkey_name in column_map:
                     return {'source':
                         [
                             {'outbound': (column_map[fkey_name].referenced_table.schema_name,
                                           column_map[fkey_name].name)}, 'RID'
                         ]
                     }
+                elif self.column_name in column_map:
+                    return {'source': column_map[self.column_name]}
                 else:
+                    self.logger.debug('mapping source , to %s ', {**self.spec, **{'source': column_map[self.source].name}})
                     return {**self.spec, **{'source': column_map[self.source].name}}
             else:
                 return self.spec
@@ -1010,6 +1023,13 @@ class DerivaSourceSpec(DerivaLogging):
                 return list(fk_cols)[0] if len(fk_cols) == 1 else None
         else:
             return 'pseudo_column'
+
+
+        def make_outbound(validate=True):
+            spec = self._normalize_column_entry(spec, validate)
+
+        def strip_outbound():
+            self.spec
 
 
 class DerivaColumn(DerivaCore):
@@ -1587,7 +1607,9 @@ class DerivaForeignKey(DerivaCore):
         del (referenced_table.referenced_by[self.name])
 
         with DerivaModel(self.table.catalog) as m:
+            print(f'deleting fkey: {self.name} {m.foreign_key_exists(self.table, self.name)}')
             m.foreign_key_exists(self.table, self.name).delete(self.catalog.ermrest_catalog, m.table_model(self.table))
+            print(f'deleting fkey: {self.name} {m.foreign_key_exists(self.table, self.name)}')
 
         if column:
             self.table.visible_columns = self.table.visible_columns.rename_columns(
@@ -1999,20 +2021,6 @@ class DerivaTable(DerivaCore):
             elif k == chaise_tags.visible_columns or k == chaise_tags.visible_foreign_keys:
                 DerivaVisibleSources(self, k).delete_visible_source(columns)
 
-    def delete_fkeys(self, fkeys):
-        fkeys = fkeys if isinstance(fkeys, list) else [fkeys]
-        with DerivaModel(self.catalog) as m:
-            model = m.model()
-            for fk in fkeys:
-                fkey = fk.definition() if isinstance(fk, DerivaForeignKey) else fk
-                referenced = model.schemas[
-                    fkey.referenced_columns[0]['schema_name']
-                ].tables[
-                    fkey.referenced_columns[0]['table_name']
-                ]
-                self.foreign_keys()[fkey.names[0]].delete(model, m.table_model(self))
-                del referenced.referenced_by[fkey.names[0]]
-
     def create_keys(self, keys):
         """
         Create a new column in the table.
@@ -2023,13 +2031,6 @@ class DerivaTable(DerivaCore):
 
         for key in keys:
             key.create()
-
-    def delete_keys(self, keys):
-        keys = keys if isinstance(keys, list) else [keys]
-        with DerivaModel(self.catalog) as m:
-            for k in keys:
-                key = k.definition() if isinstance(k, DerivaKey) else k
-                self.keys()[key.names[0]].delete(self.catalog.ermrest_catalog, m.table_model(self))
 
     def delete_columns(self, columns):
         """
