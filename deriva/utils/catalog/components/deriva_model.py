@@ -153,9 +153,7 @@ class ElementList:
         return len(self.lst)
 
     def __delitem__(self, key):
-        print(self.lst.elements)
         key_name = self.fvalue(key).table.schema_name, self.fvalue(key).name
-        print(f'key {key}, {self.fvalue(key)}')
         self.lst.__delitem__(key_name)
 
     def __iter__(self):
@@ -900,10 +898,11 @@ class DerivaSourceSpec(DerivaLogging):
     def __init__(self, table, spec, validate=True):
         super().__init__()
         self.logger.debug('table: %s spec: %s', table.name, spec)
-
         self.table = table
-        self.spec = spec.spec if isinstance(spec, DerivaSourceSpec) else self._normalize_column_entry(spec, validate)
-        self.source = self.spec['source']
+        self.spec = spec.spec if isinstance(spec, DerivaSourceSpec) else self._normalize_source_spec(spec)
+        self.logger.debug('normalized: %s', self.spec)
+        if validate:
+            self.validate()
         self.logger.debug('initialized: table %s spec: %s', table.name, self.spec)
 
     def __str__(self):
@@ -912,6 +911,14 @@ class DerivaSourceSpec(DerivaLogging):
     @property
     def column_name(self):
         return self._referenced_columns()
+
+    @property
+    def source(self):
+        return self.spec['source']
+
+    @source.setter
+    def source(self, value):
+        self.spec['source'] = value
 
     def source_type(self):
         if type(self.source) is str:
@@ -923,48 +930,65 @@ class DerivaSourceSpec(DerivaLogging):
                 return 'outbound'
         return None
 
-    def _normalize_column_entry(self, spec, validate):
+    def validate(self):
+        """
+        Check the values of a normalized spec and make sure that all of the columns and keys in the source exist.
+        :return:
+        """
+        spec = self._normalize_source_spec(self.spec)
+        source_entry = spec['source']
+        if type(spec['source']) is str:
+            if spec['source'] not in [i.name for i in self.table.columns]:
+                raise DerivaSourceError(self, 'Invalid source entry {}'.format(spec))
+        else:
+            # We have a path of FKs so follow the path to make sure that all of the constraints line up.
+            path_table = self.table
+            for c in source_entry[0:-1]:
+                if 'inbound' in c and len(c['inbound']) == 2:
+                    self.logger.debug('validating %s: %s', path_table.name, c)
+                    path_table = path_table.referenced_by[c['inbound']].table
+                elif 'outbound' in c and len(c['outbound']) == 2:
+                    self.logger.debug('validating %s: %s', path_table.name, c)
+                    path_table = path_table.foreign_keys[c['outbound']].referenced_table
+                else:
+                    raise DerivaSourceError(self, 'Invalid source entry {}'.format(c))
+
+            if source_entry[-1] not in path_table.keys:
+                raise DerivaSourceError(self, 'Invalid source entry {}'.format(source_entry[-1]))
+        return spec
+
+    def _normalize_source_spec(self, spec):
+        """
+        Convert a source spec into a uniform form using the new source notations.
+        :param spec:
+        :return:
+        """
+        self.logger.debug('normalize_source_spec %s %s', self.table.name, spec)
         if type(spec) is str:
             if spec in self.table.columns:
-                return {'source': spec}
+                spec = {'source': spec}
             elif spec in self.table.foreign_keys:
-                return {'source': [{'outbound': (self.table.schema_name, spec)}, 'RID']}
+                spec = {'source': [{'outbound': (self.table.schema_name, spec)}, 'RID']}
             elif spec in self.table.referenced_by:
-                return {'source': [{'inbound': (self.table.schema_name, spec)}, 'RID']}
+                spec = {'source': [{'inbound': (self.table.schema_name, spec)}, 'RID']}
             else:
                 raise DerivaSourceError(self, 'Invalid source entry {}'.format(spec))
-            return {'source': spec}
-        if isinstance(spec, (tuple, list)) and len(spec) == 2 and spec[0] == self.table.schema_name:
+        # Check for old style foreign key notation and turn into inbound or outbound source.
+        elif isinstance(spec, (tuple, list)) and len(spec) == 2 and spec[0] == self.table.schema_name:
             if spec[1] in self.table.keys:
-                return {'source': next(iter(self.table.keys[spec].columns))}
+                return {'source': next(iter(self.table.keys[spec[1]].columns)).name}
             elif spec[1] in self.table.foreign_keys:
                 return {'source': [{'outbound': spec}, 'RID']}
+            elif spec[1] in self.table.referenced_by:
+                return {'source': [{'inbound': spec}, 'RID']}
             else:
                 raise DerivaSourceError(self, 'Invalid source entry {}'.format(spec))
         else:
-            return self._normalize_source_entry(spec) if validate else spec
-
-    def _normalize_source_entry(self, spec):
-        source_entry = spec['source']
-        if type(source_entry) is str:
-            if source_entry not in [i.name for i in self.table.columns]:
-                raise DerivaSourceError(self, 'Invalid source entry {}'.format(spec))
-            else:
-                return spec
-
-        # We have a path of FKs so follow the path to make sure that all of the constraints line up.
-        path_table = self.table
-        for c in source_entry[0:-1]:
-            if 'inbound' in c and len(c['inbound']) == 2:
-                self.logger.debug('normalizing %s', c)
-                path_table = path_table.referenced_by[c['inbound']].referenced_table
-            elif 'outbound' in c and len(c['outbound']) == 2:
-                path_table = path_table.foreign_keys[c['outbound']].referenced_table
-            else:
-                raise DerivaCatalogError(self, 'Invalid source entry {}'.format(c))
-
-        if source_entry[-1] not in path_table.columns:
-            raise DerivaCatalogError(self, 'Invalid source entry {}'.format(source_entry[-1]))
+            # We have a spec that is already in source form.
+            # every element of pseudo column source except the last must be either an inbound or outbound spec.
+            if not (isinstance(spec['source'], str) or
+                    all(map(lambda x: len(x.get('inbound',x.get('outbound',[]))) == 2, spec['source'][0:-1]))):
+                raise DerivaSourceError(self, 'Invalid source entry is not in key list{}'.format(spec))
         return spec
 
     def rename_column(self, column_map):
@@ -1024,13 +1048,30 @@ class DerivaSourceSpec(DerivaLogging):
         else:
             return 'pseudo_column'
 
+    def make_outbound(self, validate=True):
+        col_name = self.table.foreign_key(self.source).name
+        self.spec.update(self._normalize_source_spec([self.table.schema_name, col_name]))
+        print(self.source)
+        if validate:
+            self.validate()
+        return self
 
-        def make_outbound(validate=True):
-            spec = self._normalize_column_entry(spec, validate)
+    def make_column(self, validate=True):
+        """
+        Convert a outbound spec on a foreign key to a column spec.
+        :param validate:
+        :return:
+        """
+        # Get the fk_name from the spec and then change spec to be the key column.
+        fk_name = self.source[0]['outbound'][1]
+        self.spec.update(self._normalize_source_spec(
+            next(iter(self.table.foreign_keys[fk_name].columns)).name
+        )
+        )
 
-        def strip_outbound():
-            self.spec
-
+        if validate:
+            self.validate()
+        return self
 
 class DerivaColumn(DerivaCore):
     class _DerivaColumnDef(DerivaLogging):
@@ -1414,7 +1455,7 @@ class DerivaForeignKey(DerivaCore):
             if not self.name and table:
                 self.name = '{}_'.format(table.name) + '_'.join([i for i in self.columns] + ['fkey'])
 
-    def __init__(self, table, columns,
+    def __init__(self, table, columns=None,
                  dest_table=None, dest_columns=None,
                  name=None,
                  comment=None,
@@ -1438,11 +1479,12 @@ class DerivaForeignKey(DerivaCore):
 
         if isinstance(name, em.ForeignKey):  # We are providing a em.ForeignKey as the name argument.
             name = name.names[0]
+
         if isinstance(columns, em.ForeignKey):  # We are providing a em.ForeignKey as the columns argument.
             name = columns.names[0]
 
         # Get just the name part of the potential (schema,name) pair
-        if isinstance(name, tuple) and len(name) == 2 and name[0] == table.schema_name:
+        if isinstance(name, (tuple,list)) and len(name) == 2 and name[0] == table.schema_name:
             name = name[1]
 
         self.fkey = None
@@ -1471,7 +1513,7 @@ class DerivaForeignKey(DerivaCore):
                                                               acls=acls, acl_bindings=acl_bindings,
                                                               annotations=annotations)
         else:
-            raise DerivaCatalogError(self, "Key doesn't exist".format(name))
+            raise DerivaCatalogError(self, "Foreign key doesn't exist".format(name))
         self.logger.debug('fkey def %s', self.fkey)
 
     @staticmethod
@@ -1607,9 +1649,7 @@ class DerivaForeignKey(DerivaCore):
         del (referenced_table.referenced_by[self.name])
 
         with DerivaModel(self.table.catalog) as m:
-            print(f'deleting fkey: {self.name} {m.foreign_key_exists(self.table, self.name)}')
             m.foreign_key_exists(self.table, self.name).delete(self.catalog.ermrest_catalog, m.table_model(self.table))
-            print(f'deleting fkey: {self.name} {m.foreign_key_exists(self.table, self.name)}')
 
         if column:
             self.table.visible_columns = self.table.visible_columns.rename_columns(
@@ -1728,7 +1768,7 @@ class DerivaTable(DerivaCore):
 
     def foreign_key(self, fkey_name):
         self.logger.debug('%s', fkey_name)
-        return DerivaForeignKey(self.catalog[self.schema_name][self.name], fkey_name)
+        return DerivaForeignKey(self.catalog[self.schema_name][self.name], name=fkey_name)
 
     @property
     def foreign_keys(self):
@@ -1759,7 +1799,7 @@ class DerivaTable(DerivaCore):
             # We have either a constraint name or a column name.
             try:
                 # See if we already have akey name
-                fkey = referenced_by[fkey_id]
+                fkey = referenced_by[tuple(fkey_id)]
             except (KeyError, TypeError):
                 for schema in self.catalog:
                     try:

@@ -79,18 +79,102 @@ class TestVisibleSources(TestCase):
                                      constraint_names=[[schema_name, 'TestTable1_Foo2_fkey']])
             )
 
+            main = model.schemas[schema_name].create_table(
+                catalog.ermrest_catalog,
+                em.Table.define('Main',
+                                [em.Column.define('text_col', em.builtin_types['text']),
+                                 em.Column.define('f1_fkey', em.builtin_types['text'])]))
+
+            f1 = model.schemas[schema_name].create_table(
+                catalog.ermrest_catalog,
+                em.Table.define('F1', [em.Column.define('f1_text', em.builtin_types['text'])]))
+
+            f2 = model.schemas[schema_name].create_table(
+                catalog.ermrest_catalog,
+                em.Table.define('F2', [em.Column.define('main_fkey', em.builtin_types['text'])]))
+
+            main_f3 = model.schemas[schema_name].create_table(
+                catalog.ermrest_catalog,
+                em.Table.define('Main_F3',
+                                [em.Column.define('main_fkey', em.builtin_types['text']),
+                                 em.Column.define('f3_fkey', em.builtin_types['text'])]))
+
+            f3 = model.schemas[schema_name].create_table(
+                catalog.ermrest_catalog,
+                em.Table.define('F3',
+                                [em.Column.define('f3_text', em.builtin_types['text'])]
+                                )
+            )
+
+            main.create_fkey(ermrest_catalog,
+                             em.ForeignKey.define(['f1_fkey'], 'TestSchema', 'F1', ['RID'],
+                                                  constraint_names=[('TestSchema', 'fk1_cons')]
+                                                  ))
+
+            f2.create_fkey(ermrest_catalog,
+                             em.ForeignKey.define(['main_fkey'], 'TestSchema', 'Main', ['RID'],
+                                                  constraint_names=[('TestSchema', 'fk2_cons')]
+                                                  ))
+
+            main_f3.create_fkey(ermrest_catalog,
+                             em.ForeignKey.define(['main_fkey'], 'TestSchema', 'Main', ['RID'],
+                                                  constraint_names=[('TestSchema', 'fk3_cons')]
+                                                  ))
+            main_f3.create_fkey(ermrest_catalog,
+                             em.ForeignKey.define(['f3_fkey'], 'TestSchema', 'F3', ['RID'],
+                                                  constraint_names=[('TestSchema', 'main_f3_cons')]
+                                                  ))
+        catalog.refresh()
+
     def test_source_spec(self):
-        table = catalog['TestSchema']['TestTable1']
-        self.assertEqual(DerivaSourceSpec(table, 'Foo').spec, {'source': 'Foo'},
-                         msg="column spec failed")
-        self.assertEqual(DerivaSourceSpec(table, 'Foo').column_name, 'Foo',
-                         msg="column name for source spec failed")
-        self.assertEqual(DerivaSourceSpec(table, {'source': 'Foo'}).spec, {'source': 'Foo'},
-                         msg="simple source spec failed")
-        self.assertEqual(DerivaSourceSpec(table, [table.schema_name, 'TestTable1_Foo2_fkey']).spec,
-                         {'source': [{'outbound': ['TestSchema', 'TestTable1_Foo2_fkey']}, 'RID']})
+        # Normal Columns
+        main = catalog['TestSchema']['Main']
+        self.assertEqual(DerivaSourceSpec(main, 'text_col').spec, {'source': 'text_col'})
+        with self.assertRaises(DerivaSourceError):
+            DerivaSourceSpec(main, 'Foobar')
+        self.assertEqual(DerivaSourceSpec(main, {'source': 'text_col'}).spec, {'source': 'text_col'})
+        self.assertEqual(DerivaSourceSpec(main, {'source': 'RID', 'entity': False}).spec, {'source': 'RID', 'entity': False})
+
+        # Key Columns
+        self.assertEqual(DerivaSourceSpec(main, ['TestSchema', 'Main_RIDkey1']).spec, {'source': 'RID'})
         with self.assertRaises(DerivaCatalogError):
-            DerivaSourceSpec(table, 'Foo3')
+            DerivaSourceSpec(main, ['TestSchema', 'Foobar'])
+
+        # ForeignKey Columns
+        self.assertEqual(DerivaSourceSpec(main, ['TestSchema', 'fk1_cons']).spec,
+                         {"source": [{"outbound": ["TestSchema", "fk1_cons"]}, "RID"]})
+        self.assertEqual(DerivaSourceSpec(main, {"source": [{"outbound": ["TestSchema", "fk1_cons"]}, "RID"]}).spec,
+                         {"source": [{"outbound": ["TestSchema", "fk1_cons"]}, "RID"]})
+
+        with self.assertRaises(DerivaCatalogError):
+            DerivaSourceSpec(main, {"source": [{"outbound": ["TestSchema1", "fk1_cons"]}, "RID"]})
+        with self.assertRaises(DerivaCatalogError):
+            DerivaSourceSpec(main, {"source": [{"outbound": ["TestSchema", "fk1_cons1"]}, "RID"]})
+
+        # Inbound foreignkey columns
+        self.assertEqual(DerivaSourceSpec(main,["TestSchema", "fk2_cons"]).spec,
+                                          {"source": [{"inbound": ["TestSchema", "fk2_cons"]}, "RID"]})
+        self.assertEqual(DerivaSourceSpec(main, ["TestSchema", "fk3_cons"]).spec,
+                                          {"source": [{"inbound": ["TestSchema", "fk3_cons"]}, "RID"]})
+        self.assertEqual(DerivaSourceSpec(main,
+                                          {"source": [{"inbound": ["TestSchema", "fk2_cons"]}, "RID"]}).spec,
+                                          {"source": [{"inbound": ["TestSchema", "fk2_cons"]}, "RID"]})
+        self.assertEqual(DerivaSourceSpec(main,
+                                          {"source": [{"inbound": ["TestSchema", "fk3_cons"]},
+                                                      {"outbound": ["TestSchema", "main_f3_cons"]}, "RID"]}).spec,
+                         {"source": [{"inbound": ["TestSchema", "fk3_cons"]},
+                                     {"outbound": ["TestSchema", "main_f3_cons"]}, "RID"]})
+
+        self.assertEqual(
+            DerivaSourceSpec(main, 'f1_fkey').make_outbound().spec,
+            {"source": [{"outbound": ["TestSchema", "fk1_cons"]}, "RID"]}
+        )
+        self.assertEqual(
+            DerivaSourceSpec(main, {"source": [{"outbound": ["TestSchema", "fk1_cons"]}, "RID"]}).make_column().spec,
+            {"source": 'f1_fkey'}
+        )
+
+
 
     def test_normalize_positions(self):
         DerivaVisibleSources._normalize_positions({'all'})
