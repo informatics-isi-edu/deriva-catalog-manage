@@ -2,6 +2,7 @@ import logging
 import logging.config
 import pprint
 from collections import namedtuple, OrderedDict
+import copy
 from enum import Enum
 from urllib.parse import urlparse
 
@@ -85,9 +86,10 @@ logger_config = {
             'level': 'DEBUG'
         },
         'deriva_model.DerivaSourceSpec': {
-            'level': 'DEBUG'
+
         },
         'deriva_model.DerivaTable': {
+            'level': 'DEBUG'
         },
         'deriva_model.DerviaColumn': {
         },
@@ -808,32 +810,39 @@ class DerivaVisibleSources(DerivaLogging):
     def copy_visible_source(self, from_context):
         pass
 
-    def make_outbound(self, columns, contexts=[], validate=True):
-        self.logger.debug('tag: %s columns: %s vc before %s', self.tag, columns, self.table.annotations[self.tag])
+    def make_outbound(self, column, contexts=[], validate=True):
+        self.logger.debug('tag: %s columns: %s vc before %s', self.tag, column, self.table.annotations[self.tag])
         context_names = [i.value for i in (DerivaContext if contexts == [] else contexts)]
-        columns = [columns] if isinstance(columns, str) else columns
         for context, vc_list in self.table.annotations[self.tag].items():
             # Get list of column names that are in the spec, mapping back simple FK references.
             if context not in context_names:
                 continue
             for s in vc_list:
-                print('s', s)
-                for col in columns:
-                    if {'source': col} == s:
-                        s.make_outbound(validate)
+                spec = DerivaSourceSpec(self.table, s, validate=validate)
+                if spec.column_name == column:
+                    spec = DerivaSourceSpec(self.table, s, validate=validate)
+                    # Create a SourceSpec for the column and then convert to outbound spec.
+                    spec.make_outbound()
+                    s.update(spec.spec)
 
-    def make_column(self, columns, contexts=[], validate=True):
-        self.logger.debug('tag: %s columns: %s vc before %s', self.tag, columns, self.table.annotations[self.tag])
+        self.logger.debug('done %s', self.table.annotations[self.tag])
+
+    def make_column(self, column, contexts=[], validate=True):
+        self.logger.debug('tag: %s columns: %s vc before %s', self.tag, column, self.table.annotations[self.tag])
         context_names = [i.value for i in (DerivaContext if contexts == [] else contexts)]
-        columns = [columns] if isinstance(columns, str) else columns
         for context, vc_list in self.table.annotations[self.tag].items():
             # Get list of column names that are in the spec, mapping back simple FK references.
             if context not in context_names:
                 continue
             for s in vc_list:
-                for col in columns:
-                    if {'source': col} == s:
-                        s.make_column(validate)
+                spec = DerivaSourceSpec(self.table, s, validate=validate)
+                print('cols', s, spec.spec, spec.column_name, column)
+                if spec.column_name == column:
+                    # Create a SourceSpec for the column and then convert to outbound spec.
+                    spec.make_column(validate)
+                    print('spec', spec.spec)
+                    s.update(spec.spec)
+        self.logger.debug('done %s', self.table.annotations[self.tag])
 
     def delete_visible_source(self, columns, contexts=[]):
         self.logger.debug('tag: %s columns: %s vc before %s', self.tag, columns, self.table.annotations[self.tag])
@@ -924,18 +933,15 @@ class DerivaSourceSpec(DerivaLogging):
         super().__init__()
         self.logger.debug('table: %s spec: %s', table.name, spec)
         self.table = table
-        self.spec = spec.spec if isinstance(spec, DerivaSourceSpec) else self._normalize_source_spec(spec)
+        self.spec = copy.deepcopy(spec.spec) if isinstance(spec, DerivaSourceSpec) else self._normalize_source_spec(spec)
         self.logger.debug('normalized: %s', self.spec)
         if validate:
             self.validate()
+        self.column_name = self._referenced_columns()
         self.logger.debug('initialized: table %s spec: %s', table.name, self.spec)
 
     def __str__(self):
         return pprint.pformat(self.spec)
-
-    @property
-    def column_name(self):
-        return self._referenced_columns()
 
     @property
     def source(self):
@@ -1003,9 +1009,9 @@ class DerivaSourceSpec(DerivaLogging):
             if spec[1] in self.table.keys:
                 return {'source': next(iter(self.table.keys[spec[1]].columns)).name}
             elif spec[1] in self.table.foreign_keys:
-                return {'source': [{'outbound': spec}, 'RID']}
+                return {'source': [{'outbound': tuple(spec)}, 'RID']}
             elif spec[1] in self.table.referenced_by:
-                return {'source': [{'inbound': spec}, 'RID']}
+                return {'source': [{'inbound': tuple(spec)}, 'RID']}
             else:
                 raise DerivaSourceError(self, 'Invalid source entry {}'.format(spec))
         else:
@@ -1069,11 +1075,12 @@ class DerivaSourceSpec(DerivaLogging):
                 t = self.source[0]['outbound'][1]
                 fk_cols = self.table.foreign_key(t).columns
                 self.logger.debug('fk_cols %s %s', fk_cols, list(fk_cols)[0])
-                return list(fk_cols)[0] if len(fk_cols) == 1 else None
+                return list(fk_cols)[0].name if len(fk_cols) == 1 else None
         else:
             return 'pseudo_column'
 
     def make_outbound(self, validate=True):
+        print('outbound', self.source, self.column_name)
         col_name = self.table.foreign_key(self.source).name
         self.spec.update(self._normalize_source_spec([self.table.schema_name, col_name]))
         print(self.source)
@@ -1673,11 +1680,11 @@ class DerivaForeignKey(DerivaCore):
         referenced_table.visible_foreign_keys.delete_visible_source(self.name)
         del (referenced_table.referenced_by[self.name])
 
+        if column:
+            self.table.visible_columns.make_column(column.name, validate=False)
+
         with DerivaModel(self.table.catalog) as m:
             m.foreign_key_exists(self.table, self.name).delete(self.catalog.ermrest_catalog, m.table_model(self.table))
-
-        if column:
-            self.table.visible_columns = self.table.visible_columns.make_column(column.name, validate=False)
 
         self.table = None
         self.fkey = None
@@ -1919,7 +1926,7 @@ class DerivaTable(DerivaCore):
             referenced_table.visible_foreign_keys.insert_sources(inbound_sources, position)
 
             if len(columns) == 1:
-                self.visible_columns = self.visible_columns.make_outbound(columns[0])
+                self.visible_columns.make_outbound(columns[0])
                 self.logger.debug('new vc %s', self.visible_columns)
 
     def sources(self, merge_outbound=False, filter=None):

@@ -283,6 +283,10 @@ class TestDerivaTable(TestCase):
         table.create_key(['Foo1'], comment='My Key')
         self.assertIn('TestTable1_Foo1_key', table.keys)
 
+        # Try to delete column in compound key
+        with self.assertRaises(DerivaCatalogError):
+            table.columns['Foo2'].delete()
+
     def test_fkeys(self):
         table1 = catalog[schema_name].create_table('TestTable1',
                                                    [DerivaColumn.define('Foo1a', 'text'),
@@ -347,13 +351,6 @@ class TestDerivaTable(TestCase):
         table2.create_key(['Foo2'])
         table2.create_foreign_key(['Foo1'], table1, ['Foo1a'])
         table2.create_foreign_key(['Foo1', 'Foo2'], table1, ['Foo1a', 'Foo2a'])
-        print(table1)
-        print('columns', table1.visible_columns)
-        print('keys', table1.visible_foreign_keys)
-
-        print(table2)
-        print('columns', table2.visible_columns)
-        print('keys', table2.visible_foreign_keys)
 
         self.assertEqual(table2.foreign_key(['Foo1']).name, 'TestTable2_Foo1_fkey')
         self.assertEqual(table2.foreign_keys['Foo1'].name, 'TestTable2_Foo1_fkey')
@@ -390,8 +387,7 @@ class TestDerivaTable(TestCase):
 
         self.assertNotIn({'source': [{'inbound': ('TestSchema', 'TestTable2_Foo1_fkey')}, 'RID']},
                       table1.visible_foreign_keys['*'])
-        self.assertNotIn({'source': [{'inbound': ('TestSchema', 'TestTable2_Foo1_Foo2_fkey')}, 'RID']},
-                      table1.visible_foreign_keys['*'])
+
 
     def test_copy_columns(catalog):
         table = catalog.schema_model('TestSchema').table_model('Foo')
