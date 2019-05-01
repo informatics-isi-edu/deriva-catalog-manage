@@ -80,7 +80,7 @@ logger_config = {
         'deriva_model.DerivaColumnMap': {
         },
         'deriva_model.DerivaSchema': {
-
+            'level': 'DEBUG'
         },
         'deriva_model.DerivaVisibleSources': {
         },
@@ -461,7 +461,7 @@ class DerivaSchema(DerivaCore):
                      acls={},
                      acl_bindings={},
                      annotations={}):
-
+        self.logger.debug('table_name: %s', table_name)
         # Now that we know the table name, patch up the key and fkey defs to have the correct name.
         proto_table = namedtuple('ProtoTable', ['catalog', 'schema', 'schema_name', 'name'])
         for k in key_defs:
@@ -2590,12 +2590,13 @@ class DerivaTable(DerivaCore):
             DerivaColumn.define('{}'.format(target_table.name), 'text', nullok=False)
         ]
 
-        key_defs = [DerivaKey.define([self.name, target_table])]
+        key_defs = [DerivaKey.define([self.name, target_table.name])]
 
         fkey_defs = [
             DerivaForeignKey.define([self.name], self, [table_column]),
             DerivaForeignKey.define([target_table.name], target_table, [target_column])
         ]
+
         table_def = self.schema.create_table(
             association_table_name,
             column_defs,

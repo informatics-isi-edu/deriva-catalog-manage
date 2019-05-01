@@ -42,29 +42,28 @@ class DerivaCatalogConfigure(DerivaCatalog):
         :return:
         """
 
-        with DerivaModel(self) as m:
-            ermrest_client = m.table_model(self.schema('public').table('ERMrest_Client'))
+        ermrest_client = self.catalog['public']['ERMrest_Client']
 
-            # Make ermrest_client table visible.  If the GUID or member name is considered sensitivie, then this needs to be
-            # changed.
-            ermrest_client.acls['select'] = ['*']
+        # Make ermrest_client table visible.  If the GUID or member name is considered sensitivie, then this needs to be
+        # changed.
+        ermrest_client.acls['select'] = ['*']
 
-            # Set table and row name.
-            ermrest_client.annotations.update({
-                chaise_tags.display: {'name': 'Users'},
-                chaise_tags.visible_columns: {'compact': ['ID', 'Full_Name', 'Display_Name', 'Email']},
-                chaise_tags.table_display: {'row_name': {'row_markdown_pattern': '{{{Full_Name}}}'}}
-            })
+        # Set table and row name.
+        ermrest_client.annotations.update({
+            chaise_tags.display: {'name': 'Users'},
+            chaise_tags.visible_columns: {'compact': ['ID', 'Full_Name', 'Display_Name', 'Email']},
+            chaise_tags.table_display: {'row_name': {'row_markdown_pattern': '{{{Full_Name}}}'}}
+        })
 
-            column_annotations = {
-                'RCT': {chaise_tags.display: {'name': 'Creation Time'}},
-                'RMT': {chaise_tags.display: {'name': 'Modified Time'}},
-                'RCB': {chaise_tags.display: {'name': 'Created By'}},
-                'RMB': {chaise_tags.display: {'name': 'Modified By'}}
-            }
-            for k, v in column_annotations.items():
-                ermrest_client.column_definitions[k].annotations.update(v)
-            return
+        column_annotations = {
+            'RCT': {chaise_tags.display: {'name': 'Creation Time'}},
+            'RMT': {chaise_tags.display: {'name': 'Modified Time'}},
+            'RCB': {chaise_tags.display: {'name': 'Created By'}},
+            'RMB': {chaise_tags.display: {'name': 'Modified By'}}
+        }
+        for k, v in column_annotations.items():
+            ermrest_client.column_definitions[k].annotations.update(v)
+        return
 
     def _configure_www_schema(self):
         """
@@ -72,23 +71,22 @@ class DerivaCatalogConfigure(DerivaCatalog):
         table that can have images that are referred to by the web page.  Pages are written using markdown.
         :return:
         """
-        logging.info('Configuring WWW schema')
+        self.logging.info('Configuring WWW schema')
         # Create a WWW schema if one doesn't already exist.
         try:
-            www_schema_def = em.Schema.define('WWW', comment='Schema for tables that will be displayed as web content')
-            www_schema = self.model.create_schema(self.catalog, www_schema_def)
+            www_schema = self.create_schema('WWW', comment='Schema for tables that will be displayed as web content')
         except ValueError as e:
             if 'already exists' not in e.args[0]:
                 raise
             else:
-                www_schema = self.model.schemas['WWW']
+                www_schema = self['WWW']
 
         # Create the page table
         page_table_def = em.Table.define(
             'Page',
             column_defs=[
-                em.Column.define('Title', em.builtin_types['text'], nullok=False, comment='Unique title for the page'),
-                em.Column.define('Content', em.builtin_types['markdown'], comment='Content of the page in markdown')
+                DerivaColumn.define('Title', 'text', nullok=False, comment='Unique title for the page'),
+                DerivaColumn.define('Content', 'markdown', comment='Content of the page in markdown')
             ],
             key_defs=[em.Key.define(['Title'], [['WWW', 'Page_Title_key']])],
             annotations={

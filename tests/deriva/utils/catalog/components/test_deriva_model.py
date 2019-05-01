@@ -390,7 +390,7 @@ class TestDerivaTable(TestCase):
 
 
     def test_copy_columns(catalog):
-        table = catalog.schema_model('TestSchema').table_model('Foo')
+        table = catalog[schema_name].create_table('TestTable1', [DerivaColumn.define('Foo1a', 'text')])
         delete_columns(table, ['Foobar', 'RCB1', 'ID1'])
         table.copy_columns(
             {'Field_1': 'Foobar', 'RCB': 'RCB1', 'Bozo': 'int4', 'Bozo1': {'type': 'text', 'default': 23}})
