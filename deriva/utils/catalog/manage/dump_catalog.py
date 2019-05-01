@@ -397,7 +397,7 @@ class DerivaDumpCatalogCLI (BaseCLI):
 
         self.dumpdir = args.dir
         self.host = args.host
-        self.catalog_id = args.catalog
+        self.catalog_id = args.catalog_model
         self.graph_format = args.graph_format
 
         if self.host is None:
@@ -426,10 +426,10 @@ class DerivaDumpCatalogCLI (BaseCLI):
         logger.info('\n'.join(['    {} has {} tables'.format(k, len(s.tables))
                                for k, s in model_root.schemas.items()]))
         try:
-            if args.table:
-                if ':' not in args.table:
+            if args.table_model:
+                if ':' not in args.table_model:
                         raise DerivaDumpCatalogException('Table name must be in form of schema:table')
-                [schema_name, table_name] = args.table.split(":")
+                [schema_name, table_name] = args.table_model.split(":")
                 self._dump_table(schema_name, table_name)
             elif args.graph:
                 self._graph_catalog()

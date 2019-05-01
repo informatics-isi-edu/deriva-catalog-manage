@@ -13,7 +13,7 @@ from deriva.core.ermrest_config import tag as chaise_tags
 from deriva.core import ErmrestCatalog, get_credential, format_exception
 from deriva.core.utils import eprint
 from deriva.core.base_cli import BaseCLI
-from deriva.utils.catalog.components.model_elements import DerivaModel, DerivaCatalog, DerivaSchema, \
+from deriva.utils.catalog.components.deriva_model import DerivaModel, DerivaCatalog, DerivaSchema, \
     DerivaTable, DerivaContext
 from deriva.utils.catalog.components.configure_catalog import DerivaTable
 from deriva.utils.catalog.version import __version__ as VERSION
@@ -82,11 +82,11 @@ class DerivaConfigureCatalogCLI(BaseCLI):
 
         args = self.parse_cli()
 
-        catalog = DerivaCatalogConfigure(args.host, catalog_id=args.catalog)
+        catalog = DerivaCatalogConfigure(args.host, catalog_id=args.catalog_model)
 
         try:
-            catalog = DerivaCatalog(args.host, args.catalog)
-            [schema_name, table_name] = args.table.split(':')
+            catalog = DerivaCatalog(args.host, args.catalog_model)
+            [schema_name, table_name] = args.table_model.split(':')
             table = DerivaTable(catalog, schema_name, table_name)
             if args.asset_table:
                 table.create_asset_table(args.asset_table)
@@ -94,16 +94,16 @@ class DerivaConfigureCatalogCLI(BaseCLI):
                 table.create_default_visible_columns(really=args.replace)
 
             if args.configure == 'catalog':
-                logging.info('Configuring catalog {}:{}'.format(args.host, args.catalog))
-                cfg = DerivaCatalogConfigure(args.host, catalog_id=args.catalog)
+                logging.info('Configuring catalog {}:{}'.format(args.host, args.catalog_model))
+                cfg = DerivaCatalogConfigure(args.host, catalog_id=args.catalog_model)
                 cfg.configure_baseline_catalog(catalog_name=args.catalog_name,
                                                reader=args.reader, writer=args.writer, curator=args.curator,
                                                admin=args.admin,
                                                set_policy=args.set_policy, public=args.publish)
                 cfg.apply()
-            if args.table:
-                [schema_name, table_name] = args.table.split(':')
-                table = catalog.schema(schema_name).table(table_name)
+            if args.table_model:
+                [schema_name, table_name] = args.table_model.split(':')
+                table = catalog.schema(schema_name).table_model(table_name)
                 table.configure_table_defaults(set_policy=args.set_policy, public=args.publish)
                 table.apply()
         except DerivaConfigError as e:

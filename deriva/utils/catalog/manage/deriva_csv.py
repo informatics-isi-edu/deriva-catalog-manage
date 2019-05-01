@@ -24,7 +24,7 @@ from deriva.core.ermrest_config import tag as chaise_tags
 import deriva.core.ermrest_model as em
 from deriva.utils.catalog.manage.dump_catalog import DerivaCatalogToString
 from deriva.utils.catalog.manage.utils import LoopbackCatalog
-from deriva.utils.catalog.components.model_elements import DerivaCatalog
+from deriva.utils.catalog.components.deriva_model import DerivaCatalog
 from deriva.core.utils import eprint
 from deriva.core.base_cli import BaseCLI
 from deriva.utils.catalog.version import __version__ as VERSION
@@ -180,7 +180,7 @@ class DerivaCSVModel:
 
         system_columns = ['RID', 'RCB', 'RMB', 'RCT', 'RMT']
 
-        for col in csvschema.schema.fields:
+        for col in csvschema.schema_model.fields:
             # Don't include system columns in the list of column definitions.
             if col.name in system_columns:
                 continue
@@ -521,7 +521,7 @@ class DerivaCSV(Table):
         :return:
         """
 
-        target_table = catalog.schema(self.schema_name).table(self.table_name).datapath()
+        target_table = catalog.schema_model(self.schema_name).table_model(self.table_name).datapath()
         catalog_schema = self.table_schema_from_catalog(catalog)
 
         # Sanity check columns.
@@ -802,8 +802,8 @@ class DerivaCSVCLI (BaseCLI):
         try:
             catalog = ErmrestCatalog('https', args.host, args.catalog_id, credentials=credential)
 
-            table = DerivaCSV(args.tabledata, args.schema,
-                              table_name=args.table, column_map=args.column_map,
+            table = DerivaCSV(args.tabledata, args.schema_model,
+                              table_name=args.table_model, column_map=args.column_map,
                               key_columns=args.key_columns, row_number_as_key=args.row_number_as_key,
                               schema=args.schemafile)
 
