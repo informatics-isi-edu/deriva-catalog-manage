@@ -13,7 +13,7 @@ from deriva.core.ermrest_config import tag as chaise_tags
 from deriva.core import ErmrestCatalog, get_credential, format_exception
 from deriva.core.utils import eprint
 from deriva.core.base_cli import BaseCLI
-from deriva.utils.catalog.components.deriva_model import DerivaModel, DerivaCatalog, DerivaSchema, \
+from deriva.utils.catalog.components.deriva_model import DerivaModel, DerivaCatalog, DerivaSchema, DerivaColumn, \
     DerivaTable, DerivaContext
 from deriva.utils.catalog.version import __version__ as VERSION
 
