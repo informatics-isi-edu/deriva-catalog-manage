@@ -77,7 +77,6 @@ logger_config = {
         'deriva_model.DerivaCatalog': {
         },
         'deriva_model.DerivaColumnMap': {
-            'level': 'DEBUG'
         },
         'deriva_model.DerivaSchema': {
 
@@ -95,7 +94,6 @@ logger_config = {
         'deriva_model.DerivaKey': {
         },
         'deriva_model.DerivaForeignKey': {
-            'level': 'DEBUG'
         }
     },
 }
@@ -809,6 +807,33 @@ class DerivaVisibleSources(DerivaLogging):
 
     def copy_visible_source(self, from_context):
         pass
+
+    def make_outbound(self, columns, contexts=[], validate=True):
+        self.logger.debug('tag: %s columns: %s vc before %s', self.tag, columns, self.table.annotations[self.tag])
+        context_names = [i.value for i in (DerivaContext if contexts == [] else contexts)]
+        columns = [columns] if isinstance(columns, str) else columns
+        for context, vc_list in self.table.annotations[self.tag].items():
+            # Get list of column names that are in the spec, mapping back simple FK references.
+            if context not in context_names:
+                continue
+            for s in vc_list:
+                print('s', s)
+                for col in columns:
+                    if {'source': col} == s:
+                        s.make_outbound(validate)
+
+    def make_column(self, columns, contexts=[], validate=True):
+        self.logger.debug('tag: %s columns: %s vc before %s', self.tag, columns, self.table.annotations[self.tag])
+        context_names = [i.value for i in (DerivaContext if contexts == [] else contexts)]
+        columns = [columns] if isinstance(columns, str) else columns
+        for context, vc_list in self.table.annotations[self.tag].items():
+            # Get list of column names that are in the spec, mapping back simple FK references.
+            if context not in context_names:
+                continue
+            for s in vc_list:
+                for col in columns:
+                    if {'source': col} == s:
+                        s.make_column(validate)
 
     def delete_visible_source(self, columns, contexts=[]):
         self.logger.debug('tag: %s columns: %s vc before %s', self.tag, columns, self.table.annotations[self.tag])
@@ -1652,8 +1677,7 @@ class DerivaForeignKey(DerivaCore):
             m.foreign_key_exists(self.table, self.name).delete(self.catalog.ermrest_catalog, m.table_model(self.table))
 
         if column:
-            self.table.visible_columns = self.table.visible_columns.rename_columns(
-                DerivaColumnMap(self.table, {column.name: column.name}, self.table), validate=False)
+            self.table.visible_columns = self.table.visible_columns.make_column(column.name, validate=False)
 
         self.table = None
         self.fkey = None
@@ -1895,11 +1919,7 @@ class DerivaTable(DerivaCore):
             referenced_table.visible_foreign_keys.insert_sources(inbound_sources, position)
 
             if len(columns) == 1:
-                _, outbound_sources, _ = self.sources(filter=[fkey.name])
-                self.logger.debug('outbound sources %s', [i.spec for i in outbound_sources])
-                self.visible_columns = self.visible_columns.rename_columns(
-                    DerivaColumnMap(self, {columns[0]: columns[0]}, self)
-                )
+                self.visible_columns = self.visible_columns.make_outbound(columns[0])
                 self.logger.debug('new vc %s', self.visible_columns)
 
     def sources(self, merge_outbound=False, filter=None):
