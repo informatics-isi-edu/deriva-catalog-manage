@@ -430,3 +430,14 @@ class TestDerivaTable(TestCase):
         foo1 = table.move_table('TestSchema', 'Foo1', column_map=column_map, delete=False)
         return foo1
 
+    def test_link_tables(self):
+        table1 = catalog[schema_name].create_table('TestTable1', [DerivaColumn.define('Foo1a', 'text')])
+        table2 = catalog[schema_name].create_table('TestTable2',[DerivaColumn.define('Foo1', 'text')])
+
+        table1.link_tables(table2)
+
+    def test_associate_tables(self):
+        table1 = catalog[schema_name].create_table('TestTable1', [DerivaColumn.define('Foo1a', 'text')])
+        table2 = catalog[schema_name].create_table('TestTable2',[DerivaColumn.define('Foo1', 'text')])
+        table1.associate_tables(table2)
+

@@ -83,13 +83,11 @@ logger_config = {
 
         },
         'deriva_model.DerivaVisibleSources': {
-            'level': 'DEBUG'
         },
         'deriva_model.DerivaSourceSpec': {
 
         },
         'deriva_model.DerivaTable': {
-            'level': 'DEBUG'
         },
         'deriva_model.DerviaColumn': {
         },
@@ -836,11 +834,10 @@ class DerivaVisibleSources(DerivaLogging):
                 continue
             for s in vc_list:
                 spec = DerivaSourceSpec(self.table, s, validate=validate)
-                print('cols', s, spec.spec, spec.column_name, column)
+
                 if spec.column_name == column:
                     # Create a SourceSpec for the column and then convert to outbound spec.
                     spec.make_column(validate)
-                    print('spec', spec.spec)
                     s.update(spec.spec)
         self.logger.debug('done %s', self.table.annotations[self.tag])
 
@@ -1080,10 +1077,8 @@ class DerivaSourceSpec(DerivaLogging):
             return 'pseudo_column'
 
     def make_outbound(self, validate=True):
-        print('outbound', self.source, self.column_name)
         col_name = self.table.foreign_key(self.source).name
         self.spec.update(self._normalize_source_spec([self.table.schema_name, col_name]))
-        print(self.source)
         if validate:
             self.validate()
         return self
@@ -1516,7 +1511,7 @@ class DerivaForeignKey(DerivaCore):
             name = columns.names[0]
 
         # Get just the name part of the potential (schema,name) pair
-        if isinstance(name, (tuple,list)) and len(name) == 2 and name[0] == table.schema_name:
+        if isinstance(name, (tuple, list)) and len(name) == 2 and name[0] == table.schema_name:
             name = name[1]
 
         self.fkey = None
@@ -2543,7 +2538,7 @@ class DerivaTable(DerivaCore):
 
         return asset_table
 
-    def link_tables(self, column_name, target_table, target_column='RID'):
+    def link_tables(self, target_table, column_name=None, target_column='RID', create_column=True):
         """
         Create a foreign key link from the specified column to the target table and column.
         :param column_name: Column or list of columns in current table which will hold the FK
@@ -2552,21 +2547,12 @@ class DerivaTable(DerivaCore):
         :return:
         """
 
-        with DerivaModel(self.catalog):
-            if type(column_name) is str:
-                column_name = [column_name]
-            self.create_fkey(
-                em.ForeignKey.define(column_name,
-                                     target_table.schema_name, target_table.name,
-                                     target_column if type(target_column) is list else [
-                                         target_column],
-                                     constraint_names=[(self.schema_name,
-                                                        '_'.join([self.name] +
-                                                                 column_name +
-                                                                 ['fkey']))],
-                                     )
-            )
-        return
+        if not column_name:
+            column_name = '{}'.format(target_table.name)
+        if create_column:
+            self.create_columns([DerivaColumn.define(column_name, 'text')])
+
+        self.create_foreign_key([column_name], target_table, [target_column] )
 
     def link_vocabulary(self, column_name, term_table):
         """
@@ -2583,12 +2569,9 @@ class DerivaTable(DerivaCore):
 
     def disassociate_tables(self, target_table):
         association_table_name = '{}_{}'.format(self.name, target_table.name)
-        try:
-            self.catalog.schema_model(self.schema_name).table_model(association_table_name).delete()
-        except KeyError:
-            self.catalog.schema_model(target_table.schema_name).table_model(association_table_name).delete()
+        raise DerivaCatalogError('Not implented')
 
-    def associate_tables(self, target_schema, target_table, table_column='RID', target_column='RID'):
+    def associate_tables(self, target_table, table_column='RID', target_column='RID'):
         """
         Create a pure binary association table that connects rows in the table to rows in the target table.
         Assume that RIDs are used for linking. however, this can be overridder.
@@ -2600,36 +2583,21 @@ class DerivaTable(DerivaCore):
         :return: Association table.
         """
 
-        association_table_name = '{}_{}'.format(self.name, target_table)
+        association_table_name = '{}_{}'.format(self.name, target_table.name)
 
         column_defs = [
-            em.Column.define('{}'.format(self.name), em.builtin_types['text'], nullok=False),
-            em.Column.define('{}'.format(target_table), em.builtin_types['text'], nullok=False)
+            DerivaColumn.define('{}'.format(self.name), 'text', nullok=False),
+            DerivaColumn.define('{}'.format(target_table.name), 'text', nullok=False)
         ]
 
-        key_defs = [
-            em.Key.define([self.name, target_table],
-                          constraint_names=[
-                              (self.schema_name,
-                               '{}_{}_{}_key'.format(association_table_name, self.name, target_table))],
-                          )
-        ]
+        key_defs = [DerivaKey.define([self.name, target_table])]
 
         fkey_defs = [
-            em.ForeignKey.define([self.name],
-                                 self.schema_name, self.name, [table_column],
-                                 constraint_names=[
-                                     (self.schema_name, '{}_{}_fkey'.format(association_table_name, self.name))],
-                                 ),
-            em.ForeignKey.define([target_table],
-                                 target_schema, target_table, [target_column],
-                                 constraint_names=[
-                                     (self.schema_name, '{}_{}_fkey'.format(association_table_name, target_table))])
+            DerivaForeignKey.define([self.name], self, [table_column]),
+            DerivaForeignKey.define([target_table.name], target_table, [target_column])
         ]
-        table_def = em.Table.define(association_table_name, column_defs=column_defs,
-                                    key_defs=key_defs, fkey_defs=fkey_defs,
-                                    comment='Association table for {}'.format(association_table_name))
-        with DerivaModel(self.catalog) as m:
-            association_table = m.schema_model(self.schema_name).create_table(self.catalog, table_def)
-            self.catalog.update_referenced_by()
-            return self.catalog.schema_model(association_table.sname).table_model(association_table.name)
+        table_def = self.schema.create_table(
+            association_table_name,
+            column_defs,
+            key_defs=key_defs, fkey_defs=fkey_defs,
+            comment='Association table for {}'.format(association_table_name))
