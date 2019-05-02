@@ -73,4 +73,5 @@ class TestConfigureCatalog(TestCase):
         catalog.configure_baseline_catalog(catalog_name='test', admin='isrd-systems')
 
     def test_table_defaults(self):
-        catalog[schema_name]['TestTable1'].configure_table_defaults(public=True)
+        catalog.annotations[chaise_tags.catalog_config] = {}
+        catalog[schema_name]['TestTable1'].configure_table_defaults(public=True, set_policy=False)

@@ -1,24 +1,17 @@
-import argparse
-import sys
-import warnings
 import logging
 from requests import exceptions
-import traceback
-import requests
-from requests.exceptions import HTTPError, ConnectionError
+
+
 from urllib.parse import urlparse
 
 import deriva.core.ermrest_model as em
 from deriva.core.ermrest_config import tag as chaise_tags
-from deriva.core import ErmrestCatalog, get_credential, format_exception
-from deriva.core.utils import eprint
-from deriva.core.base_cli import BaseCLI
+
 from deriva.utils.catalog.components.deriva_model import DerivaModel, DerivaCatalog, DerivaSchema, DerivaColumn, \
-    DerivaTable, DerivaContext
+    DerivaTable, DerivaContext, DerivaKey, DerivaForeignKey
 from deriva.utils.catalog.version import __version__ as VERSION
 
 logger = logging.getLogger(__name__)
-
 
 chaise_tags.catalog_config = 'tag:isrd.isi.edu,2019:catalog-config'
 
@@ -62,7 +55,7 @@ class DerivaCatalogConfigure(DerivaCatalog):
             'RMB': {chaise_tags.display: {'name': 'Modified By'}}
         }
         for k, v in column_annotations.items():
-            ermrest_client.column_definitions[k].annotations.update(v)
+            ermrest_client.column(k).annotations.update(v)
         return
 
     def _configure_www_schema(self):
@@ -71,7 +64,7 @@ class DerivaCatalogConfigure(DerivaCatalog):
         table that can have images that are referred to by the web page.  Pages are written using markdown.
         :return:
         """
-        self.logging.info('Configuring WWW schema')
+        self.logger.info('Configuring WWW schema')
         # Create a WWW schema if one doesn't already exist.
         try:
             www_schema = self.create_schema('WWW', comment='Schema for tables that will be displayed as web content')
@@ -82,21 +75,21 @@ class DerivaCatalogConfigure(DerivaCatalog):
                 www_schema = self['WWW']
 
         # Create the page table
-        page_table_def = em.Table.define(
+        try:
+            www_schema.create_table(
             'Page',
             column_defs=[
                 DerivaColumn.define('Title', 'text', nullok=False, comment='Unique title for the page'),
                 DerivaColumn.define('Content', 'markdown', comment='Content of the page in markdown')
             ],
-            key_defs=[em.Key.define(['Title'], [['WWW', 'Page_Title_key']])],
+            key_defs=[DerivaKey.define(['Title'])],
             annotations={
                 chaise_tags.table_display: {'detailed': {'hide_column_headers': True, 'collapse_toc_panel': True}
                                             },
                 chaise_tags.visible_foreign_keys: {'detailed': {}},
                 chaise_tags.visible_columns: {'detailed': ['Content']}}
-        )
-        try:
-            www_schema.create_table(self.catalog, page_table_def)
+
+            )
         except ValueError as e:
             if 'already exists' not in e.args[0]:
                 raise
@@ -191,36 +184,28 @@ class DerivaCatalogConfigure(DerivaCatalog):
 
         # Set compound key so that we can link up with Visible_Group table.
         try:
-            ermrest_group.create_key(
-                em.Key.define(['ID', 'URL', 'Display_Name', 'Description'],
-                              constraint_names=[('public', 'ERMrest_Group_ID_URL_Display_Name_Description_key')],
-                              comment='Group ID is unique.'
-
-                              )
-            )
+            ermrest_group.create_key(['ID', 'URL', 'Display_Name', 'Description'], comment='Group ID is unique.')
         except exceptions.HTTPError as e:
             if 'already exists' not in e.args[0]:
                 raise
 
         # Create a catalog groups table
         column_defs = [
-            em.Column.define('Display_Name', em.builtin_types['text']),
-            em.Column.define('URL', em.builtin_types['text'],
+            DerivaColumn.define('Display_Name', em.builtin_types['text']),
+            DerivaColumn.define('URL', em.builtin_types['text'],
                              annotations={
                                  chaise_tags.column_display: {
                                      '*': {'markdown_pattern': '[**{{Display_Name}}**]({{{URL}}})'}},
                                  chaise_tags.display: {'name': 'Group Management Page'}
                              }
                              ),
-            em.Column.define('Description', em.builtin_types['text']),
-            em.Column.define('ID', em.builtin_types['text'], nullok=False)
+            DerivaColumn.define('Description', em.builtin_types['text']),
+            DerivaColumn.define('ID', em.builtin_types['text'], nullok=False)
         ]
 
         key_defs = [
-            em.Key.define(['ID'],
-                          constraint_names=[('public', 'Catalog_Group_ID_key')]),
-            em.Key.define(['ID', 'URL', 'Display_Name', 'Description'],
-                          constraint_names=[('public', 'Catalog_Group_ID_URL_Display_Name_Description_key')],
+            DerivaKey.define(['ID']),
+            DerivaKey.define(['ID', 'URL', 'Display_Name', 'Description'],
                           comment='Key to ensure that group only is entered once.'
                           ),
         ]
@@ -239,8 +224,8 @@ class DerivaCatalogConfigure(DerivaCatalog):
 
         # Create a foreign key to the group table. Set update policy to keep group entry in sync.
         fkey_defs = [
-            em.ForeignKey.define(['ID', 'URL', 'Display_Name', 'Description'],
-                                 'public', 'ERMrest_Group', ['ID', 'URL', 'Display_Name', 'Description'],
+            DerivaForeignKey.define(['ID', 'URL', 'Display_Name', 'Description'],
+                                 ermrest_group, ['ID', 'URL', 'Display_Name', 'Description'],
                                  on_update='CASCADE',
                                  acls=fkey_group_acls,
                                  acl_bindings=fkey_group_policy,
@@ -299,28 +284,28 @@ class DerivaCatalogConfigure(DerivaCatalog):
             catalog_name = urlparse(self.ermrest_catalog.get_server_uri()).hostname.split('.')[0]
         groups = self.set_core_groups(catalog_name=catalog_name,
                                       admin=admin, curator=curator, writer=writer, reader=reader)
-        with DerivaModel(self) as m:
-            # Record configuration of catalog so we can retrieve when we configure tables later on.
-            self.annotations[chaise_tags.catalog_config] = {'name': catalog_name, 'groups': groups}
 
-            # Set up default name style for all schemas.
-            for s in self.schemas:
-                s.annotations[chaise_tags.display] = {'name_style': {'underline_space': True}}
+        # Record configuration of catalog so we can retrieve when we configure tables later on.
+        self.annotations[chaise_tags.catalog_config] = {'name': catalog_name, 'groups': groups}
 
-            # modify catalog ACL config to support basic admin/curator/writer/reader access.
-            if set_policy:
-                self.acls.update({
-                    "owner": [groups['admin']],
-                    "insert": [groups['curator'], groups['writer']],
-                    "update": [groups['curator']],
-                    "delete": [groups['curator']],
-                    "select": [groups['writer'], groups['reader']] if not public else ['*'],
-                    "enumerate": ["*"],
-                })
+        # Set up default name style for all schemas.
+        for s in self.schemas:
+            s.annotations[chaise_tags.display] = {'name_style': {'underline_space': True}}
 
-            self.configure_ermrest_client(groups)
-            self.configure_group_table(groups)
-            self._configure_www_schema()
+        # modify catalog ACL config to support basic admin/curator/writer/reader access.
+        if set_policy:
+            self.acls.update({
+                "owner": [groups['admin']],
+                "insert": [groups['curator'], groups['writer']],
+                "update": [groups['curator']],
+                "delete": [groups['curator']],
+                "select": [groups['writer'], groups['reader']] if not public else ['*'],
+                "enumerate": ["*"],
+            })
+
+        self.configure_ermrest_client(groups)
+        self.configure_group_table(groups)
+        self._configure_www_schema()
 
         return
 
@@ -363,95 +348,85 @@ class DerivaTableConfigure(DerivaTable):
         :param groups: dictionary of core catalog groups
         :return:
         """
-        with DerivaModel(self.catalog) as m:
-            table = m.table_element(self)
 
-            # Configure table so that access can be assigned to a group.  This requires that we create a column and
-            # establish a foreign key to an entry in the group table.  We will set the access control on the foreign key
-            # so that you are only able to delagate access to a the creator of the entity belongs to.
-            if 'Owner' not in [i.name for i in table.column_definitions]:
-                col_def = em.Column.define('Owner', em.builtin_types['text'], comment='Group that can update the record.')
-                table.create_column(self.catalog.catalog_model, col_def)
+        # Configure table so that access can be assigned to a group.  This requires that we create a column and
+        # establish a foreign key to an entry in the group table.  We will set the access control on the foreign key
+        # so that you are only able to delagate access to a the creator of the entity belongs to.
+        if 'Owner' not in [i.name for i in table.column_definitions]:
+            self.create_column(DerivaColumn.define('Owner', 'text', comment='Group that can update the record.'))
 
-            # Now configure the policy on the table...
-            self_service_policy = {
-                # Set up a policy for the table that allows the creator of the record to update and delete the record.
-                "self_service_creator": {
-                    "types": ["update", 'delete'],
-                    "projection": ["RCB"],
-                    "projection_type": "acl"
-                },
-                # Set up a policy for the table that allows members of the group referenced by the Owner column to
-                # update and delete the record.
-                'self_service_group': {
-                    "types": ["update", "delete"],
-                    "projection": ["Owner"],
-                    "projection_type": "acl"
-                }
+        # Now configure the policy on the table...
+        self_service_policy = {
+            # Set up a policy for the table that allows the creator of the record to update and delete the record.
+            "self_service_creator": {
+                "types": ["update", 'delete'],
+                "projection": ["RCB"],
+                "projection_type": "acl"
+            },
+            # Set up a policy for the table that allows members of the group referenced by the Owner column to
+            # update and delete the record.
+            'self_service_group': {
+                "types": ["update", "delete"],
+                "projection": ["Owner"],
+                "projection_type": "acl"
             }
+        }
 
-            # Make table policy be self service, creators and owners can update.
-            table.acl_bindings.update(self_service_policy)
+        # Make table policy be self service, creators and owners can update.
+        self.acl_bindings.update(self_service_policy)
 
-            # Set up a foreign key to the group table on the owners column so that the creator of a record can only
-            # select groups of which they are members of for values of the Owners column.
-            fkey_group_policy = {
-                # FKey to group can be created only if you are a member of the group you are referencing
-                'set_owner': {"types": ["update", "insert"],
-                              "projection": ["ID"],
-                              "projection_type": "acl"}
-            }
+        # Set up a foreign key to the group table on the owners column so that the creator of a record can only
+        # select groups of which they are members of for values of the Owners column.
+        fkey_group_policy = {
+            # FKey to group can be created only if you are a member of the group you are referencing
+            'set_owner': {"types": ["update", "insert"],
+                          "projection": ["ID"],
+                          "projection_type": "acl"}
+        }
 
-            # Allow curators to also update the foreign key.
-            fkey_group_acls = {"insert": [groups['curator']], "update": [groups['curator']]}
+        # Allow curators to also update the foreign key.
+        fkey_group_acls = {"insert": [groups['curator']], "update": [groups['curator']]}
 
-            owner_fkey_name = '{}_Owner_fkey'.format(self.table_name)
-            fk_def = em.ForeignKey.define(['Owner'],
-                                          'public', 'Catalog_Group', ['ID'],
+        owner_fkey_name = '{}_Owner_fkey'.format(self.table_name)
+        fk_def = DerivaForeignKey.define(['Owner'],
+                                         self.catalog['public']['Catalog_Group'], ['ID'],
+                                         acls=fkey_group_acls, acl_bindings=fkey_group_policy,
+                                         )
+        # Delete old fkey if there is one laying around....
+        for fk in self.foreign_keys:
+            if len(fk.columns) == 1 and next(iter(fk.columns)).name == 'Owner':
+                fk.delete()
 
-                                          acls=fkey_group_acls, acl_bindings=fkey_group_policy,
-                                          constraint_names=[(self.schema_name, owner_fkey_name)],
-                                          )
-            # Delete old fkey if there is one laying around....
-            for fk in table.foreign_keys:
-                if len(fk.foreign_key_columns) == 1 and fk.foreign_key_columns[0]['column_name'] == 'Owner':
-                    fk.delete(self.catalog.catalog_model, table)
-
-            # Now create the foreign key to the group table.
-            table.create_fkey(self.catalog.catalog_model, fk_def)
+        # Now create the foreign key to the group table.
+        self.create_foreign_key(fk_def)
         return
 
     def create_default_visible_columns(self, really=False):
-        with DerivaModel(self.catalog) as m:
-            table = m.model().schemas[self.schema_name].tables[self.table_name]
 
-            column_sources, outbound_sources, inbound_sources = self.sources(merge_outbound=True)
-            location = {'RCB': ['Owner']} if 'Owner' in table.column_definitions.elements else {}
+        column_sources, outbound_sources, inbound_sources = self.sources(merge_outbound=True)
+        location = {'RCB': ['Owner']} if 'Owner' in self.columns else {}
 
-            # Don't overwrite existing annotations if they are already in place.
-            if chaise_tags.visible_columns not in table.annotations:
-                self.set_annotation(chaise_tags.visible_columns, {})
-            positions = {}
-            if '*' not in table.annotations[chaise_tags.visible_columns] or really:
-                positions.update({DerivaContext('*'): location})
-                self.visible_columns().insert_context(DerivaContext('*'), column_sources)
-            if 'entry' not in table.annotations[chaise_tags.visible_columns] or really:
-                positions.update({DerivaContext('entry'): location})
-                self.visible_columns().insert_context(DerivaContext('entry'), column_sources)
+        # Don't overwrite existing annotations if they are already in place.
+        if chaise_tags.visible_columns not in self.annotations:
+            self.set_annotation(chaise_tags.visible_columns, {})
+        positions = {}
+        if '*' not in self.annotations[chaise_tags.visible_columns] or really:
+            positions.update({DerivaContext('*'): location})
+            self.visible_columns.insert_context(DerivaContext('*'), column_sources)
+        if 'entry' not in self.annotations[chaise_tags.visible_columns] or really:
+            positions.update({DerivaContext('entry'): location})
+            self.visible_columns.insert_context(DerivaContext('entry'), column_sources)
 
-            self.visible_columns().reorder_visible_source(positions)
+        self.visible_columns.reorder_visible_source(positions)
 
     def create_default_visible_foreign_keys(self, really=False):
-        with DerivaModel(self.catalog) as m:
-            table = m.model().schemas[self.schema_name].tables[self.table_name]
-
-            _, _, inbound_sources = self.sources()
-            logger.debug('visible_fkeys {}'.format(inbound_sources))
-            # Don't overwrite existing annotations if they are already in place.
-            if chaise_tags.visible_foreign_keys not in table.annotations:
-                self.set_annotation(chaise_tags.visible_foreign_keys, {})
-            if '*' not in table.annotations[chaise_tags.visible_foreign_keys] or really:
-                self.visible_foreign_keys().insert_context(DerivaContext('*'), inbound_sources)
+        _, _, inbound_sources = self.sources()
+        self.logger.debug('visible_fkeys {}'.format(inbound_sources))
+        # Don't overwrite existing annotations if they are already in place.
+        if chaise_tags.visible_foreign_keys not in self.annotations:
+            self.set_annotation(chaise_tags.visible_foreign_keys, {})
+        if '*' not in self.annotations[chaise_tags.visible_foreign_keys] or really:
+            self.visible_foreign_keys.insert_context(DerivaContext('*'), inbound_sources)
 
     def configure_table_defaults(self, set_policy=True, public=False, reset_visible_columns=True):
         """
@@ -465,49 +440,45 @@ class DerivaTableConfigure(DerivaTable):
         :param public: Make table acessible without logging in.
         :return:
         """
-        with DerivaModel(self.catalog) as m:
-            table = m.table_model(self)
 
-            if chaise_tags.catalog_config not in self.catalog.annotations:
-                raise DerivaConfigError(msg='Attempting to configure table before catalog is configured')
+        if chaise_tags.catalog_config not in self.catalog.annotations:
+            raise DerivaConfigError(msg='Attempting to configure table before catalog is configured')
 
-            # Hack to update description and URL until we get these passed through ermrest....
-            update_group_table(self.catalog)
+        # Hack to update description and URL until we get these passed through ermrest....
+        update_group_table(self.catalog)
 
-            schema = m.schema_model(self.schema)
+        if public:
+            # First copy over any inherited ACLS.
+            self.acls.update({**self.schema.acls, **self.acls})
+            self.acls.pop("create", None)
+            # Now add permision for anyone to read.
+            self.acls['select'] = ['*']
 
-            if public:
-                # First copy over any inherited ACLS.
-                self.acls.update({**schema.acls, **self.acl})
-                table.acls.pop("create", None)
-                # Now add permision for anyone to read.
-                self.acls['select'] = ['*']
+        if set_policy:
+            self.configure_self_serve_policy(self.catalog.get_groups())
 
-            if set_policy:
-                self.configure_self_serve_policy(self.catalog.get_groups())
+        # Configure schema if not already done so.
+        if chaise_tags.display not in self.schema.annotations:
+            self.schema.annotations[chaise_tags.display] = {}
+        if 'name_style' not in self.schema.annotations[chaise_tags.display]:
+            self.schema.annotations[chaise_tags.display].update({'name_style': {'underline_space': True}})
 
-            # Configure schema if not already done so.
-            if chaise_tags.display not in schema.annotations:
-                schema.annotations[chaise_tags.display] = {}
-            if 'name_style' not in schema.annotations[chaise_tags.display]:
-                schema.annotations[chaise_tags.display].update({'name_style': {'underline_space': True}})
+        # Set up foreign key to ermrest_client on RCB, RMB and Owner. If ermrest_client is configured, the
+        # full name of the user will be used for the FK value.
+        for col, display in [('RCB', 'Created By'), ('RMB', 'Modified By')]:
+            fk_name = '{}_{}_fkey'.format(self.name, col)
+            # Delete old fkey if there is one laying around....
+            for fk in self.foreign_keys:
+                if len(fk.columns) == 1 and next(iter(fk.columns)).name == col:
+                    fk.delete()
 
-            # Set up foreign key to ermrest_client on RCB, RMB and Owner. If ermrest_client is configured, the
-            # full name of the user will be used for the FK value.
-            for col, display in [('RCB', 'Created By'), ('RMB', 'Modified By')]:
-                fk_name = '{}_{}_fkey'.format(self.table_name, col)
-                # Delete old fkey if there is one laying around....
-                for fk in self.foreign_keys:
-                    if len(fk.foreign_key_columns) == 1 and fk.foreign_key_columns[0]['column_name'] == col:
-                        fk.delete(self.catalog.catalog_model, table)
+            self.create_foreign_key([col], self.catalog['public']['ERMrest_Client'], ['ID'])
+            # Add a display annotation so that we have sensible name for RCB and RMB.
+            self.columns[col].annotations[chaise_tags.display] = {'name': display}
 
-                self.create_fkey([col], self.catalog['public']['Ermrest_Client'], ['ID'])
-                # Add a display annotation so that we have sensible name for RCB and RMB.
-                self.column[col].annotations[chaise_tags.display] = {'name': display}
+        self.columns['RCT'].annotations.update({chaise_tags.display: {'name': 'Creation Time'}})
+        self.columns['RMT'].annotations.update({chaise_tags.display: {'name': 'Modified Time'}})
 
-            table.column_definitions['RCT'].annotations.update({chaise_tags.display: {'name': 'Creation Time'}})
-            table.column_definitions['RMT'].annotations.update({chaise_tags.display: {'name': 'Modified Time'}})
-
-            self.create_default_visible_columns(really=reset_visible_columns)
+        self.create_default_visible_columns(really=reset_visible_columns)
 
         return self

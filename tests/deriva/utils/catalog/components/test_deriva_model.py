@@ -388,7 +388,6 @@ class TestDerivaTable(TestCase):
         self.assertNotIn({'source': [{'inbound': ('TestSchema', 'TestTable2_Foo1_fkey')}, 'RID']},
                       table1.visible_foreign_keys['*'])
 
-
     def test_copy_columns(catalog):
         table = catalog[schema_name].create_table('TestTable1', [DerivaColumn.define('Foo1a', 'text')])
         delete_columns(table, ['Foobar', 'RCB1', 'ID1'])
@@ -440,4 +439,9 @@ class TestDerivaTable(TestCase):
         table1 = catalog[schema_name].create_table('TestTable1', [DerivaColumn.define('Foo1a', 'text')])
         table2 = catalog[schema_name].create_table('TestTable2',[DerivaColumn.define('Foo1', 'text')])
         table1.associate_tables(table2)
+
+    def test_create_asset_table(self):
+        table = catalog[schema_name].create_table('TestTable1', [DerivaColumn.define('Foo1a', 'text')])
+        table.create_asset_table('Foo1a', set_policy=False)
+
 

@@ -196,6 +196,9 @@ class DerivaDictValue:
 
         return dictval_iterator(self.value)
 
+    def pop(self, k, v):
+        self.value.pop(k, v)
+
 
 class DerivaModel(DerivaLogging):
     contexts = {i for i in DerivaContext if i is not DerivaContext("all")}
@@ -491,6 +494,32 @@ class DerivaSchema(DerivaCore):
         table.visible_foreign_keys.insert_context(DerivaContext('*'), inbound_sources)
 
         return table
+
+    def create_asset(self, table_name, column_defs,
+                     key_defs=[], fkey_defs=[],
+                     comment=None,
+                     acls={},
+                     acl_bindings={},
+                     annotations={}):
+
+        self.logger.debug('table_name: %s', table_name)
+        # Now that we know the table name, patch up the key and fkey defs to have the correct name.
+        proto_table = namedtuple('ProtoTable', ['catalog', 'schema', 'schema_name', 'name'])
+        for k in key_defs:
+            k.update_table(proto_table(self.catalog, self.schema, self.name, table_name))
+        for k in fkey_defs:
+            k.update_table(proto_table(self.catalog, self.schema, self.name, table_name))
+
+        return self._create_table(em.Table.define_asset(
+            self.schema_name,
+            table_name,
+            key_defs=[key.definition() if isinstance(key, DerivaKey) else key for key in key_defs],
+            fkey_defs=[fkey.definition() if type(fkey) is DerivaForeignKey else fkey for fkey in fkey_defs],
+            column_defs=[col.definition() for col in column_defs],
+            annotations=annotations,
+            acls=acls, acl_bindings=acl_bindings,
+            comment=comment)
+        )
 
     def _create_table(self, table_def):
         with DerivaModel(self.catalog) as m:
@@ -858,8 +887,8 @@ class DerivaVisibleSources(DerivaLogging):
         self.logger.debug('vc after %s', self.table.annotations[self.tag])
 
     def reorder_visible_source(self, positions):
-        vc = self._reorder_sources(self.table.get_annotation(self.tag), positions)
-        self.table.set_annotation(self.tag, {**self.table.get_annotation(self.tag), **vc})
+        vc = self._reorder_sources(self.table.annotations[self.tag], positions)
+        self.table.annotations[self.tag].update({**self.table.annotations[self.tag], **vc})
 
     def _reorder_sources(self, sources, positions):
         """
@@ -2295,46 +2324,42 @@ class DerivaTable(DerivaCore):
         proto_table = namedtuple('ProtoTable', ['catalog', 'schema_name', 'name'],
                                  (self.catalog, schema_name, table_name))
 
-        with DerivaModel(self.catalog) as m:
-            model = m.model()
-            table = model.schemas[self.schema_name].tables[self.name]
+        # Augment the column_map with entries for columns in the table, but not in the map.
+        new_map = {i.name: column_map.get(i.name, i.name) for i in self.columns}
+        new_map.update(column_map)
+        # Add keys to column map. We need to create a dummy destination table for this call.
+        column_map = self._column_map(new_map, proto_table)
 
-            # Augment the column_map with entries for columns in the table, but not in the map.
-            new_map = {i.name: column_map.get(i.name, i.name) for i in table.column_definitions}
-            new_map.update(column_map)
-            # Add keys to column map. We need to create a dummy destination table for this call.
-            column_map = self._column_map(new_map, proto_table)
+        # new_columns = [c['name'] for c in column_defs]
 
-            # new_columns = [c['name'] for c in column_defs]
+        new_table = self.catalog[self.schema_name].create_table(
+            table_name,
+            # Use column_map to change the name of columns in the new table.
+            column_defs=column_map.get_columns().values(),
+            key_defs=[i for i in column_map.get_keys().values()] + key_defs,
+            fkey_defs=[i for i in column_map.get_foreign_keys().values()] + fkey_defs,
+            comment=comment if comment else self.comment,
+            acls={**self.acls, **acls},
+            acl_bindings={**self.acl_bindings, **acl_bindings},
+            annotations=self._rename_columns_in_annotations(column_map)
+        )
 
-            new_table = self.catalog.schema_model(self.schema_name).create_table(
-                table_name,
-                # Use column_map to change the name of columns in the new table.
-                column_defs=column_map.get_columns().values(),
-                key_defs=[i for i in column_map.get_keys().values()] + key_defs,
-                fkey_defs=[i for i in column_map.get_foreign_keys().values()] + fkey_defs,
-                comment=comment if comment else table.comment,
-                acls={**table.acls, **acls},
-                acl_bindings={**table.acl_bindings, **acl_bindings},
-                annotations=self._rename_columns_in_annotations(column_map)
-            )
+        # Create new table
+        new_table.table_model = table_name
+        new_table.schema_model = schema_name
 
-            # Create new table
-            new_table.table_model = table_name
-            new_table.schema_model = schema_name
+        # Copy over values from original to the new one, mapping column names where required. Use the column_fill
+        # argument to provide values for non-null columns.
+        pb = self.catalog.getPathBuilder()
+        from_path = pb.schemas[self.schema_name].tables[self.name]
+        to_path = pb.schemas[schema_name].tables[table_name]
 
-            # Copy over values from original to the new one, mapping column names where required. Use the column_fill
-            # argument to provide values for non-null columns.
-            pb = self.catalog.getPathBuilder()
-            from_path = pb.schemas[self.schema_name].tables[self.name]
-            to_path = pb.schemas[schema_name].tables[table_name]
-
-            rows = map(
-                lambda x: {**x, **{k: v.fill for k, v in column_map.get_columns().items() if v.fill}},
-                from_path.entities(
-                    **{column_map.get(i, i).name: getattr(from_path, i) for i in from_path.column_definitions})
-            )
-            to_path.insert(list(rows), **({'nondefaults': {'RID', 'RCT', 'RCB'}} if clone else {}))
+        rows = map(
+            lambda x: {**x, **{k: v.fill for k, v in column_map.get_columns().items() if v.fill}},
+            from_path.entities(
+                **{column_map.get(i, i).name: getattr(from_path, i) for i in from_path.column_definitions})
+        )
+        to_path.insert(list(rows), **({'nondefaults': {'RID', 'RCT', 'RCB'}} if clone else {}))
         return new_table
 
     def move_table(self, schema_name, table_name,
@@ -2440,17 +2465,15 @@ class DerivaTable(DerivaCore):
 
         asset_table_name = '{}_Asset'.format(self.name)
 
-        if set_policy and chaise_tags.catalog_config not in self.catalog.model.annotations:
+        if set_policy and chaise_tags.catalog_config not in self.catalog.annotations:
             raise DerivaCatalogError(self, msg='Attempting to configure table before catalog is configured')
 
-        with DerivaModel(self.catalog) as m:
-            model = m.model()
-            if key_column not in self._column_names():
-                raise DerivaCatalogError(self, msg='Key column not found in target table')
+        if key_column not in self.columns:
+            raise DerivaCatalogError(self, msg='Key column not found in target table')
 
         column_defs = [
-                          em.Column.define('{}'.format(self.name),
-                                           em.builtin_types['text'],
+                          DerivaColumn.define('{}'.format(self.name),
+                                           'text',
                                            nullok=False,
                                            comment="The {} entry to which this asset is attached".format(
                                                self.name)),
@@ -2480,12 +2503,9 @@ class DerivaTable(DerivaCore):
 
         # Link asset table to metadata table with additional information about assets.
         asset_fkey_defs = [
-                              em.ForeignKey.define(['{}'.format(self.name)],
+                              DerivaForeignKey.define([self.name],
                                                    self.schema_name, self.name, ['RID'],
                                                    acls=fkey_acls, acl_bindings=fkey_acl_bindings,
-                                                   constraint_names=[
-                                                       (self.schema_name,
-                                                        '{}_{}_fkey'.format(asset_table_name, self.name))],
                                                    )
                           ] + fkey_defs
         comment = comment if comment else 'Asset table for {}'.format(self.name)
@@ -2493,48 +2513,42 @@ class DerivaTable(DerivaCore):
         if chaise_tags.table_display not in annotations:
             annotations[chaise_tags.table_display] = {'row_name': {'row_markdown_pattern': '{{{Filename}}}'}}
 
-        table_def = em.Table.define_asset(self.schema_name, asset_table_name, fkey_defs=asset_fkey_defs,
-                                          column_defs=column_defs, key_defs=key_defs, annotations=annotations,
-                                          acls=acls, acl_bindings=acl_bindings,
-                                          comment=comment)
+        asset_table = self.schema.create_asset(
+            asset_table_name,
+            column_defs=column_defs, key_defs=key_defs, annotations=annotations,
+            acls=acls, acl_bindings=acl_bindings,
+            comment=comment)
 
-        for i in table_def['column_definitions']:
-            if i['name'] == 'URL':
-                i[chaise_tags.column_display] = {'*': {'markdown_pattern': '[**{{URL}}**]({{{URL}}})'}}
-            if i['name'] == 'Filename':
-                i[chaise_tags.column_display] = {'*': {'markdown_pattern': '[**{{Filename}}**]({{{URL}}})'}}
-            if i['name'] == 'Length' or i['name'] == 'MD5' or i['name'] == 'URL':
-                i[chaise_tags.generated] = True
+        asset_table.columns['URL'].annotations[chaise_tags.column_display] = {'*': {'markdown_pattern': '[**{{URL}}**]({{{URL}}})'}}
+        asset_table.columns['Filename'].annotations[chaise_tags.column_display] = {'*': {'markdown_pattern': '[**{{Filename}}**]({{{URL}}})'}}
+        asset_table.columns['Length'].annotations[chaise_tags.generated]= True
+        asset_table.columns['MD5'].annotations[chaise_tags.generated] = True
+        asset_table.columns['URL'].annotations[chaise_tags.generated] = True
 
-        with DerivaModel(self.catalog) as m:
-            model = m.model()
+        # The last thing we should do is update the upload spec to accomidate this new asset table.
+        if chaise_tags.bulk_upload not in self.catalog.annotations:
+            self.catalog.annotations.update({
+                chaise_tags.bulk_upload: {
+                    'asset_mappings': [],
+                    'version_update_url': 'https://github.com/informatics-isi-edu/deriva-qt/releases',
+                    'version_compatibility': [['>=0.4.3', '<1.0.0']]
+                }
+            })
 
-            asset_table = self.catalog.schema_model(self.schema_name)._create_table(table_def)
-
-            # The last thing we should do is update the upload spec to accomidate this new asset table.
-            if chaise_tags.bulk_upload not in self.catalog.model.annotations:
-                model.annotations.update({
-                    chaise_tags.bulk_upload: {
-                        'asset_mappings': [],
-                        'version_update_url': 'https://github.com/informatics-isi-edu/deriva-qt/releases',
-                        'version_compatibility': [['>=0.4.3', '<1.0.0']]
-                    }
-                })
-
-            # Clean out any old upload specs if there are any and add the new specs.
-            upload_annotations = model.annotations[chaise_tags.bulk_upload]
-            upload_annotations['asset_mappings'] = \
-                [i for i in upload_annotations['asset_mappings'] if
-                 not (
-                         i.get('target_table', []) == [self.schema_name, asset_table_name]
-                         or
-                         (
-                                 i.get('target_table', []) == [self.schema_name, self.name]
-                                 and
-                                 i.get('asset_type', '') == 'table'
-                         )
-                 )
-                 ] + create_asset_upload_spec()
+        # Clean out any old upload specs if there are any and add the new specs.
+        upload_annotations = self.catalog.annotations[chaise_tags.bulk_upload]
+        upload_annotations['asset_mappings'] = \
+            [i for i in upload_annotations['asset_mappings'] if
+             not (
+                     i.get('target_table', []) == [self.schema_name, asset_table_name]
+                     or
+                     (
+                             i.get('target_table', []) == [self.schema_name, self.name]
+                             and
+                             i.get('asset_type', '') == 'table'
+                     )
+             )
+             ] + create_asset_upload_spec()
 
         return asset_table
 
