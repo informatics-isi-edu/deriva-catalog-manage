@@ -26,9 +26,11 @@ class DerivaCatalogError(Exception):
         self.msg = msg
         self.obj = obj
 
+
 class DerivaSourceError(DerivaCatalogError):
     def __init__(self, obj, msg):
         super().__init__(obj, msg)
+
 
 class DerivaMethodFilter:
     def __init__(self, include=None, exclude=None):
@@ -42,8 +44,8 @@ class DerivaMethodFilter:
             return record.funcName not in self.exclude
         return True
 
-# Add filters: ['source_spec'] to use filter.
 
+# Add filters: ['source_spec'] to use filter.
 logger_config = {
     'disable_existing_loggers': True,
     'version': 1,
@@ -63,7 +65,7 @@ logger_config = {
         'console': {
             'level': 'DEBUG',
             'formatter': 'class',
-  #          'filters': ['method_filter'],
+            #          'filters': ['method_filter'],
             'class': 'logging.StreamHandler',
         },
     },
@@ -923,7 +925,7 @@ class DerivaVisibleSources(DerivaLogging):
                 name = DerivaSourceSpec(self.table, source_list[i]).column_name
                 source_names.append(name + str(i) if name == 'pseudo_column' else name)
 
-            self.logger.debug('source_names %s',source_names)
+            self.logger.debug('source_names %s', source_names)
             # Now build up a map that has the indexes of the reordered columns.  Include the columns in order
             # Unless they are in the column_list, in which case, insert them immediately after the key column.
             reordered_names = source_names[:]
@@ -1044,7 +1046,7 @@ class DerivaSourceSpec(DerivaLogging):
             # We have a spec that is already in source form.
             # every element of pseudo column source except the last must be either an inbound or outbound spec.
             if not (isinstance(spec['source'], str) or
-                    all(map(lambda x: len(x.get('inbound',x.get('outbound',[]))) == 2, spec['source'][0:-1]))):
+                    all(map(lambda x: len(x.get('inbound', x.get('outbound',[]))) == 2, spec['source'][0:-1]))):
                 raise DerivaSourceError(self, 'Invalid source entry is not in key list{}'.format(spec))
         return spec
 
@@ -1170,15 +1172,16 @@ class DerivaColumn(DerivaCore):
         :param name: Name of the column.  If a em.Column is passed in as a name, then its name is used.
         """
 
-        super().__init__(table.catalog if table else None)
+        super().__init__(table.catalog)
 
         self.logger.debug('table: %s name: %s type: %s', table.name if table else "None", name, type)
 
         if isinstance(name, em.Column):  # We are providing a em.Column as the name argument.
             name = name.name
 
+        # We do not yet have a table for this column, so set table to None and fill in later.
+        self.table = None if define and not isinstance(table, DerivaTable) else table
         self.column = None
-        self.table = table
 
         if table:
             self.schema = self.catalog[table.schema_name]
@@ -1457,7 +1460,6 @@ class DerivaKey(DerivaCore):
 
     def definition(self):
         # Key will either be a DerivaKey or an ermrest key.
-        return self.key.definition(self)
         try:
             return self.key.definition(self)
         except AttributeError:
@@ -1593,8 +1595,8 @@ class DerivaForeignKey(DerivaCore):
                                 define=True)
 
     @staticmethod
-    def convert_def(table, fkey_def: em.ForeignKey):
-        if not isinstance(fkey_def, em.Key):
+    def convert_def(table, fkey_def):
+        if not isinstance(fkey_def, em.ForeignKey):
             raise DerivaCatalogError(table.catalog, 'convert_def must have em.ForeignKey as an argument')
         c = fkey_def.referenced_columns[0]
         dest_table = table.catalog[c['schema_name']][c['table_name']]
@@ -1652,7 +1654,6 @@ class DerivaForeignKey(DerivaCore):
     @property
     def referenced_columns(self):
         with DerivaModel(self.catalog) as m:
-            return ElementList(self._referenced_column, m.foreign_key_model(self).referenced_columns)
             return ElementList(self._referenced_column, m.foreign_key_model(self).referenced_columns)
 
     @property
@@ -1792,7 +1793,6 @@ class DerivaTable(DerivaCore):
     @property
     def acl_bindings(self):
         with DerivaModel(self.catalog) as m:
-            m.schema_model(self)
             return DerivaDictValue(m.table_model(self).acl_bindings)
 
     @property
@@ -1898,7 +1898,7 @@ class DerivaTable(DerivaCore):
         return DerivaColumn(self.catalog[self.schema_name][self.name], column_name)
 
     def validate(self):
-        self.visible_columns().validate()
+        self.visible_columns.validate()
 
     def _column_map(self, column_map, dest_table):
         return DerivaColumnMap(self, column_map, dest_table)
@@ -1969,39 +1969,37 @@ class DerivaTable(DerivaCore):
         def full_key_name(k):
             return (k.table.schema_name, k.name)
 
-        with DerivaModel(self.catalog) as m:
-            table = m.table_model(self)
 
-            # Go through the list of foreign keys and create a list of key columns in simple foreign keys
-            fkey_names = {
-                [c.name for c in fk.columns][0]: fk
-                for fk in self.foreign_keys if len(fk.columns) == 1
-            }
+        # Go through the list of foreign keys and create a list of key columns in simple foreign keys
+        fkey_names = {
+            [c.name for c in fk.columns][0]: fk
+            for fk in self.foreign_keys if len(fk.columns) == 1
+        }
 
-            # TODO We should check to see if target is vocabulary and if so use ID rather then RID
-            column_sources = [
-                DerivaSourceSpec(self,
-                                 {'source': (
-                                     [{'outbound': full_key_name(fkey_names[col.name])}, 'RID']
-                                     if col.name in fkey_names and merge_outbound
-                                     else col.name
-                                 )}
-                                 )
-                for col in self.table.columns if not filter or col.name in filter
-            ]
+        # TODO We should check to see if target is vocabulary and if so use ID rather then RID
+        column_sources = [
+            DerivaSourceSpec(self,
+                             {'source': (
+                                 [{'outbound': full_key_name(fkey_names[col.name])}, 'RID']
+                                 if col.name in fkey_names and merge_outbound
+                                 else col.name
+                             )}
+                             )
+            for col in self.table.columns if not filter or col.name in filter
+        ]
 
-            outbound_sources = [
-                DerivaSourceSpec(self,
-                                 {'source': [{'outbound': full_key_name(i)}, 'RID']}) for i in self.table.foreign_keys
-                if not filter or i.name in filter]
+        outbound_sources = [
+            DerivaSourceSpec(self,
+                             {'source': [{'outbound': full_key_name(i)}, 'RID']}) for i in self.table.foreign_keys
+            if not filter or i.name in filter]
 
-            inbound_sources = [
-                DerivaSourceSpec(self,
-                                 {'source': [{'inbound': full_key_name(i)}, 'RID']}) for i in self.table.referenced_by
-                if not filter or i.name in filter
-            ]
+        inbound_sources = [
+            DerivaSourceSpec(self,
+                             {'source': [{'inbound': full_key_name(i)}, 'RID']}) for i in self.table.referenced_by
+            if not filter or i.name in filter
+        ]
 
-            return column_sources, outbound_sources, inbound_sources
+        return column_sources, outbound_sources, inbound_sources
 
     @staticmethod
     def _rename_columns_in_display(dval, column_map):
@@ -2018,7 +2016,7 @@ class DerivaTable(DerivaCore):
 
     def _rename_columns_in_annotations(self, column_map, skip_annotations=[]):
         new_annotations = {}
-        for k, v in self.annotations().items():
+        for k, v in self.annotations.items():
             if k in skip_annotations:
                 renamed = v
             elif k == chaise_tags.display:

@@ -7,9 +7,8 @@ from urllib.parse import urlparse
 import deriva.core.ermrest_model as em
 from deriva.core.ermrest_config import tag as chaise_tags
 
-from deriva.utils.catalog.components.deriva_model import DerivaModel, DerivaCatalog, DerivaSchema, DerivaColumn, \
-    DerivaTable, DerivaContext, DerivaKey, DerivaForeignKey
-from deriva.utils.catalog.version import __version__ as VERSION
+from deriva.utils.catalog.components.deriva_model import DerivaCatalog, DerivaSchema, DerivaColumn, \
+    DerivaTable, DerivaContext, DerivaKey, DerivaForeignKey, DerivaCatalogError
 
 logger = logging.getLogger(__name__)
 
@@ -68,7 +67,7 @@ class DerivaCatalogConfigure(DerivaCatalog):
         # Create a WWW schema if one doesn't already exist.
         try:
             www_schema = self.create_schema('WWW', comment='Schema for tables that will be displayed as web content')
-        except ValueError as e:
+        except DerivaCatalogError as e:
             if 'already exists' not in e.args[0]:
                 raise
             else:
@@ -77,20 +76,20 @@ class DerivaCatalogConfigure(DerivaCatalog):
         # Create the page table
         try:
             www_schema.create_table(
-            'Page',
-            column_defs=[
-                DerivaColumn.define('Title', 'text', nullok=False, comment='Unique title for the page'),
-                DerivaColumn.define('Content', 'markdown', comment='Content of the page in markdown')
-            ],
-            key_defs=[DerivaKey.define(['Title'])],
-            annotations={
-                chaise_tags.table_display: {'detailed': {'hide_column_headers': True, 'collapse_toc_panel': True}
-                                            },
-                chaise_tags.visible_foreign_keys: {'detailed': {}},
-                chaise_tags.visible_columns: {'detailed': ['Content']}}
+                'Page',
+                column_defs=[
+                    DerivaColumn.define('Title', 'text', nullok=False, comment='Unique title for the page'),
+                    DerivaColumn.define('Content', 'markdown', comment='Content of the page in markdown')
+                ],
+                key_defs=[DerivaKey.define(['Title'])],
+                annotations={
+                    chaise_tags.table_display: {'detailed': {'hide_column_headers': True, 'collapse_toc_panel': True}
+                                                },
+                    chaise_tags.visible_foreign_keys: {'detailed': {}},
+                    chaise_tags.visible_columns: {'detailed': ['Content']}}
 
             )
-        except ValueError as e:
+        except DerivaCatalogError as e:
             if 'already exists' not in e.args[0]:
                 raise
         table = DerivaTableConfigure(self, 'WWW', 'Page')
@@ -98,7 +97,6 @@ class DerivaCatalogConfigure(DerivaCatalog):
 
         # Now set up the asset table
         try:
-            table = self.schema('WWW').table_model('Page')
             table.create_asset_table('RID')
         except ValueError as e:
             if 'already exists' not in e.args[0]:
@@ -167,7 +165,6 @@ class DerivaCatalogConfigure(DerivaCatalog):
         :param groups:
         :return:
         """
-        # TODO this needs to be rewitten to use new API....
 
         logging.info('Configuring groups')
         ermrest_group = self['public']['ERMrest_Group']
@@ -193,12 +190,12 @@ class DerivaCatalogConfigure(DerivaCatalog):
         column_defs = [
             DerivaColumn.define('Display_Name', em.builtin_types['text']),
             DerivaColumn.define('URL', em.builtin_types['text'],
-                             annotations={
-                                 chaise_tags.column_display: {
-                                     '*': {'markdown_pattern': '[**{{Display_Name}}**]({{{URL}}})'}},
-                                 chaise_tags.display: {'name': 'Group Management Page'}
-                             }
-                             ),
+                                annotations={
+                                    chaise_tags.column_display: {
+                                        '*': {'markdown_pattern': '[**{{Display_Name}}**]({{{URL}}})'}},
+                                    chaise_tags.display: {'name': 'Group Management Page'}
+                                }
+                                ),
             DerivaColumn.define('Description', em.builtin_types['text']),
             DerivaColumn.define('ID', em.builtin_types['text'], nullok=False)
         ]
@@ -206,8 +203,8 @@ class DerivaCatalogConfigure(DerivaCatalog):
         key_defs = [
             DerivaKey.define(['ID']),
             DerivaKey.define(['ID', 'URL', 'Display_Name', 'Description'],
-                          comment='Key to ensure that group only is entered once.'
-                          ),
+                             comment='Key to ensure that group only is entered once.'
+                             ),
         ]
 
         # Set up a foreign key to the group table so that the creator of a record can only select
@@ -225,11 +222,11 @@ class DerivaCatalogConfigure(DerivaCatalog):
         # Create a foreign key to the group table. Set update policy to keep group entry in sync.
         fkey_defs = [
             DerivaForeignKey.define(['ID', 'URL', 'Display_Name', 'Description'],
-                                 ermrest_group, ['ID', 'URL', 'Display_Name', 'Description'],
-                                 on_update='CASCADE',
-                                 acls=fkey_group_acls,
-                                 acl_bindings=fkey_group_policy,
-                                 )
+                                    ermrest_group, ['ID', 'URL', 'Display_Name', 'Description'],
+                                    on_update='CASCADE',
+                                    acls=fkey_group_acls,
+                                    acl_bindings=fkey_group_policy,
+                                    )
         ]
 
         # Create the visible groups table. Set ACLs so that writers or curators can add entries or edit.  Allow writers
@@ -337,9 +334,6 @@ class DerivaTableConfigure(DerivaTable):
         super(DerivaTableConfigure, self).__init__(catalog, schema_name, table_name)
         return
 
-    def apply(self):
-        self.catalog.model.schemas[self.schema_name].tables[self.table_name].apply(self.catalog.catalog_model)
-
     def configure_self_serve_policy(self, groups):
         """
         Set up a table so it has a self service policy.  Add an owner column if one is not present, and set the acl
@@ -352,8 +346,8 @@ class DerivaTableConfigure(DerivaTable):
         # Configure table so that access can be assigned to a group.  This requires that we create a column and
         # establish a foreign key to an entry in the group table.  We will set the access control on the foreign key
         # so that you are only able to delagate access to a the creator of the entity belongs to.
-        if 'Owner' not in [i.name for i in table.column_definitions]:
-            self.create_column(DerivaColumn.define('Owner', 'text', comment='Group that can update the record.'))
+        if 'Owner' not in self.columns:
+            self.create_columns(DerivaColumn.define('Owner', 'text', comment='Group that can update the record.'))
 
         # Now configure the policy on the table...
         self_service_policy = {
@@ -387,18 +381,17 @@ class DerivaTableConfigure(DerivaTable):
         # Allow curators to also update the foreign key.
         fkey_group_acls = {"insert": [groups['curator']], "update": [groups['curator']]}
 
-        owner_fkey_name = '{}_Owner_fkey'.format(self.table_name)
-        fk_def = DerivaForeignKey.define(['Owner'],
-                                         self.catalog['public']['Catalog_Group'], ['ID'],
-                                         acls=fkey_group_acls, acl_bindings=fkey_group_policy,
-                                         )
         # Delete old fkey if there is one laying around....
         for fk in self.foreign_keys:
             if len(fk.columns) == 1 and next(iter(fk.columns)).name == 'Owner':
                 fk.delete()
 
         # Now create the foreign key to the group table.
-        self.create_foreign_key(fk_def)
+        self.create_foreign_key(['Owner'],
+                                self.catalog['public']['Catalog_Group'], ['ID'],
+                                acls=fkey_group_acls, acl_bindings=fkey_group_policy,
+
+                                )
         return
 
     def create_default_visible_columns(self, really=False):
@@ -408,7 +401,7 @@ class DerivaTableConfigure(DerivaTable):
 
         # Don't overwrite existing annotations if they are already in place.
         if chaise_tags.visible_columns not in self.annotations:
-            self.set_annotation(chaise_tags.visible_columns, {})
+            self.annotations[chaise_tags.visible_columns] = {}
         positions = {}
         if '*' not in self.annotations[chaise_tags.visible_columns] or really:
             positions.update({DerivaContext('*'): location})
@@ -424,7 +417,7 @@ class DerivaTableConfigure(DerivaTable):
         self.logger.debug('visible_fkeys {}'.format(inbound_sources))
         # Don't overwrite existing annotations if they are already in place.
         if chaise_tags.visible_foreign_keys not in self.annotations:
-            self.set_annotation(chaise_tags.visible_foreign_keys, {})
+            self.annotations[chaise_tags.visible_foreign_keys] = {}
         if '*' not in self.annotations[chaise_tags.visible_foreign_keys] or really:
             self.visible_foreign_keys.insert_context(DerivaContext('*'), inbound_sources)
 
@@ -466,7 +459,6 @@ class DerivaTableConfigure(DerivaTable):
         # Set up foreign key to ermrest_client on RCB, RMB and Owner. If ermrest_client is configured, the
         # full name of the user will be used for the FK value.
         for col, display in [('RCB', 'Created By'), ('RMB', 'Modified By')]:
-            fk_name = '{}_{}_fkey'.format(self.name, col)
             # Delete old fkey if there is one laying around....
             for fk in self.foreign_keys:
                 if len(fk.columns) == 1 and next(iter(fk.columns)).name == col:

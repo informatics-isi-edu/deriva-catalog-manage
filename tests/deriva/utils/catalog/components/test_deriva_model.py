@@ -190,6 +190,41 @@ class TestVisibleSources(TestCase):
         self.assertIn({'source': 'Foo2'}, table.visible_columns['*'])
 
 
+class TestColumnMap(TestCase):
+
+    @classmethod
+    def setUpClass(cls):
+        global catalog
+        clean_schema('TestSchema')
+
+    def setUp(self):
+        clean_schema(schema_name)
+        with DerivaModel(catalog) as m:
+            model = m.catalog_model()
+            t1 = model.schemas[schema_name].create_table(catalog.ermrest_catalog, em.Table.define('TestTable1', []))
+            for i in ['Field_1', 'Field_2', 'Field_3']:
+                t1.create_column(ermrest_catalog, em.Column.define(i, em.builtin_types['text']))
+        catalog.refresh()
+
+    def test_column_map(self):
+        # Normal Columns
+        main = catalog['TestSchema']['TestTable1']
+        cm = DerivaColumnMap(main,
+                             {'Field_1': 'Foobar',
+                              'RCB': 'RCB1',
+                              'ID': 'ID1',
+                              'Bozo': 'text'},
+                             main)
+        print(cm)
+
+        cm = DerivaColumnMap(main,
+                             {'Field_1': {'name': 'Foobar', 'default': 23},
+                              'RCB': 'RCB1',
+                              'ID': 'ID1',
+                              'Bozo': 'text'},
+                             main)
+
+
 class TestDerivaTable(TestCase):
 
     def setUp(self):
@@ -388,19 +423,22 @@ class TestDerivaTable(TestCase):
         self.assertNotIn({'source': [{'inbound': ('TestSchema', 'TestTable2_Foo1_fkey')}, 'RID']},
                       table1.visible_foreign_keys['*'])
 
-    def test_copy_columns(catalog):
-        table = catalog[schema_name].create_table('TestTable1', [DerivaColumn.define('Foo1a', 'text')])
-        delete_columns(table, ['Foobar', 'RCB1', 'ID1'])
+    def test_copy_columns(self):
+        table = catalog[schema_name].create_table('TestTable1',
+                                                   [DerivaColumn.define('Field_1', 'text'),
+                                                    DerivaColumn.define('Field_2', 'text'),
+                                                    DerivaColumn.define('Field_3', 'text')],
+                                                )
         table.copy_columns(
             {'Field_1': 'Foobar', 'RCB': 'RCB1', 'Bozo': 'int4', 'Bozo1': {'type': 'text', 'default': 23}})
 
     def test_copy_columns_between_tables(catalog):
         table = catalog.schema_model('TestSchema').table_model('Foo')
         table.copy_columns({'Field_1': {'name': 'Foobar', 'default': 23}, 'RCB': 'RCB1', 'ID': 'ID1', 'Bozo': 'text'})
+        print(table)
 
     def test_rename_columns(catalog):
         table = catalog.schema_model('TestSchema').table_model('Foo')
-        delete_columns(table, ['Foobar', 'Foobar1', 'RCB1', 'RCB2', 'ID1'])
         table.copy_columns({'Field_1': 'Foobar', 'RCB': 'RCB1'})
         print('renaming columns....')
         table.rename_columns({'Foobar': 'Foobar1', 'RCB1': 'RCB2'})

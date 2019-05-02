@@ -1,15 +1,12 @@
 import unittest
 from unittest import TestCase
-import os
-import csv
-import sys
-import tempfile
-import warnings
 import logging
 
 from deriva.core import get_credential, DerivaServer
 import deriva.core.ermrest_model as em
 from deriva.utils.catalog.components.configure_catalog import *
+from deriva.utils.catalog.components.deriva_model import DerivaModel
+
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 
@@ -73,5 +70,8 @@ class TestConfigureCatalog(TestCase):
         catalog.configure_baseline_catalog(catalog_name='test', admin='isrd-systems')
 
     def test_table_defaults(self):
-        catalog.annotations[chaise_tags.catalog_config] = {}
-        catalog[schema_name]['TestTable1'].configure_table_defaults(public=True, set_policy=False)
+        catalog.configure_baseline_catalog(catalog_name='test', admin='isrd-systems')
+        catalog[schema_name]['TestTable1'].configure_table_defaults()
+        print(catalog)
+        print(catalog['public'])
+        print(catalog['WWW'])
