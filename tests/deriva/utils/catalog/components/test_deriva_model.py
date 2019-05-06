@@ -1,11 +1,13 @@
 import unittest
 from unittest import TestCase
 import warnings
+from requests.exceptions import HTTPError
 import logging
 
 from deriva.core import get_credential, DerivaServer
 import deriva.core.ermrest_model as em
 from deriva.utils.catalog.components.deriva_model import *
+from ..test_utils import *
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
@@ -20,22 +22,12 @@ schema_name = 'TestSchema'
 ermrest_catalog = None
 
 
-def clean_schema(schema_name):
-    with DerivaModel(catalog) as m:
-        model = m.catalog_model()
-        for t in model.schemas[schema_name].tables.values():
-            for k in t.foreign_keys:
-                k.delete(catalog.ermrest_catalog, t)
-        for t in [i for i in model.schemas[schema_name].tables.values()]:
-            t.delete(catalog.ermrest_catalog, model.schemas[schema_name])
-
-
 def setUpModule():
     global catalog, catalog_id, ermrest_catalog
 
     credentials = get_credential(server)
     catalog = DerivaServer('https', server, credentials=credentials).create_ermrest_catalog()
-    catalog_id = catalog._catalog_id
+    catalog_id = catalog.catalog_id
     logger.info('Catalog_id is {}'.format(catalog_id))
 
     catalog = DerivaCatalog(server, catalog_id=catalog_id)
@@ -58,7 +50,7 @@ class TestVisibleSources(TestCase):
         clean_schema('TestSchema')
 
     def setUp(self):
-        clean_schema(schema_name)
+        clean_schema(catalog, schema_name)
         with DerivaModel(catalog) as m:
             model = m.catalog_model()
             t1 = model.schemas[schema_name].create_table(catalog.ermrest_catalog, em.Table.define('TestTable1', []))
@@ -112,18 +104,18 @@ class TestVisibleSources(TestCase):
                                                   ))
 
             f2.create_fkey(ermrest_catalog,
-                             em.ForeignKey.define(['main_fkey'], 'TestSchema', 'Main', ['RID'],
-                                                  constraint_names=[('TestSchema', 'fk2_cons')]
-                                                  ))
+                           em.ForeignKey.define(['main_fkey'], 'TestSchema', 'Main', ['RID'],
+                                                constraint_names=[('TestSchema', 'fk2_cons')]
+                                                ))
 
             main_f3.create_fkey(ermrest_catalog,
-                             em.ForeignKey.define(['main_fkey'], 'TestSchema', 'Main', ['RID'],
-                                                  constraint_names=[('TestSchema', 'fk3_cons')]
-                                                  ))
+                                em.ForeignKey.define(['main_fkey'], 'TestSchema', 'Main', ['RID'],
+                                                     constraint_names=[('TestSchema', 'fk3_cons')]
+                                                     ))
             main_f3.create_fkey(ermrest_catalog,
-                             em.ForeignKey.define(['f3_fkey'], 'TestSchema', 'F3', ['RID'],
-                                                  constraint_names=[('TestSchema', 'main_f3_cons')]
-                                                  ))
+                                em.ForeignKey.define(['f3_fkey'], 'TestSchema', 'F3', ['RID'],
+                                                     constraint_names=[('TestSchema', 'main_f3_cons')]
+                                                     ))
         catalog.refresh()
 
     def test_source_spec(self):
@@ -133,7 +125,8 @@ class TestVisibleSources(TestCase):
         with self.assertRaises(DerivaSourceError):
             DerivaSourceSpec(main, 'Foobar')
         self.assertEqual(DerivaSourceSpec(main, {'source': 'text_col'}).spec, {'source': 'text_col'})
-        self.assertEqual(DerivaSourceSpec(main, {'source': 'RID', 'entity': False}).spec, {'source': 'RID', 'entity': False})
+        self.assertEqual(DerivaSourceSpec(main, {'source': 'RID', 'entity': False}).spec,
+                         {'source': 'RID', 'entity': False})
 
         # Key Columns
         self.assertEqual(DerivaSourceSpec(main, ['TestSchema', 'Main_RIDkey1']).spec, {'source': 'RID'})
@@ -142,7 +135,7 @@ class TestVisibleSources(TestCase):
 
         # ForeignKey Columns
         self.assertEqual(DerivaSourceSpec(main, ['TestSchema', 'fk1_cons']).spec,
-                         {"source": [{"outbound": ["TestSchema", "fk1_cons"]}, "RID"]})
+                         {"source": [{"outbound": ("TestSchema", "fk1_cons")}, "RID"]})
         self.assertEqual(DerivaSourceSpec(main, {"source": [{"outbound": ["TestSchema", "fk1_cons"]}, "RID"]}).spec,
                          {"source": [{"outbound": ["TestSchema", "fk1_cons"]}, "RID"]})
 
@@ -152,13 +145,13 @@ class TestVisibleSources(TestCase):
             DerivaSourceSpec(main, {"source": [{"outbound": ["TestSchema", "fk1_cons1"]}, "RID"]})
 
         # Inbound foreignkey columns
-        self.assertEqual(DerivaSourceSpec(main,["TestSchema", "fk2_cons"]).spec,
-                                          {"source": [{"inbound": ["TestSchema", "fk2_cons"]}, "RID"]})
+        self.assertEqual(DerivaSourceSpec(main, ["TestSchema", "fk2_cons"]).spec,
+                         {"source": [{"inbound": ("TestSchema", "fk2_cons")}, "RID"]})
         self.assertEqual(DerivaSourceSpec(main, ["TestSchema", "fk3_cons"]).spec,
-                                          {"source": [{"inbound": ["TestSchema", "fk3_cons"]}, "RID"]})
+                         {"source": [{"inbound": ["TestSchema", "fk3_cons"]}, "RID"]})
         self.assertEqual(DerivaSourceSpec(main,
                                           {"source": [{"inbound": ["TestSchema", "fk2_cons"]}, "RID"]}).spec,
-                                          {"source": [{"inbound": ["TestSchema", "fk2_cons"]}, "RID"]})
+                         {"source": [{"inbound": ["TestSchema", "fk2_cons"]}, "RID"]})
         self.assertEqual(DerivaSourceSpec(main,
                                           {"source": [{"inbound": ["TestSchema", "fk3_cons"]},
                                                       {"outbound": ["TestSchema", "main_f3_cons"]}, "RID"]}).spec,
@@ -173,8 +166,6 @@ class TestVisibleSources(TestCase):
             DerivaSourceSpec(main, {"source": [{"outbound": ["TestSchema", "fk1_cons"]}, "RID"]}).make_column().spec,
             {"source": 'f1_fkey'}
         )
-
-
 
     def test_normalize_positions(self):
         DerivaVisibleSources._normalize_positions({'all'})
@@ -195,14 +186,14 @@ class TestColumnMap(TestCase):
     @classmethod
     def setUpClass(cls):
         global catalog
-        clean_schema('TestSchema')
+        clean_schema(catalog, 'TestSchema')
 
     def setUp(self):
-        clean_schema(schema_name)
+        clean_schema(catalog, schema_name)
         with DerivaModel(catalog) as m:
             model = m.catalog_model()
             t1 = model.schemas[schema_name].create_table(catalog.ermrest_catalog, em.Table.define('TestTable1', []))
-            for i in ['Field_1', 'Field_2', 'Field_3']:
+            for i in ['ID', 'Field_1', 'Field_2', 'Field_3']:
                 t1.create_column(ermrest_catalog, em.Column.define(i, em.builtin_types['text']))
         catalog.refresh()
 
@@ -220,15 +211,16 @@ class TestColumnMap(TestCase):
         cm = DerivaColumnMap(main,
                              {'Field_1': {'name': 'Foobar', 'default': 23},
                               'RCB': 'RCB1',
-                              'ID': 'ID1',
+                              'ID': {'name': 'ID1', 'fill': 26},
                               'Bozo': 'text'},
                              main)
+        print(cm)
 
 
 class TestDerivaTable(TestCase):
 
     def setUp(self):
-        clean_schema(schema_name)
+        clean_schema(catalog, schema_name)
 
     def test_lookup_table(self):
         with DerivaModel(catalog) as m:
@@ -418,43 +410,57 @@ class TestDerivaTable(TestCase):
             self.assertTrue(table1.referenced_by['Foo1a'])
 
         self.assertNotIn({'source': [{'outbound': ('TestSchema', 'TestTable2_Foo1_fkey')}, 'RID']},
-                      table2.visible_columns['*'])
+                         table2.visible_columns['*'])
 
         self.assertNotIn({'source': [{'inbound': ('TestSchema', 'TestTable2_Foo1_fkey')}, 'RID']},
-                      table1.visible_foreign_keys['*'])
+                         table1.visible_foreign_keys['*'])
 
     def test_copy_columns(self):
         table = catalog[schema_name].create_table('TestTable1',
-                                                   [DerivaColumn.define('Field_1', 'text'),
-                                                    DerivaColumn.define('Field_2', 'text'),
-                                                    DerivaColumn.define('Field_3', 'text')],
-                                                )
+                                                  [DerivaColumn.define('Field_1', 'text'),
+                                                   DerivaColumn.define('Field_2', 'text'),
+                                                   DerivaColumn.define('Field_3', 'text')],
+                                                  )
         table.copy_columns(
             {'Field_1': 'Foobar', 'RCB': 'RCB1', 'Bozo': 'int4', 'Bozo1': {'type': 'text', 'default': 23}})
 
-    def test_copy_columns_between_tables(catalog):
+    def test_copy_columns_between_tables(self):
         table = catalog.schema_model('TestSchema').table_model('Foo')
         table.copy_columns({'Field_1': {'name': 'Foobar', 'default': 23}, 'RCB': 'RCB1', 'ID': 'ID1', 'Bozo': 'text'})
         print(table)
 
-    def test_rename_columns(catalog):
+    def test_rename_columns(self):
         table = catalog.schema_model('TestSchema').table_model('Foo')
         table.copy_columns({'Field_1': 'Foobar', 'RCB': 'RCB1'})
         print('renaming columns....')
         table.rename_columns({'Foobar': 'Foobar1', 'RCB1': 'RCB2'})
 
-    def test_copy_table(catalog):
-        try:
-            catalog.schema_model('TestSchema').table_model('Foo1').delete()
-        except KeyError:
-            pass
+    def test_copy_table(self):
+        table1 = catalog[schema_name].create_table('TestTable1',
+                                                   [DerivaColumn.define('Foo1a', 'text'),
+                                                    DerivaColumn.define('Foo2a', 'text'),
+                                                    DerivaColumn.define('Foo3a', 'text')],
+                                                   key_defs=[DerivaKey.define(['Foo1a', ]),
+                                                             DerivaKey.define(['Foo1a', 'Foo2a'])])
+
+        table2 = catalog[schema_name].create_table('TestTable2',
+                                                   [DerivaColumn.define('Foo1', 'text'),
+                                                    DerivaColumn.define('Foo2', 'text'),
+                                                    DerivaColumn.define('Foo3', 'text')],
+                                                   key_defs=[DerivaKey.define(['Foo1'])],
+                                                   )
+        table1.create_key(['Foo2a'])
+        table2.create_key(['Foo2'])
+        table2.create_foreign_key(['Foo1'], table1, ['Foo1a'])
+        table2.create_foreign_key(['Foo1', 'Foo2'], table1, ['Foo1a', 'Foo2a'])
+
         column_map = {'Field_1': 'Field_1A', 'ID': {'name': 'ID1', 'nullok': False, 'fill': 1},
                       'Status': {'type': 'int4', 'nullok': False, 'fill': 1}}
         table = catalog.schema_model('TestSchema').table_model('Foo')
         foo1 = table.copy_table('TestSchema', 'Foo1', column_map=column_map)
         return foo1
 
-    def test_move_table(catalog):
+    def test_move_table(self):
         try:
             catalog.schema_model('TestSchema').table_model('Foo1').delete()
         except KeyError:
@@ -463,23 +469,21 @@ class TestDerivaTable(TestCase):
                       'Status': {'type': 'int4', 'nullok': False, 'fill': 1}}
 
         table = catalog.schema_model('TestSchema').table_model('Foo')
-        column_defs = [DerivaColumnDef(table, 'Status', 'int4', nullok=False)]
+        column_defs = [DerivaColumn.define(table, 'Status', 'int4', nullok=False)]
         foo1 = table.move_table('TestSchema', 'Foo1', column_map=column_map, delete=False)
         return foo1
 
     def test_link_tables(self):
         table1 = catalog[schema_name].create_table('TestTable1', [DerivaColumn.define('Foo1a', 'text')])
-        table2 = catalog[schema_name].create_table('TestTable2',[DerivaColumn.define('Foo1', 'text')])
+        table2 = catalog[schema_name].create_table('TestTable2', [DerivaColumn.define('Foo1', 'text')])
 
         table1.link_tables(table2)
 
     def test_associate_tables(self):
         table1 = catalog[schema_name].create_table('TestTable1', [DerivaColumn.define('Foo1a', 'text')])
-        table2 = catalog[schema_name].create_table('TestTable2',[DerivaColumn.define('Foo1', 'text')])
+        table2 = catalog[schema_name].create_table('TestTable2', [DerivaColumn.define('Foo1', 'text')])
         table1.associate_tables(table2)
 
     def test_create_asset_table(self):
         table = catalog[schema_name].create_table('TestTable1', [DerivaColumn.define('Foo1a', 'text')])
         table.create_asset_table('Foo1a', set_policy=False)
-
-

@@ -80,9 +80,10 @@ logger_config = {
         'deriva_model.DerivaCatalog': {
         },
         'deriva_model.DerivaColumnMap': {
+
         },
         'deriva_model.DerivaSchema': {
-            'level': 'DEBUG'
+
         },
         'deriva_model.DerivaVisibleSources': {
         },
@@ -563,6 +564,7 @@ class DerivaSchema(DerivaCore):
 class DerivaColumnMap(DerivaLogging, OrderedDict):
     def __init__(self, table, column_map, dest_table):
         self.table = table
+        self.dest_table = dest_table
         super().__init__()
         self.logger.debug('table: %s dest_table: %s column_map: %s ', table.name, dest_table.name, column_map)
         self.update(self._normalize_column_map(table, column_map, dest_table))
@@ -606,21 +608,24 @@ class DerivaColumnMap(DerivaLogging, OrderedDict):
                 col = table[k]  # Get current definition for the column
             except DerivaCatalogError:
                 # Column is new, so create a default definition for it. If value is a string, then its the type.
-                return DerivaColumn(**{'name': k, 'table': dest_table, **({'type': v} if type(v) is str else v)})
+                col = DerivaColumn(**{'define': True,
+                    'name': k,
+                    'table': dest_table,
+                    **({'type': v} if type(v) is str else v)})
 
             # We have a column remap in the form of col: new_name or col: dictionary
             # Create a proper dictionary spec for the value adding in a table entry in the case if needed.
-
-            v = {'name': v} if type(v) is str else v
-            return DerivaColumn(
-                **{'table': dest_table,
-                   'type': col.type,
-                   'nullok': col.nullok,
-                   'default': col.default,
-                   'fill': col.fill,
-                   'comment': col.comment,
-                   'acls': col.acls,
-                   'acl_bindings': col.acl_bindings}, **v)
+            args = {'define': True,
+                    'name': v if type(v) is str else v.get('name', k),  # Name may be provided in v, if not use k.
+                    'table': dest_table,
+                    'type': col.type,
+                    'nullok': col.nullok,
+                    'default': col.default,
+                    'fill': col.fill,
+                    'comment': col.comment,
+                    'acls': col.acls,
+                    'acl_bindings': col.acl_bindings}
+            return DerivaColumn(**args)
 
         # Go through the columns in order and add map entries, converting any map entries that are just column names
         # or dictionaries to DerivaColumnDefs
@@ -643,7 +648,7 @@ class DerivaColumnMap(DerivaLogging, OrderedDict):
         # Get new key and fkey definitions by mapping to new column names.
         column_map.update(
             {key.name:
-                DerivaKey(
+                DerivaKey(define=True,
                     table=dest_table,
                     columns=[column_name_map.get(c.name, c.name) for c in key.columns],
                     comment=key.comment,
@@ -657,7 +662,7 @@ class DerivaColumnMap(DerivaLogging, OrderedDict):
         column_map.update(
             {
                 fkey.name:
-                    DerivaForeignKey(
+                    DerivaForeignKey(define=True,
                         table=dest_table,
                         columns=[column_name_map.get(c.name, c.name) for c in fkey.columns],
                         dest_table=dest_table,
@@ -1172,7 +1177,7 @@ class DerivaColumn(DerivaCore):
         :param name: Name of the column.  If a em.Column is passed in as a name, then its name is used.
         """
 
-        super().__init__(table.catalog)
+        super().__init__(table.catalog if table else None)
 
         self.logger.debug('table: %s name: %s type: %s', table.name if table else "None", name, type)
 
@@ -2319,13 +2324,13 @@ class DerivaTable(DerivaCore):
         :param annotations:
         :return:
         """
-        proto_table = namedtuple('ProtoTable', ['catalog', 'schema_name', 'name'],
-                                 (self.catalog, schema_name, table_name))
 
         # Augment the column_map with entries for columns in the table, but not in the map.
         new_map = {i.name: column_map.get(i.name, i.name) for i in self.columns}
         new_map.update(column_map)
         # Add keys to column map. We need to create a dummy destination table for this call.
+        proto_table = namedtuple('ProtoTable', ['catalog', 'schema_name', 'name'],
+                                 (self.catalog, schema_name, table_name))
         column_map = self._column_map(new_map, proto_table)
 
         # new_columns = [c['name'] for c in column_defs]
