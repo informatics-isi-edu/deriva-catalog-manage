@@ -13,24 +13,10 @@ from deriva.core import ErmrestCatalog, get_credential
 from deriva.core.ermrest_config import MultiKeyedList
 from deriva.core.ermrest_config import tag as chaise_tags
 
-logger = logging.getLogger(__name__)
-logging.basicConfig(format='[%(lineno)d] %(funcName)20s() %(message)s')
-logger.setLevel(logging.DEBUG)
-
 chaise_tags['catalog_config'] = 'tag:isrd.isi.edu,2019:catalog-config'
 CATALOG_CONFIG__TAG = 'tag:isrd.isi.edu,2019:catalog-config'
 
-
-class DerivaCatalogError(Exception):
-    def __init__(self, obj, msg):
-        self.msg = msg
-        self.obj = obj
-
-
-class DerivaSourceError(DerivaCatalogError):
-    def __init__(self, obj, msg):
-        super().__init__(obj, msg)
-
+logger = logging.getLogger(__name__)
 
 class DerivaMethodFilter:
     def __init__(self, include=None, exclude=None):
@@ -44,10 +30,9 @@ class DerivaMethodFilter:
             return record.funcName not in self.exclude
         return True
 
-
 # Add filters: ['source_spec'] to use filter.
 logger_config = {
-    'disable_existing_loggers': True,
+    'disable_existing_loggers': False,
     'version': 1,
     'filters': {
         'method_filter': {
@@ -86,7 +71,7 @@ logger_config = {
 
         },
         'deriva_model.DerivaVisibleSources': {
-           # 'level': 'DEBUG'
+            'level': 'DEBUG'
         },
         'deriva_model.DerivaSourceSpec': {
 
@@ -107,10 +92,21 @@ logger_config = {
 
 logging.config.dictConfig(logger_config)
 
-
 class DerivaLogging:
     def __init__(self, **kwargs):
         self.logger = logging.getLogger('{}.{}'.format('deriva_model', type(self).__name__))
+        print(self.logger.name, self.logger.parent)
+
+
+class DerivaCatalogError(Exception):
+    def __init__(self, obj, msg):
+        self.msg = msg
+        self.obj = obj
+
+
+class DerivaSourceError(DerivaCatalogError):
+    def __init__(self, obj, msg):
+        super().__init__(obj, msg)
 
 
 class DerivaContext(Enum):
@@ -170,42 +166,40 @@ class ElementList:
 
 
 class DerivaDictValue(dict):
-    # TODO This is not really doing anything.  Could change to UserDict
-    # def __init__(self, value):
-    #     self.value = value
-    #
-    # def __getitem__(self, item):
-    #     return self.value[item]
-    #
-    # def __setitem__(self, instance, value):
-    #     self.update({instance: value})
-    #
-    # def __contains__(self, item):
-    #     try:
-    #         self.__getitem__(item)
-    #         return True
-    #     except KeyError:
-    #         return False
-    #
-    # def update(self, items):
-    #     self.value.update(items)
-    #
-    # def items(self):
-    #     return self.value.items()
-    #
-    # def keys(self):
-    #     return self.value.keys()
-    #
-    # def __iter__(self):
-    #     def dictval_iterator(val):
-    #         for i in val:
-    #             yield i
-    #
-    #     return dictval_iterator(self.value)
-    #
-    # def pop(self, k, v):
-    #     self.value.pop(k, v)
-    pass
+    def __init__(self, value):
+        self.value = value
+
+    def __getitem__(self, item):
+        return self.value[item]
+
+    def __setitem__(self, instance, value):
+        self.update({instance: value})
+
+    def __contains__(self, item):
+        try:
+            self.__getitem__(item)
+            return True
+        except KeyError:
+            return False
+
+    def update(self, items):
+        self.value.update(items)
+
+    def items(self):
+        return self.value.items()
+
+    def keys(self):
+        return self.value.keys()
+
+    def __iter__(self):
+        def dictval_iterator(val):
+            for i in val:
+                yield i
+
+        return dictval_iterator(self.value)
+
+    def pop(self, k, v):
+        self.value.pop(k, v)
 
 
 class DerivaModel(DerivaLogging):
@@ -767,7 +761,7 @@ class DerivaVisibleSources(DerivaLogging):
             return OrderedDict({k: positions for k in DerivaModel.contexts})
 
     def insert_context(self, context, sources=[], replace=False):
-        self.logger.debug('context: %s sources: %s', context, [i.spec for i in sources])
+        self.logger.debug('context: %s %s sources: %s', self.tag, context, [i.spec for i in sources])
         context = DerivaContext(context)
         # Map over sources and make sure that they are all ok before we instert...
         sources = [DerivaSourceSpec(self.table, j).spec for j in sources]
@@ -2333,9 +2327,9 @@ class DerivaTable(DerivaCore):
         new_map = {i.name: column_map.get(i.name, i.name) for i in self.columns}
         new_map.update(column_map)
         # Add keys to column map. We need to create a dummy destination table for this call.
-        proto_table = namedtuple('ProtoTable', ['catalog', 'schema_name', 'name'],
-                                 (self.catalog, schema_name, table_name))
-        column_map = self._column_map(new_map, proto_table)
+        proto_table = namedtuple('ProtoTable', ['catalog', 'schema_name', 'name'])
+        dest_table = proto_table(self.catalog, schema_name, table_name)
+        column_map = self._column_map(new_map, dest_table)
 
         # new_columns = [c['name'] for c in column_defs]
 

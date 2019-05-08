@@ -9,6 +9,11 @@ import deriva.core.ermrest_model as em
 from deriva.utils.catalog.components.deriva_model import *
 from .. test_utils import *
 
+logging.basicConfig(level='DEBUG',
+    format = '[%(lineno)d] %(funcName)20s() %(message)s'
+                    )
+
+
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.DEBUG)
 
@@ -467,9 +472,9 @@ class TestDerivaTable(TestCase):
 
         column_map = {'Field_1': 'Field_1A', 'ID': {'name': 'ID1', 'nullok': False, 'fill': 1},
                       'Status': {'type': 'int4', 'nullok': False, 'fill': 1}}
-        table = catalog.schema_model('TestSchema').table_model('Foo')
-        foo1 = table.copy_table('TestSchema', 'Foo1', column_map=column_map)
-        return foo1
+
+        foo1 = table1.copy_table('TestSchema', 'Foo1')
+        #foo1 = table1.copy_table('TestSchema', 'Foo1', column_map=column_map)
 
     def test_move_table(self):
         try:
