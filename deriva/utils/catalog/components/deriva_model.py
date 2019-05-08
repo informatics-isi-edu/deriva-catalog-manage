@@ -80,21 +80,25 @@ logger_config = {
         'deriva_model.DerivaCatalog': {
         },
         'deriva_model.DerivaColumnMap': {
-
+          #  'level': 'DEBUG'
         },
         'deriva_model.DerivaSchema': {
 
         },
         'deriva_model.DerivaVisibleSources': {
+           # 'level': 'DEBUG'
         },
         'deriva_model.DerivaSourceSpec': {
 
         },
         'deriva_model.DerivaTable': {
+          #  'level': 'DEBUG'
         },
-        'deriva_model.DerviaColumn': {
+        'deriva_model.DerivaColumn': {
+         #   'level': 'DEBUG'
         },
         'deriva_model.DerivaKey': {
+            'level': 'DEBUG'
         },
         'deriva_model.DerivaForeignKey': {
         }
@@ -165,42 +169,43 @@ class ElementList:
         return element_iterator(self.lst)
 
 
-class DerivaDictValue:
+class DerivaDictValue(dict):
     # TODO This is not really doing anything.  Could change to UserDict
-    def __init__(self, value):
-        self.value = value
-
-    def __getitem__(self, item):
-        return self.value[item]
-
-    def __setitem__(self, instance, value):
-        self.update({instance: value})
-
-    def __contains__(self, item):
-        try:
-            self.__getitem__(item)
-            return True
-        except KeyError:
-            return False
-
-    def update(self, items):
-        self.value.update(items)
-
-    def items(self):
-        return self.value.items()
-
-    def keys(self):
-        return self.value.keys()
-
-    def __iter__(self):
-        def dictval_iterator(val):
-            for i in val:
-                yield i
-
-        return dictval_iterator(self.value)
-
-    def pop(self, k, v):
-        self.value.pop(k, v)
+    # def __init__(self, value):
+    #     self.value = value
+    #
+    # def __getitem__(self, item):
+    #     return self.value[item]
+    #
+    # def __setitem__(self, instance, value):
+    #     self.update({instance: value})
+    #
+    # def __contains__(self, item):
+    #     try:
+    #         self.__getitem__(item)
+    #         return True
+    #     except KeyError:
+    #         return False
+    #
+    # def update(self, items):
+    #     self.value.update(items)
+    #
+    # def items(self):
+    #     return self.value.items()
+    #
+    # def keys(self):
+    #     return self.value.keys()
+    #
+    # def __iter__(self):
+    #     def dictval_iterator(val):
+    #         for i in val:
+    #             yield i
+    #
+    #     return dictval_iterator(self.value)
+    #
+    # def pop(self, k, v):
+    #     self.value.pop(k, v)
+    pass
 
 
 class DerivaModel(DerivaLogging):
@@ -606,17 +611,19 @@ class DerivaColumnMap(DerivaLogging, OrderedDict):
             try:
                 # Get the existing column definition if it exists.
                 col = table[k]  # Get current definition for the column
+                name = v if type(v) is str else v.get('name', k)  # Name may be provided in v, if not use k.
             except DerivaCatalogError:
                 # Column is new, so create a default definition for it. If value is a string, then its the type.
                 col = DerivaColumn(**{'define': True,
                     'name': k,
                     'table': dest_table,
                     **({'type': v} if type(v) is str else v)})
+                name = k
 
             # We have a column remap in the form of col: new_name or col: dictionary
             # Create a proper dictionary spec for the value adding in a table entry in the case if needed.
             args = {'define': True,
-                    'name': v if type(v) is str else v.get('name', k),  # Name may be provided in v, if not use k.
+                    'name': name,
                     'table': dest_table,
                     'type': col.type,
                     'nullok': col.nullok,
@@ -937,6 +944,7 @@ class DerivaVisibleSources(DerivaLogging):
 
             for key_col, column_list in positions[deriva_context].items():
                 if not (set(column_list + [key_col]) <= set(source_names)):
+                    self.logger.debug('bad specification %s %s', column_list, key_col)
                     raise DerivaCatalogError(self, 'Invalid position specification in reorder columns')
                 mapped_list = [j for i in reordered_names if i not in column_list
                                for j in [i] + (
@@ -1317,6 +1325,7 @@ class DerivaColumn(DerivaCore):
         self.schema = self.catalog[table.schema_name]
 
     def create(self):
+        self.logger.debug('%s', self.column.definition())
         with DerivaModel(self.table.catalog) as m:
             self.column = m.table_model(self.table).create_column(self.catalog.ermrest_catalog,
                                                                   self.column.definition())
@@ -1454,8 +1463,9 @@ class DerivaKey(DerivaCore):
             comment=self.comment, annotations=[a for a in self.annotations])
 
     def create(self):
+        self.logger.debug('%s', self.definition())
         with DerivaModel(self.table.catalog) as m:
-            self.key = m.table_model(self.table).create_key(self.catalog.ermrest_catalog, self.key.definition(self))
+            self.key = m.table_model(self.table).create_key(self.catalog.ermrest_catalog, self.definition())
 
     def delete(self):
         with DerivaModel(self.table.catalog) as m:
@@ -2095,15 +2105,11 @@ class DerivaTable(DerivaCore):
         :return:
         """
 
-        key_map = column_map.get_keys()
-        fkey_map = column_map.get_foreign_keys()
+        for k, key_def in column_map.get_keys().items():
+            key_def.create()
 
-        with DerivaModel(self.catalog):
-            for k, key_def in key_map.items():
-                key_def.table_model.create_key(key_def)
-
-            for k, fkey_def in fkey_map.items():
-                fkey_def.table_model.create_fkey(fkey_def)
+        for k, fkey_def in column_map.get_foreign_keys().items():
+            fkey_def.create()
 
     def _delete_columns_in_display(self, annotation, columns):
         raise DerivaCatalogError(self, 'Cannot delete column from display annotation')
@@ -2170,37 +2176,35 @@ class DerivaTable(DerivaCore):
         columns = column_map.get_columns()
         column_names = [k for k in column_map.get_columns().keys()]
 
-        with DerivaModel(self.catalog):
-            # TODO we need to figure out what to do about ACL binding
+        # TODO we need to figure out what to do about ACL binding
 
-            # Make sure that we can rename the columns
-            overlap = {v.name for v in columns.values()}.intersection(set(dest_table._column_names()))
-            if len(overlap) != 0:
-                raise ValueError('Column {} already exists.'.format(overlap))
+        # Make sure that we can rename the columns
+        overlap = {v.name for v in columns.values()}.intersection(set(dest_table._column_names()))
+        if len(overlap) != 0:
+            raise ValueError('Column {} already exists.'.format(overlap))
 
-            self._check_composite_keys(column_names, dest_table)
+        self._check_composite_keys(column_names, dest_table)
 
-            # Update visible column spec, putting copied column right next to the source column.
-            if dest_table is self:
-                positions = {col: [column_map[col].name] for col in column_map.get_columns()}
+        # Update visible column spec, putting copied column right next to the source column.
+        positions = {col: [column_map[col].name] for col in column_map.get_columns()} if dest_table is self else {}
 
-            self.create_columns([i for i in columns.values()], positions)
+        self.create_columns([i for i in columns.values()], positions)
 
-            # Copy over the old values
-            from_path = self.datapath()
-            to_path = dest_table.datapath()
+        # Copy over the old values
+        from_path = self.datapath()
+        to_path = dest_table.datapath()
 
-            # Get the values of the columns, and remap the old column names to the new names.
-            rows = from_path.entities(
-                **{
-                    **{val.name: getattr(from_path, col) for col, val in column_map.get_columns().items()},
-                    **{'RID': from_path.RID}
-                }
-            )
-            to_path.update(rows)
+        # Get the values of the columns, and remap the old column names to the new names.
+        rows = from_path.entities(
+            **{
+                **{val.name: getattr(from_path, col) for col, val in column_map.get_columns().items()},
+                **{'RID': from_path.RID}
+            }
+        )
+        to_path.update(rows)
 
-            # Copy over the keys.
-            self._copy_keys(column_map)
+        # Copy over the keys.
+        self._copy_keys(column_map)
         return
 
     def create_columns(self, columns, positions={}, visible=True):

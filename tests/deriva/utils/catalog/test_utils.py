@@ -1,22 +1,25 @@
 import os
-import csv
 import random
 import datetime
 import string
 
-from deriva.utils.catalog.components.deriva_model import DerivaModel
+import logging
+
+from deriva.core import get_credential, DerivaServer
+from deriva.utils.catalog.components.deriva_model import DerivaModel, DerivaCatalog
+
+logger = logging.getLogger(__name__)
+
 
 def clean_schema(catalog, schema_name):
     with DerivaModel(catalog) as m:
         model = m.catalog_model()
         for k, t in model.schemas[schema_name].tables.copy().items():
-            print('dropping fkey ',t.name)
             for fk in t.foreign_keys.copy():
-                print('fkey:', vars(fk), fk.names)
                 fk.delete(catalog.ermrest_catalog, t)
         for k, t in model.schemas[schema_name].tables.copy().items():
-            print('dropping ', t.name)
             t.delete(catalog.ermrest_catalog, model.schemas[schema_name])
+
 
 def generate_test_csv(columncnt):
     """
@@ -49,7 +52,6 @@ def generate_test_csv(columncnt):
                 v = str(random.choice(date_list))
         return v
 
-
     def row_generator(header=True):
         row_count = 1
         while True:
@@ -63,6 +65,7 @@ def generate_test_csv(columncnt):
             yield row
 
     return row_generator(), [{'name': i[0], 'type': i[1]} for i in zip(column_headings, column_types)]
+
 
 # Create directories for testing upload spec.
 def upload_test(schema_name, table_name):
@@ -82,3 +85,13 @@ def create_upload_dirs(schema_name, table_name, iditer):
         asset_dir = 'assets/{}/{}/{}'.format(schema_name, table_name, i)
         os.makedirs(asset_dir, exist_ok=True)
     return
+
+
+def create_catalog(server):
+    credentials = get_credential(server)
+    catalog = DerivaServer('https', server, credentials=credentials).create_ermrest_catalog()
+    catalog_id = catalog.catalog_id
+    logger.info('Catalog_id is {}'.format(catalog_id))
+
+    catalog = DerivaCatalog(server, catalog_id=catalog_id)
+    return catalog
