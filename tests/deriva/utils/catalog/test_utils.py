@@ -6,7 +6,7 @@ import string
 import logging
 
 from deriva.core import get_credential, DerivaServer
-from deriva.utils.catalog.components.deriva_model import DerivaModel, DerivaCatalog
+from deriva.utils.catalog.components.deriva_model import DerivaModel, DerivaCatalog, DerivaColumn, DerivaKey, DerivaForeignKey
 
 logger = logging.getLogger(__name__)
 
@@ -19,6 +19,35 @@ def clean_schema(catalog, schema_name):
                 fk.delete(catalog.ermrest_catalog, t)
         for k, t in model.schemas[schema_name].tables.copy().items():
             t.delete(catalog.ermrest_catalog, model.schemas[schema_name])
+
+
+def generate_test_tables(catalog, schema_name):
+    table1 = catalog[schema_name].create_table(
+        'Table1',
+        [DerivaColumn.define('ID1_Table1', 'int4'),
+         DerivaColumn.define('ID2_Table1', 'int4'),
+         DerivaColumn.define('ID3_Table1', 'int4'),
+         DerivaColumn.define('Co11_Table1', 'text'),
+         DerivaColumn.define('Co12_Table1', 'text'),
+         DerivaColumn.define('Co13_Table1', 'text')],
+        key_defs=[DerivaKey.define(['ID1_Table1']),
+                  DerivaKey.define(['ID2_Table1', 'ID3_Table1'])]
+    )
+
+    table2 = catalog[schema_name].create_table(
+        'Table2',
+        [DerivaColumn.define('ID1_Table2', 'int4'),
+         DerivaColumn.define('ID2_Table2', 'int4'),
+         DerivaColumn.define('ID3_Table2', 'int4'),
+         DerivaColumn.define('Co11_Table2', 'text'),
+         DerivaColumn.define('Co12_Table2', 'text'),
+         DerivaColumn.define('Co13_Table2', 'text')],
+        key_defs=[DerivaKey.define(['ID1_Table2']),
+                  DerivaKey.define(['ID1_Table2', 'ID2_Table2'])],
+        fkey_defs = [DerivaForeignKey.define(['ID1_Table2'], table1, ['ID1_Table1']),
+                     DerivaForeignKey.define(['ID2_Table2', 'ID3_Table2'], table1,
+                                             ['ID2_Table1', 'ID3_Table1'])]
+    )
 
 
 def generate_test_csv(columncnt):

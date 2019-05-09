@@ -9,13 +9,12 @@ import deriva.core.ermrest_model as em
 from deriva.utils.catalog.components.deriva_model import *
 from .. test_utils import *
 
-logging.basicConfig(level='DEBUG',
+logging.basicConfig(
+    level=logging.INFO,
     format = '[%(lineno)d] %(funcName)20s() %(message)s'
                     )
 
-
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
 
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 warnings.filterwarnings('ignore', category=ResourceWarning)
@@ -260,6 +259,10 @@ class TestDerivaTable(TestCase):
         with self.assertRaises(DerivaCatalogError):
             catalog['public']['foobar']
 
+        generate_test_tables(catalog, schema_name)
+        table = catalog[schema_name].create_table('TestTable1', [])
+        self.assertEqual(table['Col1_Table1'].name, 'Col1_Table1')
+
     def test_column_add(self):
         table = catalog[schema_name].create_table('TestTable1', [])
         table.create_columns(DerivaColumn.define('Foo1', 'text'))
@@ -267,18 +270,33 @@ class TestDerivaTable(TestCase):
         self.assertIn({'source': 'Foo1'}, table.visible_columns['*'])
 
     def test_deriva_column_delete(self):
-        table = catalog[schema_name].create_table('TestTable', [DerivaColumn.define('Foo', 'text')])
+        generate_test_tables(catalog, schema_name)
+        table = catalog['TestSchema']['Table1']
+        print(table)
         table.visible_columns.insert_context('*')
-        self.assertEqual(table['RID'].name, 'RID')
-        print(DerivaSourceSpec(table, 'Foo').spec)
+        self.assertEqual(table['Col1_Table1'].name, 'Col1_Table1')
+        print(DerivaSourceSpec(table, 'Col1_Table1').spec)
         print(table.visible_columns)
-        table['Foo'].delete()
+        table['Col1_Table1'].delete()
         with self.assertRaises(DerivaCatalogError):
-            table['Foo']
-        self.assertNotIn({'source': 'Foo'}, table.visible_columns)
-        self.assertNotIn({'source': 'Foo'}, table.visible_columns['*'])
-        self.assertNotIn({'source': 'Foo'}, table.visible_columns['entry'])
+            table['Col1_Table1']
+        self.assertNotIn({'source': 'Col1_Table1'}, table.visible_columns)
+        self.assertNotIn({'source': 'Col1_Table1'}, table.visible_columns['*'])
+        self.assertNotIn({'source': 'Col1_Table1'}, table.visible_columns['entry'])
         print(table.visible_columns)
+
+    def test_deriva_column_delete_key_column(self):
+        generate_test_tables(catalog, schema_name)
+        table = catalog['TestSchema']['Table1']
+        table['ID1_Table1'].delete()
+        with self.assertRaises(DerivaCatalogError):
+            table['ID1_Table1']
+        self.assertNotIn({'source': 'ID1_Table1'}, table.visible_columns)
+        self.assertNotIn({'source': 'ID1_Table1'}, table.visible_columns['*'])
+        self.assertNotIn({'source': 'ID1_Table1'}, table.visible_columns['entry'])
+
+        table['ID2_Table1'].delete()
+
 
     def test_keys(self):
         table = catalog[schema_name].create_table('TestTable1',
@@ -446,10 +464,14 @@ class TestDerivaTable(TestCase):
         print(table2)
 
     def test_rename_columns(self):
-        table = catalog.schema_model('TestSchema').table_model('Foo')
-        table.copy_columns({'Field_1': 'Foobar', 'RCB': 'RCB1'})
-        print('renaming columns....')
-        table.rename_columns({'Foobar': 'Foobar1', 'RCB1': 'RCB2'})
+        table = catalog[schema_name].create_table('TestTable2',
+                                                   [DerivaColumn.define('Foo1', 'text'),
+                                                    DerivaColumn.define('Foo2', 'text'),
+                                                    DerivaColumn.define('Foo3', 'text')],
+                                                   key_defs=[DerivaKey.define(['Foo1'])],
+                                                   )
+        table.rename_columns({'Foo1': 'NewFoo1', 'RCB': 'RCB1'})
+        print(table)
 
     def test_copy_table(self):
         table1 = catalog[schema_name].create_table('TestTable1',
@@ -472,8 +494,8 @@ class TestDerivaTable(TestCase):
 
         column_map = {'Field_1': 'Field_1A', 'ID': {'name': 'ID1', 'nullok': False, 'fill': 1},
                       'Status': {'type': 'int4', 'nullok': False, 'fill': 1}}
-
-        foo1 = table1.copy_table('TestSchema', 'Foo1')
+        table_copy = table1.copy_table('TestSchema', 'TableCopy')
+        print(table_copy)
         #foo1 = table1.copy_table('TestSchema', 'Foo1', column_map=column_map)
 
     def test_move_table(self):

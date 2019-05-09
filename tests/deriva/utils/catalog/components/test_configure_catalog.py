@@ -8,7 +8,7 @@ from deriva.utils.catalog.components.configure_catalog import *
 from deriva.utils.catalog.components.deriva_model import DerivaModel
 
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
+logger.setLevel(logging.INFO)
 
 server = 'dev.isrd.isi.edu'
 schema_name = 'TestSchema'

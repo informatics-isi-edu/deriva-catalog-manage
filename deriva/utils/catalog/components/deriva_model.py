@@ -19,20 +19,20 @@ CATALOG_CONFIG__TAG = 'tag:isrd.isi.edu,2019:catalog-config'
 logger = logging.getLogger(__name__)
 
 class DerivaMethodFilter:
-    def __init__(self, include=None, exclude=None):
+    def __init__(self, include=True, exclude=None):
         self.include = include
         self.exclude = exclude
 
     def filter(self, record):
-        if self.include:
+        if self.include is True:
+            return record.funcName not in  self.exclude
+        else:
             return record.funcName in self.include
-        if self.exclude:
-            return record.funcName not in self.exclude
-        return True
+
 
 # Add filters: ['source_spec'] to use filter.
 logger_config = {
-    'disable_existing_loggers': False,
+    'disable_existing_loggers': True,
     'version': 1,
     'filters': {
         'method_filter': {
@@ -50,7 +50,7 @@ logger_config = {
         'console': {
             'level': 'DEBUG',
             'formatter': 'class',
-            #          'filters': ['method_filter'],
+            'filters': ['method_filter'],
             'class': 'logging.StreamHandler',
         },
     },
@@ -65,15 +65,16 @@ logger_config = {
         'deriva_model.DerivaCatalog': {
         },
         'deriva_model.DerivaColumnMap': {
-          #  'level': 'DEBUG'
+        #    'level': 'DEBUG'
         },
         'deriva_model.DerivaSchema': {
 
         },
         'deriva_model.DerivaVisibleSources': {
-            'level': 'DEBUG'
+         #   'level': 'DEBUG'
         },
         'deriva_model.DerivaSourceSpec': {
+         #   'level': 'DEBUG'
 
         },
         'deriva_model.DerivaTable': {
@@ -83,7 +84,7 @@ logger_config = {
          #   'level': 'DEBUG'
         },
         'deriva_model.DerivaKey': {
-            'level': 'DEBUG'
+          #  'level': 'DEBUG'
         },
         'deriva_model.DerivaForeignKey': {
         }
@@ -95,7 +96,6 @@ logging.config.dictConfig(logger_config)
 class DerivaLogging:
     def __init__(self, **kwargs):
         self.logger = logging.getLogger('{}.{}'.format('deriva_model', type(self).__name__))
-        print(self.logger.name, self.logger.parent)
 
 
 class DerivaCatalogError(Exception):
@@ -506,6 +506,7 @@ class DerivaSchema(DerivaCore):
 
         self.logger.debug('table_name: %s', table_name)
         # Now that we know the table name, patch up the key and fkey defs to have the correct name.
+
         proto_table = namedtuple('ProtoTable', ['catalog', 'schema', 'schema_name', 'name'])
         for k in key_defs:
             k.update_table(proto_table(self.catalog, self.schema, self.name, table_name))
@@ -565,7 +566,9 @@ class DerivaColumnMap(DerivaLogging, OrderedDict):
         self.table = table
         self.dest_table = dest_table
         super().__init__()
-        self.logger.debug('table: %s dest_table: %s column_map: %s ', table.name, dest_table.name, column_map)
+        self.logger.debug('table: %s dest_table: %s column_map: %s ',
+                          table.name if table is None else None,
+                          dest_table.name if dest_table else None, column_map)
         self.update(self._normalize_column_map(table, column_map, dest_table))
 
     def _normalize_column_map(self, table, column_map, dest_table):
@@ -712,6 +715,9 @@ class DerivaVisibleSources(DerivaLogging):
     def __iter__(self):
         return self.table.annotations[self.tag].__iter__()
 
+    def to_json(self):
+        pass
+
     def validate(self):
         for c, l in self.table.annotations[self.tag].items():
             for j in l:
@@ -840,6 +846,7 @@ class DerivaVisibleSources(DerivaLogging):
                 )
             ] for k, v in self.table.annotations[self.tag].items()
         }
+        self.logger.debug('renamed %s', vc)
         return vc
 
     def copy_visible_source(self, from_context):
@@ -1079,7 +1086,7 @@ class DerivaSourceSpec(DerivaLogging):
                         ]
                     }
                 elif self.column_name in column_map:
-                    return {'source': column_map[self.column_name]}
+                    return {'source': column_map[self.column_name].name}
                 else:
                     self.logger.debug('mapping source , to %s ', {**self.spec, **{'source': column_map[self.source].name}})
                     return {**self.spec, **{'source': column_map[self.source].name}}
@@ -1371,7 +1378,7 @@ class DerivaKey(DerivaCore):
         :param name: Either the name of the key or the unique columns in the key.
         """
         super().__init__(table.catalog if table else None)
-        self.logger.debug('table %s columns %s', table.name if table else "none", columns)
+        self.logger.debug('table %s columns %s %s', table.name if table else "none", columns, define)
 
         if isinstance(name, em.Key):  # We are providing a em.Key as the name argument.
             name = name.names[0]
@@ -1387,9 +1394,12 @@ class DerivaKey(DerivaCore):
 
         if table:
             self.schema = self.catalog[table.schema_name]
-            with DerivaModel(self.catalog) as m:
-                self.key = m.key_exists(table, name if name else columns)
-
+            try:
+                with DerivaModel(self.catalog) as m:
+                    self.key = m.key_exists(table, name if name else columns)
+            except KeyError:
+                # Table hasn't been defined yet....
+                pass
         # If we are defining a Key and it already exists, then we have an error, otherwise, we are done.
         if self.key:
             if define:
@@ -1571,7 +1581,7 @@ class DerivaForeignKey(DerivaCore):
                 return
 
         # We are defining a new FK, so create a DerivaForeignKeyDef to hold the info until the key is created.
-        logging.debug('creating fkey def {}', define)
+        self.logger.debug('creating fkey def {}', define)
         if define:
             self.fkey = DerivaForeignKey._DerivaForeignKeyDef(table, columns,
                                                               dest_table, dest_columns,
@@ -2023,7 +2033,7 @@ class DerivaTable(DerivaCore):
             for k, v in dval.items()
         }
 
-    def _rename_columns_in_annotations(self, column_map, skip_annotations=[]):
+    def _rename_columns_in_annotations(self, column_map, skip_annotations=[], validate=True):
         new_annotations = {}
         for k, v in self.annotations.items():
             if k in skip_annotations:
@@ -2031,7 +2041,7 @@ class DerivaTable(DerivaCore):
             elif k == chaise_tags.display:
                 renamed = self._rename_columns_in_display(v, column_map)
             elif k == chaise_tags.visible_columns:
-                renamed = self.visible_columns.rename_columns(column_map)
+                renamed = self.visible_columns.rename_columns(column_map, validate=validate)
             else:
                 renamed = v
             new_annotations[k] = renamed
@@ -2327,8 +2337,8 @@ class DerivaTable(DerivaCore):
         new_map = {i.name: column_map.get(i.name, i.name) for i in self.columns}
         new_map.update(column_map)
         # Add keys to column map. We need to create a dummy destination table for this call.
-        proto_table = namedtuple('ProtoTable', ['catalog', 'schema_name', 'name'])
-        dest_table = proto_table(self.catalog, schema_name, table_name)
+        proto_table = namedtuple('ProtoTable', ['catalog', 'schema', 'schema_name', 'name'])
+        dest_table = proto_table(self.catalog, self.catalog[schema_name], self.schema_name, table_name)
         column_map = self._column_map(new_map, dest_table)
 
         # new_columns = [c['name'] for c in column_defs]
