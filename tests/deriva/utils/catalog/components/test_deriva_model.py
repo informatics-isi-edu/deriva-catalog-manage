@@ -11,8 +11,8 @@ from .. test_utils import *
 
 logging.basicConfig(
     level=logging.INFO,
-    format = '[%(lineno)d] %(funcName)20s() %(message)s'
-                    )
+    format='[%(lineno)d] %(funcName)20s() %(message)s'
+)
 
 logger = logging.getLogger(__name__)
 
@@ -248,6 +248,7 @@ class TestDerivaTable(TestCase):
             catalog[schema_name]['TestTable2']
 
     def test_column_access(self):
+        logging.disable(logging.CRITICAL)
         table = catalog['public']['ERMrest_Client']
         self.assertEqual(table['RID'].name, 'RID')
         self.assertEqual(table.column('RID').name, 'RID')
@@ -260,7 +261,9 @@ class TestDerivaTable(TestCase):
             catalog['public']['foobar']
 
         generate_test_tables(catalog, schema_name)
-        table = catalog[schema_name].create_table('TestTable1', [])
+        logging.disable(logging.NOTSET)
+
+        table = catalog[schema_name]['Table1']
         self.assertEqual(table['Col1_Table1'].name, 'Col1_Table1')
 
     def test_column_add(self):

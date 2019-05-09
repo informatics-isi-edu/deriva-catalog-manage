@@ -19,7 +19,7 @@ CATALOG_CONFIG__TAG = 'tag:isrd.isi.edu,2019:catalog-config'
 logger = logging.getLogger(__name__)
 
 class DerivaMethodFilter:
-    def __init__(self, include=True, exclude=None):
+    def __init__(self, include=True, exclude=[]):
         self.include = include
         self.exclude = exclude
 
@@ -37,7 +37,7 @@ logger_config = {
     'filters': {
         'method_filter': {
             '()': DerivaMethodFilter,
-            'include': ['delete_visible_source']
+            'include': True
         }
     },
     'formatters': {
@@ -60,7 +60,8 @@ logger_config = {
             'level': 'INFO',
             'propagate': False
         },
-        'deriva_model.DerviaModel': {
+        'deriva_model.DerivaModel': {
+         #   'level': 'DEBUG'
         },
         'deriva_model.DerivaCatalog': {
         },
@@ -78,10 +79,10 @@ logger_config = {
 
         },
         'deriva_model.DerivaTable': {
-          #  'level': 'DEBUG'
+            'level': 'DEBUG'
         },
         'deriva_model.DerivaColumn': {
-         #   'level': 'DEBUG'
+           # 'level': 'DEBUG'
         },
         'deriva_model.DerivaKey': {
           #  'level': 'DEBUG'
@@ -253,6 +254,7 @@ class DerivaModel(DerivaLogging):
             return False
 
     def column_exists(self, table, column_name):
+        self.logger.debug('column_name %s %s', column_name, [i.name for i in self.table_model(table).column_definitions])
         try:
             return self.table_model(table).column_definitions[column_name]
         except KeyError:
@@ -1072,7 +1074,10 @@ class DerivaSourceSpec(DerivaLogging):
                 try:
 
                     fkey_name = self.table.foreign_keys[self.source].name
-                    self.logger.debug('column %s foreign key name %s %s', self.source, fkey_name, fkey_name in column_map)
+                    self.logger.debug('column %s foreign key name %s %s',
+                                      self.source,
+                                      fkey_name,
+                                      fkey_name in column_map)
                 except DerivaCatalogError:
                     fkey_name = None
 
@@ -1188,7 +1193,7 @@ class DerivaColumn(DerivaCore):
 
         super().__init__(table.catalog if table else None)
 
-        self.logger.debug('table: %s name: %s type: %s', table.name if table else "None", name, type)
+        self.logger.debug('table: %s name: %s type: %s define: %s', table.name if table else "None", name, type, define)
 
         if isinstance(name, em.Column):  # We are providing a em.Column as the name argument.
             name = name.name
@@ -1334,6 +1339,7 @@ class DerivaColumn(DerivaCore):
     def delete(self):
         # TODO Need to check to make sure column is not in compound key or refered to by a FK.
         self.table._check_composite_keys([self.name])
+
         self.table.visible_columns.delete_visible_source(self.name)
         with DerivaModel(self.table.catalog) as m:
             m.column_model(self).delete(self.catalog.ermrest_catalog, m.table_model(self.table))
@@ -2083,14 +2089,16 @@ class DerivaTable(DerivaCore):
         :return:
         """
         columns = set(columns)
-
+        self.logger.debug('columns %s, ')
         for i in self.keys:
             self._key_in_columns(columns, i.columns, rename)
 
         for fk in self.foreign_keys:
+            self.logger.debug('foreign_key %s %s %s', fk.table.name, fk.referenced_table.name, [i.name for i in fk.referenced_columns])
             self._key_in_columns(columns, fk.columns, rename)
 
         for fk in self.referenced_by:
+            print('referenced_columns', columns, fk.table.name, fk.referenced_table.name, [i.name for i in fk.referenced_columns])
             self._key_in_columns(columns, fk.referenced_columns, rename)
 
     def _update_key_name(self, name, column_map, dest_table):
