@@ -66,7 +66,7 @@ logger_config = {
         'deriva_model.DerivaCatalog': {
         },
         'deriva_model.DerivaColumnMap': {
-        #    'level': 'DEBUG'
+            'level': 'DEBUG'
         },
         'deriva_model.DerivaSchema': {
 
@@ -82,7 +82,7 @@ logger_config = {
             'level': 'DEBUG'
         },
         'deriva_model.DerivaColumn': {
-           # 'level': 'DEBUG'
+            'level': 'DEBUG'
         },
         'deriva_model.DerivaKey': {
           #  'level': 'DEBUG'
@@ -109,6 +109,17 @@ class DerivaSourceError(DerivaCatalogError):
     def __init__(self, obj, msg):
         super().__init__(obj, msg)
 
+class DerivaKeyError(DerivaCatalogError):
+    def __init__(self, obj, msg):
+        super().__init__(obj, msg)
+
+class DerivaForeignKeyError(DerivaCatalogError):
+    def __init__(self, obj, msg):
+        super().__init__(obj, msg)
+
+class DerivaTableError(DerivaCatalogError):
+    def __init__(self, obj, msg):
+        super().__init__(obj, msg)
 
 class DerivaContext(Enum):
     compact = "compact"
@@ -152,7 +163,7 @@ class ElementList:
             return False
 
     def __len__(self):
-        return len(self.lst)
+        return self.lst.__len__()
 
     def __delitem__(self, key):
         key_name = self.fvalue(key).table.schema_name, self.fvalue(key).name
@@ -261,7 +272,9 @@ class DerivaModel(DerivaLogging):
             return False
 
     def key_exists(self, table, key_id):
+        self.logger.debug('table %s column_name %s', table.name, key_id)
         key_name = (table.schema_name, key_id) if type(key_id) == str else key_id
+        self.logger.debug('key name %s', key_name)
         try:
             return self.table_model(table).keys[key_name]
         except (KeyError, TypeError):
@@ -1337,13 +1350,7 @@ class DerivaColumn(DerivaCore):
                                                                   self.column.definition())
 
     def delete(self):
-        # TODO Need to check to make sure column is not in compound key or refered to by a FK.
-        self.table._check_composite_keys([self.name])
-
-        self.table.visible_columns.delete_visible_source(self.name)
-        with DerivaModel(self.table.catalog) as m:
-            m.column_model(self).delete(self.catalog.ermrest_catalog, m.table_model(self.table))
-            self.column = None
+        self.table.delete_columns(self)
 
 
 
@@ -1418,7 +1425,7 @@ class DerivaKey(DerivaCore):
                 self.key = DerivaKey._DerivaKeyDef(table, columns,
                                                    name=name, comment=comment, annotations=annotations)
             else:
-                raise DerivaCatalogError(self, "Key doesn't exist {}".format(name))
+                raise DerivaKeyError(self, "Key doesn't exist {}".format(name))
 
     @staticmethod
     def define(columns, name=None, comment=None, annotations={}):
@@ -1582,7 +1589,7 @@ class DerivaForeignKey(DerivaCore):
         # If we are defining a FK and it already exists, then we have an error, otherwise, we are done.
         if self.fkey:
             if define:
-                raise DerivaCatalogError(self, 'Foreign Key already exists'.format(columns))
+                raise DerivaForeignKeyError(self, 'Foreign Key already exists'.format(columns))
             else:
                 return
 
@@ -1596,7 +1603,7 @@ class DerivaForeignKey(DerivaCore):
                                                               acls=acls, acl_bindings=acl_bindings,
                                                               annotations=annotations)
         else:
-            raise DerivaCatalogError(self, "Foreign key doesn't exist".format(name))
+            raise DerivaForeignKeyError(self, "Foreign key doesn't exist".format(name))
         self.logger.debug('fkey def %s', self.fkey)
 
     @staticmethod
@@ -2064,7 +2071,8 @@ class DerivaTable(DerivaCore):
     def _key_in_columns(self, columns, key_columns, rename=False):
         """
         Given a set of columns and a key, return true if the key is in that column set.  If we are simply renaming
-        columns, rather then moving them to a new table, not all of the columns in a composite key have to be present.
+        columns, rather then moving them to a new table, not all of the columns in a composite key have to be present
+        as we still have the other columns available to us.
         :param columns:  List of columns in a table that are being altered
         :param key_columns: list of columns in the key
 
@@ -2076,30 +2084,33 @@ class DerivaTable(DerivaCore):
         self.logger.debug('columns %s key_columns %s overlap %s', columns, {k.name for k in key_columns}, overlap)
         if len(overlap) == 0:
             return False
-        if not rename and len(overlap) < len(key_columns):
+        if (not rename) and (len(overlap) < len(key_columns)):
             raise DerivaCatalogError(self, msg='Cannot rename part of compound key {}'.format(key_columns))
         return True
 
     def _check_composite_keys(self, columns, rename=False):
         """
         Go over all of the keys, incoming and outgoing foreign keys and check to make sure that renaming the set of
-        columns colulumns won't break up composite keys if they are renamed.
+        columns  won't break up composite keys if they are renamed.
         :param columns:
         :param rename:
         :return:
         """
         columns = set(columns)
-        self.logger.debug('columns %s, ')
+        self.logger.debug('columns %s, %s', columns, rename)
         for i in self.keys:
+            self.logger.debug('key %s', [k.name for k in i.columns])
             self._key_in_columns(columns, i.columns, rename)
 
         for fk in self.foreign_keys:
-            self.logger.debug('foreign_key %s %s %s', fk.table.name, fk.referenced_table.name, [i.name for i in fk.referenced_columns])
+            self.logger.debug('foreign_key %s %s', fk.table.name, [i.name for i in fk.columns])
             self._key_in_columns(columns, fk.columns, rename)
 
         for fk in self.referenced_by:
-            print('referenced_columns', columns, fk.table.name, fk.referenced_table.name, [i.name for i in fk.referenced_columns])
-            self._key_in_columns(columns, fk.referenced_columns, rename)
+            self.logger.debug('referenced_columns %s %s %s %s',
+                        columns, fk.table.name, fk.referenced_table.name, [i.name for i in fk.referenced_columns])
+            if self._key_in_columns(columns, fk.referenced_columns, rename):
+                raise DerivaCatalogError(self, msg='Key referenced by foreign key {}'.format(columns))
 
     def _update_key_name(self, name, column_map, dest_table):
         # Helper function that creates a new constraint name by replacing table and column names.
@@ -2146,34 +2157,41 @@ class DerivaTable(DerivaCore):
 
     def delete_columns(self, columns):
         """
-        Drop a column from a table, cleaning up visible columns and keys.
+        Drop a set of columns from a table, cleaning up visible columns and keys.
         :param columns:
         :return:
         """
+
+        if isinstance(columns, DerivaColumn):
+            columns = [columns.name]
+
+        self.logger.debug('%s', columns)
+        self._check_composite_keys(columns)
+
+        # Check to see if this column is being used by a foreign key
+
+        # Remove keys...
+        try:
+            self.key(columns).delete()
+        except DerivaKeyError:
+            pass
+
+        try:
+            self.foreign_key(columns).delete()
+        except DerivaForeignKeyError:
+            pass
+
+        self._delete_columns_from_annotations(columns)
+
         with DerivaModel(self.catalog) as m:
             table = m.table_model(self)
-
-            self._check_composite_keys(columns, self)
-            columns = set(columns)
-
-            # Remove keys...
-            for i in table.keys:
-                if self._key_in_columns(columns, i.unique_columns, self):
-                    i.delete(self.catalog.ermrest_catalog, table)
-
-            for fk in table.foreign_keys:
-                fk_columns = [i['column_name'] for i in fk.foreign_key_columns]
-                if self._key_in_columns(columns, fk_columns, self):  # We are renaming one of the foreign key columns
-                    self.delete_fkeys(fk)
-
             for column in columns:
-                self._delete_columns_from_annotations([column])
                 table.column_definitions[column].delete(self.catalog.ermrest_catalog, table)
         return
 
     def copy_columns(self, column_map, dest_table=None):
         """
-        Copy a set of columns, updating visible columns list and keys to mirror source column. The columns to copy
+        Copy a set of columns, updating visible columns list and keys to mirror source columns. The columns to copy
         are specified by a column map.  Column map can be a dictionary with entries SrcCol: DerviaColumnSpec or
         SrcCol:TargetCol.
 
@@ -2195,7 +2213,7 @@ class DerivaTable(DerivaCore):
         if len(overlap) != 0:
             raise ValueError('Column {} already exists.'.format(overlap))
 
-        self._check_composite_keys(column_names, dest_table)
+        self._check_composite_keys(column_names, rename=(dest_table == self))
 
         # Update visible column spec, putting copied column right next to the source column.
         positions = {col: [column_map[col].name] for col in column_map.get_columns()} if dest_table is self else {}

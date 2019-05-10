@@ -22,15 +22,18 @@ def clean_schema(catalog, schema_name):
 
 
 def generate_test_tables(catalog, schema_name):
+    logging.disable(logging.CRITICAL)
     table1 = catalog[schema_name].create_table(
         'Table1',
         [DerivaColumn.define('ID1_Table1', 'int4'),
          DerivaColumn.define('ID2_Table1', 'int4'),
          DerivaColumn.define('ID3_Table1', 'int4'),
+         DerivaColumn.define('ID4_Table1', 'int4'),
          DerivaColumn.define('Col1_Table1', 'text'),
          DerivaColumn.define('Col2_Table1', 'text'),
          DerivaColumn.define('Col3_Table1', 'text')],
         key_defs=[DerivaKey.define(['ID1_Table1']),
+                  DerivaKey.define(['ID4_Table1']),
                   DerivaKey.define(['ID2_Table1', 'ID3_Table1'])]
     )
 
@@ -43,12 +46,12 @@ def generate_test_tables(catalog, schema_name):
          DerivaColumn.define('Col2_Table2', 'text'),
          DerivaColumn.define('Col3_Table2', 'text')],
         key_defs=[DerivaKey.define(['ID1_Table2']),
-                  DerivaKey.define(['ID1_Table2', 'ID2_Table2'])],
+                  DerivaKey.define(['ID2_Table2', 'ID3_Table2'])],
         fkey_defs = [DerivaForeignKey.define(['ID1_Table2'], table1, ['ID1_Table1']),
                      DerivaForeignKey.define(['ID2_Table2', 'ID3_Table2'], table1,
                                              ['ID2_Table1', 'ID3_Table1'])]
     )
-
+    logging.disable(logging.NOTSET)
 
 def generate_test_csv(columncnt):
     """
