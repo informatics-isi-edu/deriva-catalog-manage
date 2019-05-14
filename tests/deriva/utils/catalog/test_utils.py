@@ -47,9 +47,9 @@ def generate_test_tables(catalog, schema_name):
          DerivaColumn.define('Col3_Table2', 'text')],
         key_defs=[DerivaKey.define(['ID1_Table2']),
                   DerivaKey.define(['ID2_Table2', 'ID3_Table2'])],
-        fkey_defs = [DerivaForeignKey.define(['ID1_Table2'], table1, ['ID1_Table1']),
-                     DerivaForeignKey.define(['ID2_Table2', 'ID3_Table2'], table1,
-                                             ['ID2_Table1', 'ID3_Table1'])]
+        fkey_defs=[DerivaForeignKey.define(['ID1_Table2'], table1, ['ID1_Table1']),
+                   DerivaForeignKey.define(['ID2_Table2', 'ID3_Table2'], table1,
+                                           ['ID2_Table1', 'ID3_Table1'])]
     )
     logging.disable(logging.NOTSET)
 
