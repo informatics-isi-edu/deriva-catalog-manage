@@ -619,11 +619,16 @@ class TestDerivaTable(TestCase):
         generate_test_tables(catalog, schema_name)
         table1 = catalog['TestSchema']['Table1']
         table2 = catalog['TestSchema']['Table2']
+        print('visible keys table1', table1.visible_foreign_keys['*'])
+        print('visible keys table2', table2.visible_foreign_keys['*'])
 
         #column_defs = [DerivaColumn.define(table, 'Status', 'int4', nullok=False)]
         table2_copy = table2.move_table('TestSchema', 'Table2_Copy')
         print(table1)
+        print('visible keys', table1.visible_foreign_keys['*'])
         print(table2_copy)
+        print('visible keys', table2_copy.visible_foreign_keys['*'])
+
         table1_copy = table1.move_table('TestSchema', 'Table1_Copy')
         print(table1_copy)
         print(table2_copy)
