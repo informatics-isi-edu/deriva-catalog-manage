@@ -54,6 +54,7 @@ setup(
         'goodtables',
         'graphviz',
         'tabulator',
+        'tabulate',
         'yapf'
     ],
     install_requires=[
@@ -62,7 +63,8 @@ setup(
         'goodtables',
         'graphviz',
         'attrdict',
-        'deriva>=0.8.2'
+        'tabulate',
+        'deriva>=0.8.3'
     ],
     license='Apache 2.0',
     classifiers=[
