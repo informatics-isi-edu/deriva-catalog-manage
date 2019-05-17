@@ -423,15 +423,15 @@ class TestDerivaTable(TestCase):
         table2.create_foreign_key(['Foo1'], table1, ['Foo1a'])
         table2.create_foreign_key(['Foo1', 'Foo2'], table1, ['Foo1a', 'Foo2a'])
 
-        self.assertEqual(table2.foreign_key(['Foo1']).name, 'TestTable2_Foo1_fkey')
+        self.assertEqual(table2.foreign_key['Foo1'].name, 'TestTable2_Foo1_fkey')
         self.assertEqual(table2.foreign_keys['Foo1'].name, 'TestTable2_Foo1_fkey')
         self.assertEqual(table2.foreign_keys['TestTable2_Foo1_fkey'].name, 'TestTable2_Foo1_fkey')
 
         self.assertTrue(table1.referenced_by['TestTable2_Foo1_fkey'])
-        self.assertTrue(table1.referenced_by['Foo1a'])
-        self.assertEqual(table1.referenced_by[['Foo1a']].name, 'TestTable2_Foo1_fkey')
+        self.assertTrue(table1.key_referenced(['Foo1a']))
+        self.assertEqual(table1.key_referenced(['Foo1a'])[0].name, 'TestTable2_Foo1_fkey')
         with self.assertRaises(DerivaCatalogError):
-            table1.referenced_by['Foo1']
+            table1.key_referenced(['Foo1'])
 
         self.assertIn({'source': [{'outbound': ('TestSchema', 'TestTable2_Foo1_fkey')}, 'RID']},
                       table2.visible_columns['*'])
@@ -446,7 +446,7 @@ class TestDerivaTable(TestCase):
             table2.columns['Foo1'].delete()
 
         with self.assertRaises(DerivaCatalogError):
-            self.assertEqual(table2.foreign_key(['Foo1']).name, 'TestTable2_Foo1_fkey')
+            self.assertEqual(table2.foreign_key['Foo1'].name, 'TestTable2_Foo1_fkey')
 
         # Column entry in visible_columns should have changed back to simple column reference.
         self.assertIn({'source': 'Foo1'}, table2.visible_columns['*'])
@@ -602,6 +602,20 @@ class TestDerivaTable(TestCase):
         self.assertEqual(table2_copy.key['ID1_Table2'].name, 'Table2_Copy_ID1_Table2_key')
         self.assertEqual(table2_copy.foreign_key['Table2_Copy_ID1_Table2_fkey'].name,
                          'Table2_Copy_ID1_Table2_fkey')
+
+        print('table1 visible_keys', table1.visible_foreign_keys['*'])
+        self.assertIn({'source': [{'inbound': ('TestSchema', 'Table2_Copy_ID1_Table2_Copy_fkey')}, 'RID']},
+                         table1.visible_foreign_keys['*'])
+        self.assertIn({'source': [{'inbound': ('TestSchema', 'Table2_Copy_ID2_Table2_Copy_ID3_Table2_Copy_fkey')}, 'RID']},
+                         table1.visible_foreign_keys['*'])
+
+        print('table1_copy visible_keys', table1_copy.visible_foreign_keys['*'])
+        self.assertIn({'source': [{'inbound': ('TestSchema', 'Table2_Copy_ID1_Table2_fkey')}, 'RID']},
+                      table1_copy.visible_foreign_keys['*'])
+        self.assertIn(
+            {'source': [{'inbound': ('TestSchema', 'Table2_Copy_ID2_Table2_ID3_Table2_fkey')}, 'RID']},
+            table1.visible_foreign_keys['*'])
+
 
     def test_copy_table_rename(self):
         generate_test_tables(catalog, schema_name)

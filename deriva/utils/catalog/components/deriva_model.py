@@ -77,7 +77,7 @@ logger_config = {
 
         },
         'deriva_model.DerivaVisibleSources': {
-         #   'level': 'DEBUG'
+            'level': 'DEBUG'
         },
         'deriva_model.DerivaSourceSpec': {
          #   'level': 'DEBUG'
@@ -1903,6 +1903,17 @@ class DerivaTable(DerivaCore):
             return ElementList(lambda x: self._referenced(x, m.table_model(self).referenced_by),
                                m.table_model(self).referenced_by)
 
+    def key_referenced(self, columns):
+        """
+        Given a set of columns that are a key, return the list of foreign keys that reference those columns.
+        :param columns:
+        :return:
+        """
+        if not self.key[columns]:
+            raise DerivaCatalogError(self,msg='Argument to key_referenced is not a key')
+        columns = set(columns)
+        return [fk for fk in self.referenced_by if {i.name for i in fk.referenced_columns} == columns]
+
     def _key(self, key_name):
         return DerivaKey(self.catalog[self.schema_name][self.name], key_name)
 
@@ -1914,20 +1925,20 @@ class DerivaTable(DerivaCore):
         """
         Return the list of DerivaForeignKeys associated with fk_id.  The Referenced_by list is different in that it is
         keys ih other tables which that the current table as the target.  We will name the FK we are interested
-        in by providing eather 1) the name of that FK, 2) the columns in the current table that are being referenced
-        or 3) a ERMrest Foreign Key.  In order to reassociate the key with the source table, we need to look into
+        in by providing eather 1) the name of that FK, 2)
+        or 2) a ERMrest Foreign Key.  In order to reassociate the key with the source table, we need to look into
         the list of referenced_by keys and search for the schema so we get the table that the key is in.
         :param fk:
         :return: A list of foreign keys that reference the column, or the single foreign key whose name matches.
         """
-        self.logger.debug('fkey_id: %s referenced_by: %s', fkey_id, referenced_by)
+        self.logger.debug('fkey_id: %s referenced_by: %s', fkey_id, [fk.names for fk in referenced_by])
         fkey = None
         if isinstance(fkey_id, em.ForeignKey):
             fkey = fkey_id
         else:
             # We have either a constraint name or a column name.
             try:
-                # See if we already have akey name
+                # See if we already have a key name
                 fkey = referenced_by[tuple(fkey_id)]
             except (KeyError, TypeError):
                 for schema in self.catalog:
@@ -1946,7 +1957,7 @@ class DerivaTable(DerivaCore):
         return DerivaForeignKey(self.table.catalog[src_schema][src_table], fkey)
 
     @property
-    def key(self, key_name):
+    def key(self):
         return self.keys
 
     def datapath(self):
@@ -1980,7 +1991,7 @@ class DerivaTable(DerivaCore):
         return self.datapath().entities(*attributes, **renamed_attributes)
 
     def create_foreign_key(self,
-                           columns, referenced_table, child_columns,
+                           columns, referenced_table, referenced_columns,
                            name=None,
                            comment=None,
                            on_update='NO ACTION',
@@ -1989,11 +2000,26 @@ class DerivaTable(DerivaCore):
                            acl_bindings={},
                            annotations={},
                            position={}):
-        self.logger.debug('columns: %s', columns)
+        """
+
+        :param columns: Column names in current table that are used for the foreign key
+        :param referenced_table:  Name of table that is being referenced by this foreign key
+        :param referenced_columns:
+        :param name:
+        :param comment:
+        :param on_update:
+        :param on_delete:
+        :param acls:
+        :param acl_bindings:
+        :param annotations:
+        :param position:
+        :return:
+        """
+        self.logger.debug('table: %s columns: %s %s %s', self.name, columns, referenced_table.name, referenced_columns)
         try:
             fkey = DerivaForeignKey(self, columns,
                                     referenced_table,
-                                    child_columns,
+                                    referenced_columns,
                                     comment=comment,
                                     acls=acls,
                                     acl_bindings=acl_bindings,
@@ -2344,12 +2370,15 @@ class DerivaTable(DerivaCore):
         :return:
         """
 
+        if len(self.referenced_by) != 0:
+            DerivaCatalogError(self, 'Attept to delete table with incoming foreign keys')
+
+        for fk in self.foreign_keys:
+            fk.referenced_table.visible_foreign_keys.delete_visible_source(fk.name)
+
         with DerivaModel(self.catalog) as m:
             model = m.catalog_model()
             table = m.table_model(self)
-
-            if table.referenced_by:
-                DerivaCatalogError(self, 'Attept to delete catalog with incoming foreign keys')
             # Now we can delete the table.
             table.delete(self.catalog.ermrest_catalog, schema=model.schemas[self.schema_name])
             self.deleted = True
