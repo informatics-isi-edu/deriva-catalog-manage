@@ -64,6 +64,7 @@ setup(
         'graphviz',
         'attrdict',
         'tabulate',
+        'jsonschema==2.6.0',
         'deriva>=0.8.3'
     ],
     license='Apache 2.0',
