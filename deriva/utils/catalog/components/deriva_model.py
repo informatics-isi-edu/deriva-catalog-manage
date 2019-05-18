@@ -5,6 +5,7 @@ from collections import namedtuple, OrderedDict
 import copy
 from enum import Enum
 from urllib.parse import urlparse
+from requests.exceptions import HTTPError
 
 # test
 import deriva.core.ermrest_model as em
@@ -42,6 +43,10 @@ logger_config = {
         'model_filter': {
             '()': DerivaMethodFilter,
             'include': ['key_exists']
+        },
+        'foreign_key_filter': {
+            '()': DerivaMethodFilter,
+            'include': ['delete']
         }
     },
     'formatters': {
@@ -65,34 +70,35 @@ logger_config = {
             'propagate': False
         },
         'deriva_model.DerivaModel': {
-          #  'level': 'DEBUG',
-          #  'filters': ['model_filter']
+            #  'level': 'DEBUG',
+            #  'filters': ['model_filter']
         },
         'deriva_model.DerivaCatalog': {
         },
         'deriva_model.DerivaColumnMap': {
-            'level': 'DEBUG'
+            #  'level': 'DEBUG'
         },
         'deriva_model.DerivaSchema': {
 
         },
         'deriva_model.DerivaVisibleSources': {
-            'level': 'DEBUG'
+            #   'level': 'DEBUG'
         },
         'deriva_model.DerivaSourceSpec': {
-         #   'level': 'DEBUG'
+            #   'level': 'DEBUG'
         },
         'deriva_model.DerivaTable': {
-            'level': 'DEBUG'
+            #   'level': 'DEBUG'
         },
         'deriva_model.DerivaColumn': {
-         #   'level': 'DEBUG'
+            #   'level': 'DEBUG'
         },
         'deriva_model.DerivaKey': {
-        #    'level': 'DEBUG'
+            #    'level': 'DEBUG'
         },
         'deriva_model.DerivaForeignKey': {
-        #    'level': 'DEBUG'
+            #   'level': 'DEBUG',
+            #   'filters': ['foreign_key_filter']
         }
     },
 }
@@ -839,6 +845,9 @@ class DerivaVisibleSources(DerivaLogging):
                     continue
 
                 # Get list of column names that are in the spec, mapping back simple FK references.
+                self.logger.debug('source_specs %s %s', self.table.name, [i.spec for i in source_list])
+                self.logger.debug('context %s %s', context, [i for i in context_list])
+                self.logger.debug('referenced_by %s', [i.name for i in self.table.referenced_by])
                 source_specs = [DerivaSourceSpec(self.table, i) for i in source_list]
                 new_context = [DerivaSourceSpec(self.table, i).spec for i in context_list]
                 self.logger.debug('getting source names %s %s', source_specs, new_context)
@@ -1046,10 +1055,11 @@ class DerivaSourceSpec(DerivaLogging):
             path_table = self.table
             for c in source_entry[0:-1]:
                 if 'inbound' in c and len(c['inbound']) == 2:
-                    self.logger.debug('validating %s: %s', path_table.name, c)
+                    self.logger.debug('validating inbound table: %s: context: %s refererenced_by: %s',
+                                      path_table.name, c, [i.name for i in path_table.referenced_by])
                     path_table = path_table.referenced_by[c['inbound']].table
                 elif 'outbound' in c and len(c['outbound']) == 2:
-                    self.logger.debug('validating %s: %s', path_table.name, c)
+                    self.logger.debug('validating outbound %s: %s', path_table.name, c)
                     path_table = path_table.foreign_keys[c['outbound']].referenced_table
                 else:
                     raise DerivaSourceError(self, 'Invalid source entry {}'.format(c))
@@ -1064,7 +1074,7 @@ class DerivaSourceSpec(DerivaLogging):
         :param spec:
         :return:
         """
-        self.logger.debug('normalize_source_spec %s %s', self.table.name, spec)
+        self.logger.debug('%s %s', self.table.name, spec)
         if type(spec) is str:
             if spec in self.table.columns:
                 spec = {'source': spec}
@@ -1220,7 +1230,7 @@ class DerivaColumn(DerivaCore):
         super().__init__(table.catalog if table else None)
 
         self.logger.debug('table: %s name: %s type: %s define: %s', table.name if table else "None",
-                          name if isinstance(name, str) else name.name, type, define)
+                          name if isinstance(name, (str,int)) else name.name, type, define)
 
         if isinstance(name, em.Column):  # We are providing a em.Column as the name argument.
             name = name.name
@@ -1511,8 +1521,11 @@ class DerivaKey(DerivaCore):
             self.key = m.table_model(self.table).create_key(self.catalog.ermrest_catalog, self.definition())
 
     def delete(self):
-        with DerivaModel(self.table.catalog) as m:
-            m.key_model(self).delete(self.catalog.ermrest_catalog, m.table_model(self.table))
+        try:
+            with DerivaModel(self.table.catalog) as m:
+                m.key_model(self).delete(self.catalog.ermrest_catalog, m.table_model(self.table))
+        except HTTPError as e:
+            raise DerivaKeyError(self, msg=str(e))
         self.table = None
         self.key = None
 
@@ -1763,6 +1776,7 @@ class DerivaForeignKey(DerivaCore):
         with DerivaModel(self.table.catalog) as m:
             self.logger.debug('%s', self.definition())
             self.fkey = m.table_model(self.table).create_fkey(self.catalog.ermrest_catalog, self.definition())
+            m.table_model(self.referenced_table).referenced_by.append(self.fkey)
 
     def delete(self):
         referenced_table = self.referenced_table
@@ -2003,7 +2017,7 @@ class DerivaTable(DerivaCore):
         """
 
         :param columns: Column names in current table that are used for the foreign key
-        :param referenced_table:  Name of table that is being referenced by this foreign key
+        :param referenced_table:  Dervia table that is being referenced by this foreign key
         :param referenced_columns:
         :param name:
         :param comment:
@@ -2015,7 +2029,9 @@ class DerivaTable(DerivaCore):
         :param position:
         :return:
         """
-        self.logger.debug('table: %s columns: %s %s %s', self.name, columns, referenced_table.name, referenced_columns)
+        self.logger.debug('table: %s columns: %s %s referenced_columns: %s referenced_by: %s', self.name, columns,
+                          referenced_table.name, referenced_columns,
+                          [i.name for i in referenced_table.referenced_by])
         try:
             fkey = DerivaForeignKey(self, columns,
                                     referenced_table,
@@ -2033,12 +2049,11 @@ class DerivaTable(DerivaCore):
         fkey.create()
 
         with DerivaModel(self.catalog) as m:
-            # Add foreign key to appropriate referenced_by list
-            m.table_model(fkey.referenced_table).referenced_by.append((m.foreign_key_model(fkey)))
             _, _, inbound_sources = referenced_table.sources(filter=[fkey.name])
             # Pick out the source for this key:
 
-            self.logger.debug('inbound sources %s', inbound_sources)
+            self.logger.debug('inbound sources %s', [s.spec for s in inbound_sources])
+            self.logger.debug('inbound sources %s', [c.name for c in referenced_table.referenced_by])
             referenced_table.visible_foreign_keys.insert_sources(inbound_sources, position)
 
             if len(columns) == 1:
@@ -2235,7 +2250,10 @@ class DerivaTable(DerivaCore):
         with DerivaModel(self.catalog) as m:
             table = m.table_model(self)
             for column in columns:
-                table.column_definitions[column].delete(self.catalog.ermrest_catalog, table)
+                try:
+                    table.column_definitions[column].delete(self.catalog.ermrest_catalog, table)
+                except HTTPError as e:
+                    raise DerivaCatalogError(self, msg=str(e))
         return
 
     def copy_columns(self, column_map, dest_table=None):
@@ -2393,19 +2411,22 @@ class DerivaTable(DerivaCore):
         :param column_map:
         :return:
         """
-        self.logger.debug('%s %s', self.name, [i.name for i in self.referenced_by])
+        self.logger.debug('%s %s %s', self.name, dest_table.name, [i.name for i in self.referenced_by])
         for fkey in list(self.referenced_by):
             fk_columns = [i.name for i in fkey.columns]
             referenced_columns = [i.name for i in fkey.referenced_columns]
             column_name_map = column_map.get_names()
             child_table = fkey.table
-            self.logger.debug('relinking %s %s %s', child_table.name, fk_columns, referenced_columns)
+            self.logger.debug('relinking table: %s fkey: %s columns: %s %s', child_table.name, fkey.name, fk_columns, referenced_columns)
             if self._key_in_columns(column_name_map.keys(), fkey.referenced_columns, rename=(self == dest_table)):
                 comment = fkey.comment
                 acls = fkey.acls
                 acl_bindings = fkey.acl_bindings
                 annotations = fkey.annotations
+
+                self.logger.debug('before delete table: %s fkey: %s referenced_by: %s', child_table.name, fkey.name, [i.name for i in self.referenced_by])
                 fkey.delete()
+                self.logger.debug('after delete referenced_by: %s', [i.name for i in self.referenced_by])
                 child_table.create_foreign_key(
                     fk_columns,
                     dest_table,
@@ -2455,6 +2476,11 @@ class DerivaTable(DerivaCore):
 
         # new_columns = [c['name'] for c in column_defs]
 
+
+        # TODO May want to preserver pseudo columns that start with outbound fk.
+        annotations = self._rename_columns_in_annotations(column_map)
+        annotations.pop(chaise_tags.visible_foreign_keys, None)
+
         new_table = self.catalog[self.schema_name].create_table(
             table_name,
             # Use column_map to change the name of columns in the new table.
@@ -2464,7 +2490,7 @@ class DerivaTable(DerivaCore):
             comment=comment if comment else self.comment,
             acls={**self.acls, **acls},
             acl_bindings={**self.acl_bindings, **acl_bindings},
-            annotations=self._rename_columns_in_annotations(column_map)
+            annotations=annotations
         )
 
         # Create new table

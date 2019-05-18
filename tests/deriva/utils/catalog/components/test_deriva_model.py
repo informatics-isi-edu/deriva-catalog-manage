@@ -333,11 +333,11 @@ class TestDerivaTable(TestCase):
                                                   key_defs=[DerivaKey.define(['Foo1', 'Foo2'])])
         table.create_key(['Foo1'], comment='My Key')
 
-        self.assertEqual(table.key('Foo1').name, 'TestTable1_Foo1_key')
-        self.assertEqual([i.name for i in table.key('Foo1').columns], ['Foo1'])
-        self.assertEqual(table.key(['Foo1', 'Foo2']).name, 'TestTable1_Foo1_Foo2_key')
-        self.assertEqual({i.name for i in table.key(['Foo1', 'Foo2']).columns}, {'Foo1', 'Foo2'})
-        self.assertEqual(table.key('TestTable1_Foo1_key').name, 'TestTable1_Foo1_key')
+        self.assertEqual(table.key['Foo1'].name, 'TestTable1_Foo1_key')
+        self.assertEqual([i.name for i in table.key['Foo1'].columns], ['Foo1'])
+        self.assertEqual(table.key['Foo1', 'Foo2'].name, 'TestTable1_Foo1_Foo2_key')
+        self.assertEqual({i.name for i in table.key['Foo1', 'Foo2'].columns}, {'Foo1', 'Foo2'})
+        self.assertEqual(table.key['TestTable1_Foo1_key'].name, 'TestTable1_Foo1_key')
         self.assertEqual(table.keys['TestTable1_Foo1_key'].name, 'TestTable1_Foo1_key')
         self.assertIn('TestTable1_Foo1_key', table.keys)
 
@@ -377,7 +377,7 @@ class TestDerivaTable(TestCase):
                                                    )
         logger.info('test table created')
 
-        self.assertEqual(table2.foreign_key(['Foo1']).name, 'TestTable2_Foo1_fkey')
+        self.assertEqual(table2.foreign_key['Foo1'].name, 'TestTable2_Foo1_fkey')
         self.assertEqual(table2.foreign_keys['Foo1'].name, 'TestTable2_Foo1_fkey')
         self.assertEqual(table2.foreign_keys['TestTable2_Foo1_fkey'].name, 'TestTable2_Foo1_fkey')
 
@@ -387,10 +387,6 @@ class TestDerivaTable(TestCase):
         self.assertEqual(table2.foreign_keys['TestTable2_Foo1_Foo2_fkey'].referenced_columns['Foo1a'].name, "Foo1a")
 
         self.assertTrue(table1.referenced_by['TestTable2_Foo1_fkey'])
-        self.assertTrue(table1.referenced_by['Foo1a'])
-        self.assertEqual(table1.referenced_by[['Foo1a']].name, 'TestTable2_Foo1_fkey')
-        with self.assertRaises(DerivaCatalogError):
-            table1.referenced_by['Foo1'][0]
 
         with self.assertRaises(DerivaCatalogError):
             table2.foreign_keys['Bar'][0]
@@ -467,10 +463,10 @@ class TestDerivaTable(TestCase):
         self.assertEqual(table2.keys['ID2_Table2','ID3_Table2'].name, 'Table2_ID2_Table2_ID3_Table2_key')
         self.assertEqual(table2.foreign_keys['ID2_Table2','ID3_Table2'].name, 'Table2_ID2_Table2_ID3_Table2_fkey')
 
-        fk = table1.referenced_by['ID1_Table1']
+        fk = table1.referenced_by['Table2_ID1_Table2_fkey']
         self.assertEqual(fk.name, 'Table2_ID1_Table2_fkey')
 
-        fk = table1.referenced_by['ID2_Table1','ID3_Table1']
+        fk = table1.referenced_by['Table2_ID2_Table2_ID3_Table2_fkey']
         self.assertEqual(fk.name, 'Table2_ID2_Table2_ID3_Table2_fkey')
 
         fk = table1.referenced_by['Table2_ID1_Table2_fkey']
@@ -498,8 +494,8 @@ class TestDerivaTable(TestCase):
         )
 
         table1.copy_columns({'ID4_Table1': 'ID4a_Table1'})
-        self.assertEqual(table1.key(['ID4a_Table1']).name, 'Table1_ID4a_Table1_key')
-        self.assertEqual(table1.key(['ID4_Table1']).name, 'Table1_ID4_Table1_key')
+        self.assertEqual(table1.key['ID4a_Table1'].name, 'Table1_ID4a_Table1_key')
+        self.assertEqual(table1.key['ID4_Table1'].name, 'Table1_ID4_Table1_key')
         self.assertEqual(
             [i['source'] for i in table1.visible_columns['*']],
             ['RID', 'RCT', 'RMT', 'RCB', 'RCB1', 'RMB',
@@ -515,20 +511,20 @@ class TestDerivaTable(TestCase):
         table1.copy_columns({'ID1_Table1': 'ID1a_Table1'})
         # Copy column that is a fkey table2:ID1
         table2.copy_columns({'ID1_Table2': 'ID1a_Table2'})
-        self.assertEqual(table2.key(['ID1a_Table2']).name, 'Table2_ID1a_Table2_key')
-        self.assertEqual(table2.foreign_key(['ID1a_Table2']).name, 'Table2_ID1a_Table2_fkey')
+        self.assertEqual(table2.key['ID1a_Table2'].name, 'Table2_ID1a_Table2_key')
+        self.assertEqual(table2.foreign_key['ID1a_Table2'].name, 'Table2_ID1a_Table2_fkey')
 
         # Copy a single column that is in a compound key.  This is ok because we are in the same table.
         table2.copy_columns({'ID2_Table2': 'ID2a_Table2'})
-        self.assertEqual(table2.key(['ID2a_Table2', 'ID3_Table2']).name, 'Table2_ID2a_Table2_ID3_Table2_key')
-        self.assertEqual(table2.foreign_key(['ID2a_Table2','ID3_Table2']).name, 'Table2_ID2a_Table2_ID3_Table2_fkey')
+        self.assertEqual(table2.key['ID2a_Table2', 'ID3_Table2'].name, 'Table2_ID2a_Table2_ID3_Table2_key')
+        self.assertEqual(table2.foreign_key['ID2a_Table2','ID3_Table2'].name, 'Table2_ID2a_Table2_ID3_Table2_fkey')
 
         # Copy columns that are compound key table1: ID2,ID3
 
         table2.copy_columns({'ID2_Table2': 'ID2b_Table2',  'ID3_Table2':'ID3b_Table2'})
-        self.assertEqual(table2.key(['ID2b_Table2', 'ID3b_Table2']).name, 'Table2_ID2b_Table2_ID3b_Table2_key')
-        self.assertEqual(table2.foreign_key(['ID2b_Table2','ID3b_Table2']).name, 'Table2_ID2b_Table2_ID3b_Table2_fkey')
-        self.assertEqual(table2.foreign_key(['ID3b_Table2','ID2b_Table2']).name, 'Table2_ID2b_Table2_ID3b_Table2_fkey')
+        self.assertEqual(table2.key['ID2b_Table2', 'ID3b_Table2'].name, 'Table2_ID2b_Table2_ID3b_Table2_key')
+        self.assertEqual(table2.foreign_key['ID2b_Table2','ID3b_Table2'].name, 'Table2_ID2b_Table2_ID3b_Table2_fkey')
+        self.assertEqual(table2.foreign_key['ID3b_Table2','ID2b_Table2'].name, 'Table2_ID2b_Table2_ID3b_Table2_fkey')
 
     def test_copy_columns_between_tables(self):
         generate_test_tables(catalog, schema_name)
@@ -544,8 +540,8 @@ class TestDerivaTable(TestCase):
         # Check key and fkey constraints....
         table3 = catalog[schema_name].create_table('TestTable3',[])
         table2.copy_columns({'ID1_Table2':'ID1_Table3'}, table3)
-        self.assertEqual(table3.key(['ID1_Table3']).name, 'Table3_ID1_Table3_key')
-        self.assertEqual(table3.foreign_key(['ID1_Table3']).name, 'Table3_ID1_Table3_fkey')
+        self.assertEqual(table3.key['ID1_Table3'].name, 'TestTable3_ID1_Table3_key')
+        self.assertEqual(table3.foreign_key['ID1_Table3'].name, 'TestTable3_ID1_Table3_fkey')
 
     def test_rename_columns(self):
         generate_test_tables(catalog, schema_name)
@@ -577,7 +573,8 @@ class TestDerivaTable(TestCase):
         # Check column and visible columns.
 
         # Column that is pointed to by a FK.  This should fail
-        table1.rename_columns({'ID1_Table1': 'ID1a_Table1'})
+        with self.assertRaises(DerivaCatalogError):
+            table1.rename_columns({'ID1_Table1': 'ID1a_Table1'})
 
         # Column that is a FK.
         table2.rename_columns({'ID1_Table2': 'ID1a_Table2'})
@@ -585,7 +582,6 @@ class TestDerivaTable(TestCase):
 
         # One column of a compound FK.  This should rename the FK and incoming.
         table2.rename_columns({'ID2_Table2': 'ID2a_Table2'})
-
 
     def test_copy_table(self):
         generate_test_tables(catalog, schema_name)
@@ -604,14 +600,12 @@ class TestDerivaTable(TestCase):
                          'Table2_Copy_ID1_Table2_fkey')
 
         print('table1 visible_keys', table1.visible_foreign_keys['*'])
-        self.assertIn({'source': [{'inbound': ('TestSchema', 'Table2_Copy_ID1_Table2_Copy_fkey')}, 'RID']},
+        self.assertIn({'source': [{'inbound': ('TestSchema', 'Table2_Copy_ID1_Table2_fkey')}, 'RID']},
                          table1.visible_foreign_keys['*'])
-        self.assertIn({'source': [{'inbound': ('TestSchema', 'Table2_Copy_ID2_Table2_Copy_ID3_Table2_Copy_fkey')}, 'RID']},
+        self.assertIn({'source': [{'inbound': ('TestSchema', 'Table2_Copy_ID2_Table2_ID3_Table2_fkey')}, 'RID']},
                          table1.visible_foreign_keys['*'])
 
-        print('table1_copy visible_keys', table1_copy.visible_foreign_keys['*'])
-        self.assertIn({'source': [{'inbound': ('TestSchema', 'Table2_Copy_ID1_Table2_fkey')}, 'RID']},
-                      table1_copy.visible_foreign_keys['*'])
+        self.assertEqual([], table1_copy.visible_foreign_keys['*'])
         self.assertIn(
             {'source': [{'inbound': ('TestSchema', 'Table2_Copy_ID2_Table2_ID3_Table2_fkey')}, 'RID']},
             table1.visible_foreign_keys['*'])
@@ -633,20 +627,17 @@ class TestDerivaTable(TestCase):
         generate_test_tables(catalog, schema_name)
         table1 = catalog['TestSchema']['Table1']
         table2 = catalog['TestSchema']['Table2']
-        print('visible keys table1', table1.visible_foreign_keys['*'])
-        print('visible keys table2', table2.visible_foreign_keys['*'])
 
         #column_defs = [DerivaColumn.define(table, 'Status', 'int4', nullok=False)]
         table2_copy = table2.move_table('TestSchema', 'Table2_Copy')
         print(table1)
-        print('visible keys', table1.visible_foreign_keys['*'])
+        print('visible keys', pprint.pformat(table1.visible_foreign_keys))
         print(table2_copy)
-        print('visible keys', table2_copy.visible_foreign_keys['*'])
+        print('visible keys', pprint.pformat(table2_copy.visible_foreign_keys))
 
         table1_copy = table1.move_table('TestSchema', 'Table1_Copy')
         print(table1_copy)
         print(table2_copy)
-
 
     def test_link_tables(self):
         table1 = catalog[schema_name].create_table('TestTable1', [DerivaColumn.define('Foo1a', 'text')])
