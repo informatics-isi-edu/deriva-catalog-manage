@@ -578,12 +578,17 @@ class DerivaCSV(Table):
 
             # determine current position in (partial?) copy
             # Key can be compound, so we meed to create the column sorting descriptor.
+            filtered=target_table
             if self.row_number_as_key:
-                target_table.filter(target_table.Upload_Id == upload_id)
+                logger.debug('setting ID filter %s', upload_id)
+                filtered = target_table.filter(target_table.Upload_Id == upload_id)
 
             sort = [target_table.column_definitions[i].desc for i in catalog_schema.primary_key]
-            e = list(target_table.entities().fetch(limit=1, sort=sort))
+            logger.debug('Sort %s', sort)
+            e = list(filtered.entities().fetch(limit=1, sort=sort))
             logging.debug('number of entities to upload %s %s', len(e), e)
+            logging.debug('number of entities to upload %s %s', len(e), e)
+            logging.debug('target_uri %s', target_table.uri)
             if len(e) == 1:
                 # Part of this table has already been uploaded, so we want to find out how far we got and start from
                 # there

@@ -17,7 +17,7 @@ from .. test_utils import *
 
 
 logging.basicConfig(
-    level=logging.DEBUG,
+    level=logging.INFO,
  #   format='[%(lineno)d] %(funcName)20s() %(message)s'
 )
 
