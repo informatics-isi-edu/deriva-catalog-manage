@@ -13,7 +13,7 @@ from requests.exceptions import HTTPError, ConnectionError
 
 import deriva.core.ermrest_model as em
 from deriva.core.ermrest_config import tag as chaise_tags
-from deriva.core import ErmrestCatalog, get_credential, format_exception
+from deriva.core import format_exception
 from deriva.core.utils import eprint
 from deriva.core.base_cli import BaseCLI
 
@@ -31,10 +31,9 @@ from deriva.utils.catalog.manage.graph_catalog import DerivaCatalogToGraph
 IS_PY2 = (sys.version_info[0] == 2)
 IS_PY3 = (sys.version_info[0] == 3)
 
-if IS_PY3:
-    from urllib.parse import urlparse
-else:
-    from urlparse import urlparse
+
+from urllib.parse import urlparse
+
 
 logger = logging.getLogger(__name__)
 
@@ -69,7 +68,6 @@ class UsageException (DerivaDumpCatalogException):
 class DerivaCatalogToString:
     def __init__(self, catalog, provide_system_columns=True, groups=None):
         self._catalog = catalog
-        self._model = catalog.getCatalogModel()
         self._provide_system_columns = provide_system_columns
         # Get the currently known groups for this catalog.
         self._groups = groups
@@ -154,9 +152,9 @@ class DerivaCatalogToString:
         return s
 
     def schema_to_str(self, schema_name):
-        schema = self._model.schemas[schema_name]
-        host = urlparse(self._catalog.get_server_uri()).hostname
-        catalog_id = self._catalog.get_server_uri().split('/')[-1]
+        schema = self._catalog[schema_name]
+        host = self._catalog.host
+        catalog_id = self._catalog.catalog_id
 
         annotations = self.variable_to_str('annotations', schema.annotations)
         acls = self.variable_to_str('acls', schema.acls)
@@ -166,17 +164,17 @@ class DerivaCatalogToString:
         s = schema_file_template.format(host=host, catalog_id=catalog_id, schema_name=schema_name,
                                         annotations=annotations, acls=acls, comments=comments, groups=groups,
                                         table_names='table_names = [\n{}]\n'.format(
-                                            str.join('', ['{!r},\n'.format(i) for i in schema.tables])))
+                                            str.join('', ['{!r},\n'.format(i.name) for i in schema.tables])))
         s = FormatCode(s, style_config=yapf_style)[0]
         return s
 
     def catalog_to_str(self):
-        host = urlparse(self._catalog.get_server_uri()).hostname
-        catalog_id = self._catalog.get_server_uri().split('/')[-1]
+        host = self._catalog.host
+        catalog_id = self._catalog.catalog_id
 
-        tag_variables = self.tag_variables_to_str(self._model.annotations)
-        annotations = self.annotations_to_str(self._model.annotations)
-        acls = self.variable_to_str('acls', self._model.acls)
+        tag_variables = self.tag_variables_to_str(self._catalog.annotations)
+        annotations = self.annotations_to_str(self._catalog.annotations)
+        acls = self.variable_to_str('acls', self._catalog.acls)
         groups = self.variable_to_str('groups', self._referenced_groups, substitute=False)
 
         s = catalog_file_template.format(host=host, catalog_id=catalog_id, groups=groups,
@@ -200,7 +198,7 @@ class DerivaCatalogToString:
         column_acl_bindings = {}
         column_comment = {}
 
-        for i in table.column_definitions:
+        for i in table.columns:
             if not (i.annotations == '' or not i.comment):
                 column_annotations[i.name] = i.annotations
             if not (i.comment == '' or not i.comment):
@@ -222,11 +220,11 @@ class DerivaCatalogToString:
         for fkey in table.foreign_keys:
             s += """    em.ForeignKey.define({},
                 '{}', '{}', {},
-                constraint_names={},\n""".format([c['column_name'] for c in fkey.foreign_key_columns],
-                                                 fkey.referenced_columns[0]['schema_name'],
-                                                 fkey.referenced_columns[0]['table_name'],
-                                                 [c['column_name'] for c in fkey.referenced_columns],
-                                                 fkey.names)
+                constraint_names={},\n""".format([c.name for c in fkey.columns],
+                                                 fkey.referenced_table.schema_name,
+                                                 fkey.referenced_table.name,
+                                                 [c.name for c in fkey.referenced_columns],
+                                                 [fkey.full_name])
 
             for i in ['annotations', 'acls', 'acl_bindings', 'on_update', 'on_delete', 'comment']:
                 a = getattr(fkey, i)
@@ -243,7 +241,8 @@ class DerivaCatalogToString:
         s = 'key_defs = [\n'
         for key in table.keys:
             s += """    em.Key.define({},
-                       constraint_names={},\n""".format(key.unique_columns, key.names)
+                       constraint_names={},\n""".format([c.name for c in key.columns],
+                                                        [key.full_name] if key.name else [])
             for i in ['annotations', 'comment']:
                 a = getattr(key, i)
                 if not (a == {} or a is None or a == ''):
@@ -258,7 +257,7 @@ class DerivaCatalogToString:
         system_columns = ['RID', 'RCB', 'RMB', 'RCT', 'RMT']
 
         s = ['column_defs = [']
-        for col in table.column_definitions:
+        for col in table.columns:
             if col.name in system_columns and self._provide_system_columns:
                 continue
             s.append('''    em.Column.define('{}', em.builtin_types['{}'],'''.
@@ -289,11 +288,11 @@ class DerivaCatalogToString:
         return s
 
     def table_to_str(self, schema_name, table_name):
-        schema = self._model.schemas[schema_name]
-        table = schema.tables[table_name]
+        logger.debug('%s %s %s', schema_name, table_name, [i.name for i in self._catalog.schemas])
+        table = self._catalog[schema_name][table_name]
 
-        host = urlparse(self._catalog.get_server_uri()).hostname
-        catalog_id = self._catalog.get_server_uri().split('/')[-1]
+        host = self._catalog.host
+        catalog_id = self._catalog.catalog_id
 
         column_annotations = self.column_annotations_to_str(table)
         column_defs = self.column_defs_to_str(table)

@@ -7,6 +7,14 @@ import deriva.core.ermrest_model as em
 from deriva.core.deriva_server import DerivaServer
 
 
+class LoopbackModel(em.Model):
+    def __init__(self, arg):
+        super().__init__(arg)
+
+    def apply(self,_):
+        pass
+
+
 class LoopbackCatalog:
     class LoopbackResult:
         """
@@ -28,10 +36,14 @@ class LoopbackCatalog:
 
         self._model = model
         if self._model is None:
-            self._model = em.Model({})
+            self._model = LoopbackModel({})
 
     def get_server_uri(self):
         return 'http://{}/ermrest/{}'.format(self._server, self._catalog_id)
+
+    @property
+    def catalog_id(self):
+        return self._catalog_id
 
     def getCatalogModel(self):
         return self._model

@@ -1,14 +1,20 @@
 import unittest
 from unittest import TestCase
 import warnings
+from requests.exceptions import HTTPError
 import logging
 
 from deriva.core import get_credential, DerivaServer
 import deriva.core.ermrest_model as em
 from deriva.utils.catalog.components.deriva_model import *
+from .. test_utils import *
+
+logging.basicConfig(
+    level=logging.INFO,
+    format='[%(lineno)d] %(funcName)20s() %(message)s'
+)
 
 logger = logging.getLogger(__name__)
-logger.setLevel(logging.DEBUG)
 
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 warnings.filterwarnings('ignore', category=ResourceWarning)
@@ -17,29 +23,10 @@ server = 'dev.isrd.isi.edu'
 catalog_id = 1
 catalog = None
 schema_name = 'TestSchema'
-ermrest_catalog = None
-
-
-def clean_schema(schema_name):
-    with DerivaModel(catalog) as m:
-        model = m.catalog_model()
-        for t in model.schemas[schema_name].tables.values():
-            for k in t.foreign_keys:
-                k.delete(catalog.ermrest_catalog, t)
-        for t in [i for i in model.schemas[schema_name].tables.values()]:
-            t.delete(catalog.ermrest_catalog, model.schemas[schema_name])
-
 
 def setUpModule():
-    global catalog, catalog_id, ermrest_catalog
-
-    credentials = get_credential(server)
-    catalog = DerivaServer('https', server, credentials=credentials).create_ermrest_catalog()
-    catalog_id = catalog._catalog_id
-    logger.info('Catalog_id is {}'.format(catalog_id))
-
-    catalog = DerivaCatalog(server, catalog_id=catalog_id)
-    ermrest_catalog = catalog.ermrest_catalog
+    global catalog
+    catalog = create_catalog(server)
     with DerivaModel(catalog) as m:
         model = m.catalog_model()
         model.create_schema(catalog.ermrest_catalog, em.Schema.define(schema_name))
@@ -55,10 +42,11 @@ class TestVisibleSources(TestCase):
     @classmethod
     def setUpClass(cls):
         global catalog
-        clean_schema('TestSchema')
+        clean_schema(catalog, 'TestSchema')
 
     def setUp(self):
-        clean_schema(schema_name)
+        clean_schema(catalog, schema_name)
+        ermrest_catalog = catalog.ermrest_catalog
         with DerivaModel(catalog) as m:
             model = m.catalog_model()
             t1 = model.schemas[schema_name].create_table(catalog.ermrest_catalog, em.Table.define('TestTable1', []))
@@ -112,18 +100,18 @@ class TestVisibleSources(TestCase):
                                                   ))
 
             f2.create_fkey(ermrest_catalog,
-                             em.ForeignKey.define(['main_fkey'], 'TestSchema', 'Main', ['RID'],
-                                                  constraint_names=[('TestSchema', 'fk2_cons')]
-                                                  ))
+                           em.ForeignKey.define(['main_fkey'], 'TestSchema', 'Main', ['RID'],
+                                                constraint_names=[('TestSchema', 'fk2_cons')]
+                                                ))
 
             main_f3.create_fkey(ermrest_catalog,
-                             em.ForeignKey.define(['main_fkey'], 'TestSchema', 'Main', ['RID'],
-                                                  constraint_names=[('TestSchema', 'fk3_cons')]
-                                                  ))
+                                em.ForeignKey.define(['main_fkey'], 'TestSchema', 'Main', ['RID'],
+                                                     constraint_names=[('TestSchema', 'fk3_cons')]
+                                                     ))
             main_f3.create_fkey(ermrest_catalog,
-                             em.ForeignKey.define(['f3_fkey'], 'TestSchema', 'F3', ['RID'],
-                                                  constraint_names=[('TestSchema', 'main_f3_cons')]
-                                                  ))
+                                em.ForeignKey.define(['f3_fkey'], 'TestSchema', 'F3', ['RID'],
+                                                     constraint_names=[('TestSchema', 'main_f3_cons')]
+                                                     ))
         catalog.refresh()
 
     def test_source_spec(self):
@@ -133,7 +121,8 @@ class TestVisibleSources(TestCase):
         with self.assertRaises(DerivaSourceError):
             DerivaSourceSpec(main, 'Foobar')
         self.assertEqual(DerivaSourceSpec(main, {'source': 'text_col'}).spec, {'source': 'text_col'})
-        self.assertEqual(DerivaSourceSpec(main, {'source': 'RID', 'entity': False}).spec, {'source': 'RID', 'entity': False})
+        self.assertEqual(DerivaSourceSpec(main, {'source': 'RID', 'entity': False}).spec,
+                         {'source': 'RID', 'entity': False})
 
         # Key Columns
         self.assertEqual(DerivaSourceSpec(main, ['TestSchema', 'Main_RIDkey1']).spec, {'source': 'RID'})
@@ -142,7 +131,7 @@ class TestVisibleSources(TestCase):
 
         # ForeignKey Columns
         self.assertEqual(DerivaSourceSpec(main, ['TestSchema', 'fk1_cons']).spec,
-                         {"source": [{"outbound": ["TestSchema", "fk1_cons"]}, "RID"]})
+                         {"source": [{"outbound": ("TestSchema", "fk1_cons")}, "RID"]})
         self.assertEqual(DerivaSourceSpec(main, {"source": [{"outbound": ["TestSchema", "fk1_cons"]}, "RID"]}).spec,
                          {"source": [{"outbound": ["TestSchema", "fk1_cons"]}, "RID"]})
 
@@ -152,34 +141,33 @@ class TestVisibleSources(TestCase):
             DerivaSourceSpec(main, {"source": [{"outbound": ["TestSchema", "fk1_cons1"]}, "RID"]})
 
         # Inbound foreignkey columns
-        self.assertEqual(DerivaSourceSpec(main,["TestSchema", "fk2_cons"]).spec,
-                                          {"source": [{"inbound": ["TestSchema", "fk2_cons"]}, "RID"]})
+        self.assertEqual(DerivaSourceSpec(main, ["TestSchema", "fk2_cons"]).spec,
+                         {"source": [{"inbound": ("TestSchema", "fk2_cons")}, "RID"]})
         self.assertEqual(DerivaSourceSpec(main, ["TestSchema", "fk3_cons"]).spec,
-                                          {"source": [{"inbound": ["TestSchema", "fk3_cons"]}, "RID"]})
+                         {"source": [{"inbound": ("TestSchema", "fk3_cons")}, "RID"]})
         self.assertEqual(DerivaSourceSpec(main,
-                                          {"source": [{"inbound": ["TestSchema", "fk2_cons"]}, "RID"]}).spec,
-                                          {"source": [{"inbound": ["TestSchema", "fk2_cons"]}, "RID"]})
+                                          {"source": [{"inbound": ("TestSchema", "fk2_cons")}, "RID"]}).spec,
+                         {"source": [{"inbound": ("TestSchema", "fk2_cons")}, "RID"]})
         self.assertEqual(DerivaSourceSpec(main,
-                                          {"source": [{"inbound": ["TestSchema", "fk3_cons"]},
-                                                      {"outbound": ["TestSchema", "main_f3_cons"]}, "RID"]}).spec,
-                         {"source": [{"inbound": ["TestSchema", "fk3_cons"]},
-                                     {"outbound": ["TestSchema", "main_f3_cons"]}, "RID"]})
+                                          {"source": [{"inbound": ("TestSchema", "fk3_cons")},
+                                                      {"outbound": ("TestSchema", "main_f3_cons")}, "RID"]}).spec,
+                         {"source": [{"inbound": ("TestSchema", "fk3_cons")},
+                                     {"outbound": ("TestSchema", "main_f3_cons")}, "RID"]})
 
         self.assertEqual(
             DerivaSourceSpec(main, 'f1_fkey').make_outbound().spec,
-            {"source": [{"outbound": ["TestSchema", "fk1_cons"]}, "RID"]}
+            {"source": [{"outbound": ("TestSchema", "fk1_cons")}, "RID"]}
         )
         self.assertEqual(
             DerivaSourceSpec(main, {"source": [{"outbound": ["TestSchema", "fk1_cons"]}, "RID"]}).make_column().spec,
             {"source": 'f1_fkey'}
         )
 
-
-
     def test_normalize_positions(self):
         DerivaVisibleSources._normalize_positions({'all'})
 
     def test_insert_sources(self):
+        ermrest_catalog = catalog.ermrest_catalog
         t1 = ermrest_catalog.getCatalogModel().schemas['TestSchema'].tables['TestTable1']
         t1.annotations[chaise_tags.visible_columns] = {}
 
@@ -190,10 +178,47 @@ class TestVisibleSources(TestCase):
         self.assertIn({'source': 'Foo2'}, table.visible_columns['*'])
 
 
+class TestColumnMap(TestCase):
+
+    @classmethod
+    def setUpClass(cls):
+        global catalog
+        clean_schema(catalog, 'TestSchema')
+
+    def setUp(self):
+        clean_schema(catalog, schema_name)
+        ermrest_catalog = catalog.ermrest_catalog
+        with DerivaModel(catalog) as m:
+            model = m.catalog_model()
+            t1 = model.schemas[schema_name].create_table(catalog.ermrest_catalog, em.Table.define('TestTable1', []))
+            for i in ['ID', 'Field_1', 'Field_2', 'Field_3']:
+                t1.create_column(ermrest_catalog, em.Column.define(i, em.builtin_types['text']))
+        catalog.refresh()
+
+    def test_column_map(self):
+        # Normal Columns
+        main = catalog['TestSchema']['TestTable1']
+        cm = DerivaColumnMap(main,
+                             {'Field_1': 'Foobar',
+                              'RCB': 'RCB1',
+                              'ID': 'ID1',
+                              'Bozo': 'text'},
+                             main)
+        print(cm)
+
+        cm = DerivaColumnMap(main,
+                             {'Field_1': {'name': 'Foobar', 'default': 23},
+                              'RCB': 'RCB1',
+                              'ID': {'name': 'ID1', 'fill': 26},
+                              'Bozo': 'text'},
+                             main)
+        print(cm)
+
+
 class TestDerivaTable(TestCase):
 
     def setUp(self):
-        clean_schema(schema_name)
+        clean_schema(catalog, schema_name)
 
     def test_lookup_table(self):
         with DerivaModel(catalog) as m:
@@ -202,6 +227,41 @@ class TestDerivaTable(TestCase):
             table = catalog[schema_name].tables['TestTable']
             print(table, catalog[schema_name])
             self.assertEqual(table.name, 'TestTable')
+
+    def test_table_attributes(self):
+        generate_test_tables(catalog, schema_name)
+        table = catalog['TestSchema']['Table1']
+
+        table.comment ='Comment 1'
+        table.acls = {'owner': ['carl']}
+        table.acl_bindings =  {'set_owner': {"types": ["update"], "projection": ["RCB"], "projection_type": "acl"}}
+        table.display = {'tag:misd.isi.edu,2015:display': {'name': 'foo'}}
+        catalog.refresh()
+        table = catalog['TestSchema']['Table1']
+
+        self.assertEqual(table.comment, 'Comment 1')
+        self.assertEqual(table.acls, {'owner': ['carl']})
+        self.assertEqual(table.acl_bindings,
+                         {'set_owner':
+                              {"types": ["update"], "projection": ["RCB"], "projection_type": "acl", 'scope_acl': ['*']}}
+                         )
+        self.assertEqual(table.display, {'tag:misd.isi.edu,2015:display': {'name': 'foo'}})
+
+        table.comment = 'Comment 2'
+        table.acls.update({'owner': ['carl1']})
+        table.acl_bindings = {'set_owner': {"types": ["update"], "projection": ["RMB"], "projection_type": "acl"}}
+        table.display = {'tag:misd.isi.edu,2015:display': {'name': 'foo1'}}
+        catalog.refresh()
+        table = catalog['TestSchema']['Table1']
+
+        self.assertEqual(table.comment, 'Comment 2')
+        self.assertEqual(table.acls, {'owner': ['carl1']})
+        self.assertEqual(table.acl_bindings,
+                         {'set_owner':
+                              {"types": ["update"], "projection": ["RMB"], "projection_type": "acl",
+                               'scope_acl': ['*']}}
+                         )
+        self.assertEqual(table.display, {'tag:misd.isi.edu,2015:display': {'name': 'foo1'}})
 
     def test_create_table(self):
         table = catalog[schema_name].create_table('TestTable1', [], comment='My test table')
@@ -234,6 +294,11 @@ class TestDerivaTable(TestCase):
         with self.assertRaises(DerivaCatalogError):
             catalog['public']['foobar']
 
+        generate_test_tables(catalog, schema_name)
+
+        table = catalog[schema_name]['Table1']
+        self.assertEqual(table['Col1_Table1'].name, 'Col1_Table1')
+
     def test_column_add(self):
         table = catalog[schema_name].create_table('TestTable1', [])
         table.create_columns(DerivaColumn.define('Foo1', 'text'))
@@ -241,18 +306,59 @@ class TestDerivaTable(TestCase):
         self.assertIn({'source': 'Foo1'}, table.visible_columns['*'])
 
     def test_deriva_column_delete(self):
-        table = catalog[schema_name].create_table('TestTable', [DerivaColumn.define('Foo', 'text')])
+        generate_test_tables(catalog, schema_name)
+        table = catalog['TestSchema']['Table1']
+        print(table)
         table.visible_columns.insert_context('*')
-        self.assertEqual(table['RID'].name, 'RID')
-        print(DerivaSourceSpec(table, 'Foo').spec)
+        self.assertEqual(table['Col1_Table1'].name, 'Col1_Table1')
+        print(DerivaSourceSpec(table, 'Col1_Table1').spec)
         print(table.visible_columns)
-        table['Foo'].delete()
+        table['Col1_Table1'].delete()
         with self.assertRaises(DerivaCatalogError):
-            table['Foo']
-        self.assertNotIn({'source': 'Foo'}, table.visible_columns)
-        self.assertNotIn({'source': 'Foo'}, table.visible_columns['*'])
-        self.assertNotIn({'source': 'Foo'}, table.visible_columns['entry'])
-        print(table.visible_columns)
+            table['Col1_Table1']
+        self.assertNotIn({'source': 'Col1_Table1'}, table.visible_columns)
+        self.assertNotIn({'source': 'Col1_Table1'}, table.visible_columns['*'])
+        self.assertNotIn({'source': 'Col1_Table1'}, table.visible_columns['entry'])
+        table.delete_columns(['Col2_Table1', 'Col3_Table1'])
+        with self.assertRaises(DerivaCatalogError):
+            table['Col2_Table1']
+
+    def test_deriva_column_delete_key_column(self):
+        generate_test_tables(catalog, schema_name)
+        table1 = catalog['TestSchema']['Table1']
+        table2 = catalog['TestSchema']['Table2']
+
+        table1['ID4_Table1'].delete()
+        with self.assertRaises(DerivaCatalogError):
+            table1['ID4_Table1']
+        self.assertNotIn({'source': 'ID4_Table1'}, table1.visible_columns['*'])
+        self.assertNotIn({'source': 'ID4_Table1'}, table1.visible_columns['entry'])
+
+        # Try deleting one column of a compound key
+        logger.info('Deleting one column of a compound key')
+        with self.assertRaises(DerivaCatalogError):
+            table2.delete_columns(['ID2_Table2'])
+
+        logger.info('Deleting column referenced by foreign key')
+        with self.assertRaises(DerivaCatalogError):
+            table1.delete_columns(['ID1_Table1'])
+
+        self.assertIn({'source': [{'inbound': ('TestSchema', 'Table2_ID2_Table2_ID3_Table2_fkey')}, 'RID']},
+                      table1.visible_foreign_keys['*'])
+        table2.delete_columns(['ID2_Table2', 'ID3_Table2'])
+        # Check to see if columns are not in table
+        with self.assertRaises(DerivaCatalogError):
+            table2['ID2_Table2']
+        with self.assertRaises(DerivaCatalogError):
+            table2['ID3_Table2']
+
+        # Check to see if columns are not in visible_columns
+        self.assertNotIn({'source': 'ID2_Table2'}, table1.visible_columns['*'])
+        self.assertNotIn({'source': 'ID3_Table2'}, table1.visible_columns['*'])
+        # Check to see if referenced_by in table1 is correct.
+        self.assertNotIn({'source': [{'inbound': ('TestSchema', 'Table1_ID2_Table1_ID3_Table1_fkey')}, 'RID']},
+                      table1.visible_foreign_keys['*'])
+        #table1.referenced_by()
 
     def test_keys(self):
         table = catalog[schema_name].create_table('TestTable1',
@@ -262,16 +368,18 @@ class TestDerivaTable(TestCase):
                                                   key_defs=[DerivaKey.define(['Foo1', 'Foo2'])])
         table.create_key(['Foo1'], comment='My Key')
 
-        self.assertEqual(table.key('Foo1').name, 'TestTable1_Foo1_key')
-        self.assertEqual([i.name for i in table.key('Foo1').columns], ['Foo1'])
-        self.assertEqual(table.key(['Foo1', 'Foo2']).name, 'TestTable1_Foo1_Foo2_key')
-        self.assertEqual({i.name for i in table.key(['Foo1', 'Foo2']).columns}, {'Foo1', 'Foo2'})
-        self.assertEqual(table.key('TestTable1_Foo1_key').name, 'TestTable1_Foo1_key')
+        self.assertEqual({i.name for i in table.keys}, {'TestTable1_RIDkey1', 'TestTable1_Foo1_key', 'TestTable1_Foo1_Foo2_key'})
+
+        self.assertEqual(table.key['Foo1'].name, 'TestTable1_Foo1_key')
+        self.assertEqual([i.name for i in table.key['Foo1'].columns], ['Foo1'])
+        self.assertEqual(table.key['Foo1', 'Foo2'].name, 'TestTable1_Foo1_Foo2_key')
+        self.assertEqual({i.name for i in table.key['Foo1', 'Foo2'].columns}, {'Foo1', 'Foo2'})
+        self.assertEqual(table.key['TestTable1_Foo1_key'].name, 'TestTable1_Foo1_key')
         self.assertEqual(table.keys['TestTable1_Foo1_key'].name, 'TestTable1_Foo1_key')
         self.assertIn('TestTable1_Foo1_key', table.keys)
 
-        self.assertEqual(table.key('Foo1').columns['Foo1'].name, 'Foo1')
-        self.assertEqual(table.key('Foo1').columns[6].name, 'Foo2')
+        self.assertEqual(table.key['Foo1'].columns['Foo1'].name, 'Foo1')
+        self.assertEqual(table.key['Foo1'].columns[6].name, 'Foo2')
         with self.assertRaises(DerivaCatalogError):
             table.create_key(['Foo1'], comment='My Key')
         with self.assertRaises(DerivaCatalogError):
@@ -306,7 +414,7 @@ class TestDerivaTable(TestCase):
                                                    )
         logger.info('test table created')
 
-        self.assertEqual(table2.foreign_key(['Foo1']).name, 'TestTable2_Foo1_fkey')
+        self.assertEqual(table2.foreign_key['Foo1'].name, 'TestTable2_Foo1_fkey')
         self.assertEqual(table2.foreign_keys['Foo1'].name, 'TestTable2_Foo1_fkey')
         self.assertEqual(table2.foreign_keys['TestTable2_Foo1_fkey'].name, 'TestTable2_Foo1_fkey')
 
@@ -316,13 +424,9 @@ class TestDerivaTable(TestCase):
         self.assertEqual(table2.foreign_keys['TestTable2_Foo1_Foo2_fkey'].referenced_columns['Foo1a'].name, "Foo1a")
 
         self.assertTrue(table1.referenced_by['TestTable2_Foo1_fkey'])
-        self.assertTrue(table1.referenced_by['Foo1a'])
-        self.assertEqual(table1.referenced_by[['Foo1a']].name, 'TestTable2_Foo1_fkey')
-        with self.assertRaises(DerivaCatalogError):
-            table1.referenced_by['Foo1']
 
         with self.assertRaises(DerivaCatalogError):
-            table2.foreign_keys['Bar']
+            table2.foreign_keys['Bar'][0]
 
         print(table2.visible_columns['*'])
         self.assertIn({'source': [{'outbound': ('TestSchema', 'TestTable2_Foo1_fkey')}, 'RID']},
@@ -352,15 +456,15 @@ class TestDerivaTable(TestCase):
         table2.create_foreign_key(['Foo1'], table1, ['Foo1a'])
         table2.create_foreign_key(['Foo1', 'Foo2'], table1, ['Foo1a', 'Foo2a'])
 
-        self.assertEqual(table2.foreign_key(['Foo1']).name, 'TestTable2_Foo1_fkey')
+        self.assertEqual(table2.foreign_key['Foo1'].name, 'TestTable2_Foo1_fkey')
         self.assertEqual(table2.foreign_keys['Foo1'].name, 'TestTable2_Foo1_fkey')
         self.assertEqual(table2.foreign_keys['TestTable2_Foo1_fkey'].name, 'TestTable2_Foo1_fkey')
 
         self.assertTrue(table1.referenced_by['TestTable2_Foo1_fkey'])
-        self.assertTrue(table1.referenced_by['Foo1a'])
-        self.assertEqual(table1.referenced_by[['Foo1a']].name, 'TestTable2_Foo1_fkey')
+        self.assertTrue(table1.key_referenced(['Foo1a']))
+        self.assertEqual(table1.key_referenced(['Foo1a'])[0].name, 'TestTable2_Foo1_fkey')
         with self.assertRaises(DerivaCatalogError):
-            table1.referenced_by['Foo1']
+            table1.key_referenced(['Foo1'])
 
         self.assertIn({'source': [{'outbound': ('TestSchema', 'TestTable2_Foo1_fkey')}, 'RID']},
                       table2.visible_columns['*'])
@@ -375,7 +479,7 @@ class TestDerivaTable(TestCase):
             table2.columns['Foo1'].delete()
 
         with self.assertRaises(DerivaCatalogError):
-            self.assertEqual(table2.foreign_key(['Foo1']).name, 'TestTable2_Foo1_fkey')
+            self.assertEqual(table2.foreign_key['Foo1'].name, 'TestTable2_Foo1_fkey')
 
         # Column entry in visible_columns should have changed back to simple column reference.
         self.assertIn({'source': 'Foo1'}, table2.visible_columns['*'])
@@ -383,61 +487,206 @@ class TestDerivaTable(TestCase):
             self.assertTrue(table1.referenced_by['Foo1a'])
 
         self.assertNotIn({'source': [{'outbound': ('TestSchema', 'TestTable2_Foo1_fkey')}, 'RID']},
-                      table2.visible_columns['*'])
+                         table2.visible_columns['*'])
 
         self.assertNotIn({'source': [{'inbound': ('TestSchema', 'TestTable2_Foo1_fkey')}, 'RID']},
-                      table1.visible_foreign_keys['*'])
+                         table1.visible_foreign_keys['*'])
+
+    def test_access_keys(self):
+        generate_test_tables(catalog, schema_name)
+        table1 = catalog['TestSchema']['Table1']
+        table2 = catalog['TestSchema']['Table2']
+
+        self.assertEqual(table2.keys['ID2_Table2','ID3_Table2'].name, 'Table2_ID2_Table2_ID3_Table2_key')
+        self.assertEqual(table2.foreign_keys['ID2_Table2','ID3_Table2'].name, 'Table2_ID2_Table2_ID3_Table2_fkey')
+
+        fk = table1.referenced_by['Table2_ID1_Table2_fkey']
+        self.assertEqual(fk.name, 'Table2_ID1_Table2_fkey')
+
+        fk = table1.referenced_by['Table2_ID2_Table2_ID3_Table2_fkey']
+        self.assertEqual(fk.name, 'Table2_ID2_Table2_ID3_Table2_fkey')
+
+        fk = table1.referenced_by['Table2_ID1_Table2_fkey']
+        self.assertEqual(fk.name, 'Table2_ID1_Table2_fkey')
+
+    def test_copy_columns(self):
+        generate_test_tables(catalog, schema_name)
+        table1 = catalog['TestSchema']['Table1']
+        table2 = catalog['TestSchema']['Table2']
+
+        table1.copy_columns(
+            {'Col1_Table1': 'FooBar', 'RCB': 'RCB1', 'Bozo': 'int4', 'Bozo1': {'type': 'text', 'default': 23}})
+        self.assertEqual(table1['FooBar'].name, 'FooBar')
+
+        self.assertEqual([i.name for i in table1.columns],
+                         ['RID', 'RCT', 'RMT', 'RCB', 'RMB',
+                          'ID1_Table1', 'ID2_Table1', 'ID3_Table1', 'ID4_Table1',
+                          'Col1_Table1', 'Col2_Table1', 'Col3_Table1', 'FooBar','RCB1', 'Bozo', 'Bozo1']
+                        )
+        self.assertEqual(
+            [i['source'] for i in table1.visible_columns['*']],
+            ['RID', 'RCT', 'RMT', 'RCB', 'RCB1', 'RMB',
+             'ID1_Table1',    'ID2_Table1',    'ID3_Table1',    'ID4_Table1',
+             'Col1_Table1', 'FooBar', 'Col2_Table1', 'Col3_Table1', 'Bozo', 'Bozo1']
+        )
+
+        table1.copy_columns({'ID4_Table1': 'ID4a_Table1'})
+        self.assertEqual(table1.key['ID4a_Table1'].name, 'Table1_ID4a_Table1_key')
+        self.assertEqual(table1.key['ID4_Table1'].name, 'Table1_ID4_Table1_key')
+        self.assertEqual(
+            [i['source'] for i in table1.visible_columns['*']],
+            ['RID', 'RCT', 'RMT', 'RCB', 'RCB1', 'RMB',
+             'ID1_Table1', 'ID2_Table1', 'ID3_Table1', 'ID4_Table1', 'ID4a_Table1',
+             'Col1_Table1', 'FooBar', 'Col2_Table1', 'Col3_Table1', 'Bozo', 'Bozo1']
+        )
+        self.assertEqual([i.name for i in table1.columns],
+                         ['RID', 'RCT', 'RMT', 'RCB', 'RMB',
+                          'ID1_Table1', 'ID2_Table1', 'ID3_Table1', 'ID4_Table1',
+                          'Col1_Table1', 'Col2_Table1', 'Col3_Table1', 'FooBar', 'RCB1','Bozo', 'Bozo1', 'ID4a_Table1']
+                         )
+
+        table1.copy_columns({'ID1_Table1': 'ID1a_Table1'})
+        # Copy column that is a fkey table2:ID1
+        table2.copy_columns({'ID1_Table2': 'ID1a_Table2'})
+        self.assertEqual(table2.key['ID1a_Table2'].name, 'Table2_ID1a_Table2_key')
+        self.assertEqual(table2.foreign_key['ID1a_Table2'].name, 'Table2_ID1a_Table2_fkey')
+
+        # Copy a single column that is in a compound key.  This is ok because we are in the same table.
+        table2.copy_columns({'ID2_Table2': 'ID2a_Table2'})
+        self.assertEqual(table2.key['ID2a_Table2', 'ID3_Table2'].name, 'Table2_ID2a_Table2_ID3_Table2_key')
+        self.assertEqual(table2.foreign_key['ID2a_Table2','ID3_Table2'].name, 'Table2_ID2a_Table2_ID3_Table2_fkey')
+
+        # Copy columns that are compound key table1: ID2,ID3
+
+        table2.copy_columns({'ID2_Table2': 'ID2b_Table2',  'ID3_Table2':'ID3b_Table2'})
+        self.assertEqual(table2.key['ID2b_Table2', 'ID3b_Table2'].name, 'Table2_ID2b_Table2_ID3b_Table2_key')
+        self.assertEqual(table2.foreign_key['ID2b_Table2','ID3b_Table2'].name, 'Table2_ID2b_Table2_ID3b_Table2_fkey')
+        self.assertEqual(table2.foreign_key['ID3b_Table2','ID2b_Table2'].name, 'Table2_ID2b_Table2_ID3b_Table2_fkey')
+
+    def test_copy_columns_between_tables(self):
+        generate_test_tables(catalog, schema_name)
+        table1 = catalog['TestSchema']['Table1']
+        table2 = catalog['TestSchema']['Table2']
+
+        # Test normal column
+        table1.copy_columns(
+            {'Col1_Table1': 'Foobar', 'RCB': 'RCB1', 'Bozo': 'int4', 'Bozo1': {'type': 'text', 'default': 23}}, table2)
+        self.assertEqual(table2.columns['Foobar'].name, 'Foobar')
+        self.assertIn({'source': 'Foobar'}, table2.visible_columns['*'])
+
+        # Check key and fkey constraints....
+        table3 = catalog[schema_name].create_table('TestTable3',[])
+        table2.copy_columns({'ID1_Table2':'ID1_Table3'}, table3)
+        self.assertEqual(table3.key['ID1_Table3'].name, 'TestTable3_ID1_Table3_key')
+        self.assertEqual(table3.foreign_key['ID1_Table3'].name, 'TestTable3_ID1_Table3_fkey')
+
+    def test_rename_columns(self):
+        generate_test_tables(catalog, schema_name)
+        table1 = catalog['TestSchema']['Table1']
+        table2 = catalog['TestSchema']['Table2']
+
+        # Plain old column....
+        table1.rename_columns({'Col1_Table1': 'NewFoo1'})
+        # Check column and visible columns.
+
+        # Column that is pointed to by a FK.  This should fail
+        with self.assertRaises(DerivaCatalogError):
+            table1.rename_columns({'ID1_Table1': 'ID1a_Table1'})
+
+        # Column that is a FK.
+        table2.rename_columns({'ID1_Table2': 'ID1a_Table2'})
+        # FK should be renamed as should incoming visible columns in table1
+
+        # One column of a compound FK.  This should rename the FK and incoming.
+        table2.rename_columns({'ID2_Table2': 'ID2a_Table2'})
+
+    def test_move_columns_between_tables(self):
+        generate_test_tables(catalog, schema_name)
+        table1 = catalog['TestSchema']['Table1']
+        table2 = catalog['TestSchema']['Table2']
+
+        # Plain old column....
+        table1.rename_columns({'Col1_Table1': 'NewFoo1'}, dest_table=table2)
+        # Check column and visible columns.
+
+        # Column that is pointed to by a FK.  This should fail
+        with self.assertRaises(DerivaCatalogError):
+            table1.rename_columns({'ID1_Table1': 'ID1a_Table1'})
+
+        # Column that is a FK.
+        table2.rename_columns({'ID1_Table2': 'ID1a_Table2'})
+        # FK should be renamed as should incoming visible columns in table1
+
+        # One column of a compound FK.  This should rename the FK and incoming.
+        table2.rename_columns({'ID2_Table2': 'ID2a_Table2'})
+
+    def test_copy_table(self):
+        generate_test_tables(catalog, schema_name)
+        table1 = catalog['TestSchema']['Table1']
+        table2 = catalog['TestSchema']['Table2']
+
+        table1_copy = table1.copy_table('TestSchema', 'Table1_Copy')
+
+        table2_copy = table2.copy_table('TestSchema', 'Table2_Copy')
+        print(table1)
+        print(table1_copy)
+        print(table2_copy)
+
+        self.assertEqual(table2_copy.key['ID1_Table2'].name, 'Table2_Copy_ID1_Table2_key')
+        self.assertEqual(table2_copy.foreign_key['Table2_Copy_ID1_Table2_fkey'].name,
+                         'Table2_Copy_ID1_Table2_fkey')
+
+        print('table1 visible_keys', table1.visible_foreign_keys['*'])
+        self.assertIn({'source': [{'inbound': ('TestSchema', 'Table2_Copy_ID1_Table2_fkey')}, 'RID']},
+                         table1.visible_foreign_keys['*'])
+        self.assertIn({'source': [{'inbound': ('TestSchema', 'Table2_Copy_ID2_Table2_ID3_Table2_fkey')}, 'RID']},
+                         table1.visible_foreign_keys['*'])
+
+        self.assertEqual([], table1_copy.visible_foreign_keys['*'])
+        self.assertIn(
+            {'source': [{'inbound': ('TestSchema', 'Table2_Copy_ID2_Table2_ID3_Table2_fkey')}, 'RID']},
+            table1.visible_foreign_keys['*'])
 
 
-    def test_copy_columns(catalog):
-        table = catalog[schema_name].create_table('TestTable1', [DerivaColumn.define('Foo1a', 'text')])
-        delete_columns(table, ['Foobar', 'RCB1', 'ID1'])
-        table.copy_columns(
-            {'Field_1': 'Foobar', 'RCB': 'RCB1', 'Bozo': 'int4', 'Bozo1': {'type': 'text', 'default': 23}})
+    def test_copy_table_rename(self):
+        generate_test_tables(catalog, schema_name)
+        table1 = catalog['TestSchema']['Table1']
+        table2 = catalog['TestSchema']['Table2']
 
-    def test_copy_columns_between_tables(catalog):
-        table = catalog.schema_model('TestSchema').table_model('Foo')
-        table.copy_columns({'Field_1': {'name': 'Foobar', 'default': 23}, 'RCB': 'RCB1', 'ID': 'ID1', 'Bozo': 'text'})
-
-    def test_rename_columns(catalog):
-        table = catalog.schema_model('TestSchema').table_model('Foo')
-        delete_columns(table, ['Foobar', 'Foobar1', 'RCB1', 'RCB2', 'ID1'])
-        table.copy_columns({'Field_1': 'Foobar', 'RCB': 'RCB1'})
-        print('renaming columns....')
-        table.rename_columns({'Foobar': 'Foobar1', 'RCB1': 'RCB2'})
-
-    def test_copy_table(catalog):
-        try:
-            catalog.schema_model('TestSchema').table_model('Foo1').delete()
-        except KeyError:
-            pass
-        column_map = {'Field_1': 'Field_1A', 'ID': {'name': 'ID1', 'nullok': False, 'fill': 1},
+        column_map = {'Col1_Table2': 'Field_1A', 'ID1_Table2': {'name': 'ID1', 'nullok': False, 'fill': 1},
                       'Status': {'type': 'int4', 'nullok': False, 'fill': 1}}
-        table = catalog.schema_model('TestSchema').table_model('Foo')
-        foo1 = table.copy_table('TestSchema', 'Foo1', column_map=column_map)
-        return foo1
+        table_copy = table2.copy_table('TestSchema', 'TableCopy')
+        print(table_copy)
+        #foo1 = table1.copy_table('TestSchema', 'Foo1', column_map=column_map)
 
-    def test_move_table(catalog):
-        try:
-            catalog.schema_model('TestSchema').table_model('Foo1').delete()
-        except KeyError:
-            pass
-        column_map = {'Field_1': 'Field_1A', 'Foobar': 'int4', 'ID': {'name': 'ID1', 'nullok': False, 'fill': 1},
-                      'Status': {'type': 'int4', 'nullok': False, 'fill': 1}}
 
-        table = catalog.schema_model('TestSchema').table_model('Foo')
-        column_defs = [DerivaColumnDef(table, 'Status', 'int4', nullok=False)]
-        foo1 = table.move_table('TestSchema', 'Foo1', column_map=column_map, delete=False)
-        return foo1
+    def test_move_table(self):
+        generate_test_tables(catalog, schema_name)
+        table1 = catalog['TestSchema']['Table1']
+        table2 = catalog['TestSchema']['Table2']
+
+        #column_defs = [DerivaColumn.define(table, 'Status', 'int4', nullok=False)]
+        table2_copy = table2.move_table('TestSchema', 'Table2_Copy')
+        print(table1)
+        print('visible keys', pprint.pformat(table1.visible_foreign_keys))
+        print(table2_copy)
+        print('visible keys', pprint.pformat(table2_copy.visible_foreign_keys))
+
+        table1_copy = table1.move_table('TestSchema', 'Table1_Copy')
+        print(table1_copy)
+        print(table2_copy)
 
     def test_link_tables(self):
         table1 = catalog[schema_name].create_table('TestTable1', [DerivaColumn.define('Foo1a', 'text')])
-        table2 = catalog[schema_name].create_table('TestTable2',[DerivaColumn.define('Foo1', 'text')])
+        table2 = catalog[schema_name].create_table('TestTable2', [DerivaColumn.define('Foo1', 'text')])
 
         table1.link_tables(table2)
 
     def test_associate_tables(self):
         table1 = catalog[schema_name].create_table('TestTable1', [DerivaColumn.define('Foo1a', 'text')])
-        table2 = catalog[schema_name].create_table('TestTable2',[DerivaColumn.define('Foo1', 'text')])
+        table2 = catalog[schema_name].create_table('TestTable2', [DerivaColumn.define('Foo1', 'text')])
         table1.associate_tables(table2)
 
+    def test_create_asset_table(self):
+        table = catalog[schema_name].create_table('TestTable1', [DerivaColumn.define('Foo1a', 'text')])
+        table.create_asset_table('Foo1a', set_policy=False)

@@ -23,8 +23,8 @@ from deriva.core import urlparse
 from deriva.core.ermrest_config import tag as chaise_tags
 import deriva.core.ermrest_model as em
 from deriva.utils.catalog.manage.dump_catalog import DerivaCatalogToString
-from deriva.utils.catalog.manage.utils import LoopbackCatalog
-from deriva.utils.catalog.components.deriva_model import DerivaCatalog
+from deriva.utils.catalog.manage.utils import LoopbackCatalog, LoopbackModel
+from deriva.utils.catalog.components.deriva_model import DerivaModel, DerivaCatalog
 from deriva.core.utils import eprint
 from deriva.core.base_cli import BaseCLI
 from deriva.utils.catalog.version import __version__ as VERSION
@@ -146,7 +146,7 @@ class DerivaCSVModel:
         self.type_map = {}
         self.field_name_map = {}
 
-        # Add extra columns and constrains necessary to use for Upload_Id/Row_Number primary key.
+        # Add extra columns and constraints necessary to use for Upload_Id/Row_Number primary key.
         if self._csvschema.row_number_as_key:
             column_defs = [em.Column.define('Upload_Id', em.builtin_types['int4'],
                                             comment='Identifier to keep track of different uploads'),
@@ -161,14 +161,15 @@ class DerivaCSVModel:
         # Get model elements for columns and keys.
         column_defs.extend(self.__deriva_columns(csvschema))
         key_defs.extend(self.__deriva_keys(csvschema))
-
+        logger.debug('schema %s table %s', csvschema.schema_name, csvschema.table_name)
         table_def = em.Table.define(csvschema.table_name, column_defs=column_defs, key_defs=key_defs)
         schema_def = em.Schema.define(csvschema.schema_name, comment="Schema from tableschema")
         schema_def['tables'] = {csvschema.table_name: table_def}
 
-        self.model = em.Model(
+        self.model = LoopbackModel(
             {'schemas': {csvschema.schema_name: schema_def}, 'acls': {}, 'annotations': {}, 'comment': None})
         self.catalog = LoopbackCatalog(self.model)
+        logger.debug('%s %s', self.catalog, [i for i in self.catalog.getCatalogModel().schemas])
         return
 
     def __deriva_columns(self, csvschema):
@@ -180,7 +181,7 @@ class DerivaCSVModel:
 
         system_columns = ['RID', 'RCB', 'RMB', 'RCT', 'RMT']
 
-        for col in csvschema.schema_model.fields:
+        for col in csvschema.schema.fields:
             # Don't include system columns in the list of column definitions.
             if col.name in system_columns:
                 continue
@@ -454,62 +455,61 @@ class DerivaCSV(Table):
         :return: table schema representation of the model
         """
 
+        with DerivaModel(catalog) as m:
+            schema = m.schema_model(catalog[self.schema_name])
+            table = schema.tables[self.map_name(self.table_name)]
+            fields = []
+            primary_key = None
 
-        model_root = catalog.model
-        schema = model_root.schemas[self.schema_name]
-        table = schema.tables[self.map_name(self.table_name)]
-        fields = []
-        primary_key = None
+            for col in table.column_definitions:
+                if col.name in ['RID', 'RCB', 'RMB', 'RCT', 'RMT', 'Batch_Id'] and skip_system_columns:
+                    continue
+                field = {
+                    "name": col.name,
+                    "type": table_schema_type_map[col.type.typename][0],
+                    "constraints": {}
+                }
 
-        for col in table.column_definitions:
-            if col.name in ['RID', 'RCB', 'RMB', 'RCT', 'RMT', 'Batch_Id'] and skip_system_columns:
-                continue
-            field = {
-                "name": col.name,
-                "type": table_schema_type_map[col.type.typename][0],
-                "constraints": {}
-            }
+                if field['type'] == 'boolean':
+                    field['trueValues'] = ["true", "True", "TRUE", "1", "T", "t"]
+                    field['falseValues'] = ["false", "False", "FALSE", "0", "F", "f"]
 
-            if field['type'] == 'boolean':
-                field['trueValues'] = ["true", "True", "TRUE", "1", "T", "t"]
-                field['falseValues'] = ["false", "False", "FALSE", "0", "F", "f"]
+                if table_schema_type_map[col.type.typename][1] != 'default':
+                    field['format'] = table_schema_type_map[col.type.typename][1]
+                if col.display:
+                    field['title'] = col.display['name']
+                if col.comment:
+                    field['description'] = col.comment
 
-            if table_schema_type_map[col.type.typename][1] != 'default':
-                field['format'] = table_schema_type_map[col.type.typename][1]
-            if col.display:
-                field['title'] = col.display['name']
-            if col.comment:
-                field['description'] = col.comment
+                # Now see if column is unique.  For this to be true, it must be in the list of keys for the table, and
+                #  the unique column list must be a singleton.
 
-            # Now see if column is unique.  For this to be true, it must be in the list of keys for the table, and
-            #  the unique column list must be a singleton.
+                if [col.name] in [i.unique_columns for i in table.keys]:
+                    field['constraints']['unique'] = True
 
-            if [col.name] in [i.unique_columns for i in table.keys]:
-                field['constraints']['unique'] = True
+                if not col.nullok:
+                    field['constraints']['required'] = True
+                fields.append(field)
 
-            if not col.nullok:
-                field['constraints']['required'] = True
-            fields.append(field)
+            # Now look for a key column that is not the RID
+            for i in table.keys:
+                if i.unique_columns == ['RID']:
+                    continue
+                primary_key = i.unique_columns
+                break
 
-        # Now look for a key column that is not the RID
-        for i in table.keys:
-            if i.unique_columns == ['RID']:
-                continue
-            primary_key = i.unique_columns
-            break
-
-        try:
-            descriptor = {'fields': fields, 'missingValues': ['', 'N/A', 'NULL']}
-            if primary_key is not None:
-                descriptor['primaryKey'] = primary_key
-            catalog_schema = Schema(descriptor=descriptor, strict=True)
-            if outfile is not None:
-                catalog_schema.save(outfile)
-        except exceptions.ValidationError as exception:
-            print('error.....')
-            print(exception.errors)
-            raise exception
-        return catalog_schema
+            try:
+                descriptor = {'fields': fields, 'missingValues': ['', 'N/A', 'NULL']}
+                if primary_key is not None:
+                    descriptor['primaryKey'] = primary_key
+                catalog_schema = Schema(descriptor=descriptor, strict=True)
+                if outfile is not None:
+                    catalog_schema.save(outfile)
+            except exceptions.ValidationError as exception:
+                print('error.....')
+                print(exception.errors)
+                raise exception
+            return catalog_schema
 
     def upload_to_deriva(self, catalog, upload_id=None, chunk_size=10000):
         """
@@ -521,7 +521,7 @@ class DerivaCSV(Table):
         :return:
         """
 
-        target_table = catalog.schema_model(self.schema_name).table_model(self.table_name).datapath()
+        target_table = catalog[self.schema_name][self.table_name].datapath()
         catalog_schema = self.table_schema_from_catalog(catalog)
 
         # Sanity check columns.
@@ -537,7 +537,7 @@ class DerivaCSV(Table):
             e = list(target_table.entities().fetch(limit=1, sort=[target_table.column_definitions['Upload_Id'].desc]))
             if len(e) == 1:
                 upload_id = e[0]['Upload_Id'] + 1
-            print('New upload id', upload_id)
+            logger.info('New upload id: %s', upload_id)
             sys.stdout.flush()
 
         def to_json(extended_rows):
@@ -583,6 +583,7 @@ class DerivaCSV(Table):
 
             sort = [target_table.column_definitions[i].desc for i in catalog_schema.primary_key]
             e = list(target_table.entities().fetch(limit=1, sort=sort))
+            logging.debug('number of entities to upload %s %s', len(e), e)
             if len(e) == 1:
                 # Part of this table has already been uploaded, so we want to find out how far we got and start from
                 # there
@@ -591,9 +592,9 @@ class DerivaCSV(Table):
                 row_index = next(i for i, v in enumerate(rows)
                                  if [v[i] for i in catalog_schema.primary_key] == max_value) + 1
                 if row_index == len(rows):
-                    print('Previous upload completed')
+                    logger.info('Previous upload completed')
                 else:
-                    print('Resuming upload at row count ', row_index)
+                    logger.info('Resuming upload at row count %s', row_index)
         else:
             # We don't have a key, or the key is composite, so in this case we just have to hope for the best....
             chunk_size = len(rows)
@@ -606,7 +607,7 @@ class DerivaCSV(Table):
                 start_time = time.time()
                 target_table.insert(chunk, add_system_defaults=True)
                 stop_time = time.time()
-                print('Completed chunk {} size {} in {:.1f} sec.'.format(chunk_cnt, chunk_size, stop_time - start_time))
+                logger.info('Completed chunk {} size {} in {:.1f} sec.'.format(chunk_cnt, chunk_size, stop_time - start_time))
                 sys.stdout.flush()
                 chunk_cnt += 1
                 row_index += len(chunk)
@@ -640,7 +641,8 @@ class DerivaCSV(Table):
 
         deriva_model = DerivaCSVModel(self)
 
-        stringer = DerivaCatalogToString(deriva_model.catalog, groups={})
+        stringer = DerivaCatalogToString(
+            DerivaCatalog("host", ermrest_catalog=deriva_model.catalog), groups={})
         table_string = stringer.table_to_str(self.schema_name, self.table_name)
 
         if schemafile is True:
@@ -682,7 +684,7 @@ class DerivaCSV(Table):
             self.convert_to_deriva(outfile=derivafile, schemafile=schemafile)
 
         if create:
-            print('Creating table definition {}:{}'.format(self.schema_name, self.table_name))
+            logger.info('Creating table definition {}:{}'.format(self.schema_name, self.table_name))
             sys.stdout.flush()
             # If derivafile is specified, use that for file name.
             if derivafile is None:
@@ -702,7 +704,7 @@ class DerivaCSV(Table):
                 return report
 
         if upload:
-            print('Loading table data {}:{}'.format(self.schema_name, self.table_name))
+            logger.info('Loading table data {}:{}'.format(self.schema_name, self.table_name))
             sys.stdout.flush()
             row_cnt = self.upload_to_deriva(catalog, chunk_size=chunk_size, upload_id=upload_id)
 
