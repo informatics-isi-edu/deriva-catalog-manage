@@ -6,81 +6,36 @@ import sys
 import string
 import tempfile
 import random
-import warnings
+import logging
 
 from tableschema import exceptions
 from deriva.utils.catalog.manage.deriva_csv import DerivaCSV, load_module_from_path
 import deriva.utils.catalog.manage.dump_catalog as dump_catalog
-from deriva.core import get_credential
 import deriva.core.ermrest_model as em
-from deriva.utils.catalog.manage.utils import TempErmrestCatalog
 
-warnings.filterwarnings("ignore", category=DeprecationWarning)
-
-if sys.version_info >= (3, 0):
-    from urllib.parse import urlparse
-if sys.version_info < (3, 0) and sys.version_info >= (2, 5):
-    from urlparse import urlparse
+from .. test_utils import *
 
 
-def generate_test_csv(columncnt):
-    """
-    Generate a test CSV file for testing derivaCSV routines.  First row returned will be a header.
-    :param columncnt: Number of columns to be used in the CSV.
-    :return: generator function and a map of the column names and types.
-    """
-    type_list = ['int4', 'boolean', 'float8', 'date', 'text']
-    column_types = ['int4'] + [type_list[i % len(type_list)] for i in range(columncnt)]
-    column_headings = ['id'] + ['field {}'.format(i) for i in range(len(column_types))]
+logging.basicConfig(
+    level=logging.DEBUG,
+ #   format='[%(lineno)d] %(funcName)20s() %(message)s'
+)
 
-    missing_value = .2  # What fraction of values should be empty.
 
-    base = datetime.datetime.today()
-    date_list = [base - datetime.timedelta(days=x) for x in range(0, 100)]
-
-    def col_value(c):
-        v = ''
-
-        if random.random() > missing_value:
-            if c == 'boolean':
-                v = random.choice(['true', 'false'])
-            elif c == 'int4':
-                v = random.randrange(-1000, 1000)
-            elif c == 'float8':
-                v = random.uniform(-1000, 1000)
-            elif c == 'text':
-                v = ''.join(random.sample(string.ascii_letters + string.digits, 5))
-            elif c == 'date':
-                v = str(random.choice(date_list))
-        return v
-
-    def row_generator(header=True):
-        row_count = 1
-        while True:
-            if header is True:
-                row = column_headings
-                header = False
-            else:
-                row = [row_count]
-                row_count += 1
-                row.extend([col_value(i) for i in column_types])
-            yield row
-
-    return row_generator(), [{'name': i[0], 'type': i[1]} for i in zip(column_headings, column_types)]
+logger = logging.getLogger(__name__)
 
 
 class TestDerivaCSV(TestCase):
     def setUp(self):
         self.server = 'dev.isrd.isi.edu'
-        self.credentials = get_credential(self.server)
         self.catalog_id = None
         self.schema_name = 'TestSchema'
         self.table_name = 'TestTable'
 
         self.configfile = os.path.dirname(os.path.realpath(__file__)) + '/config.py'
-        self.catalog = TempErmrestCatalog('https', self.server, credentials=self.credentials)
-        model = self.catalog.getCatalogModel()
-        model.create_schema(self.catalog, em.Schema.define(self.schema_name))
+
+        self.catalog = create_catalog(self.server)
+        self.catalog.create_schema(self.schema_name)
 
         self.table_size = 1000
         self.column_count = 20
@@ -95,7 +50,7 @@ class TestDerivaCSV(TestCase):
                 tablewriter.writerow(j)
 
     def tearDown(self):
-        self.catalog.delete_ermrest_catalog(really=True)
+        pass
 
     def _create_test_table(self):
         pyfile = '{}/{}.py'.format(self.test_dir, self.table_name)
@@ -152,22 +107,21 @@ class TestDerivaCSV(TestCase):
 
         self._create_test_table()
 
-        model = self.catalog.getCatalogModel()
-        target_table = model.schemas[self.schema_name].tables[self.table.map_name(self.table_name)]
+        target_table = self.catalog[self.schema_name][self.table.map_name(self.table_name)]
 
-        catalog_keys = [ sorted(i.unique_columns) for i in target_table.keys]
+        catalog_keys = [ sorted([c.name for c in i.columns]) for i in target_table.keys]
 
-        # Check to make sure that each kiy is set for no nulls...
+        # Check to make sure that each key is set for no nulls...
         for k in self.table._key_columns:
             for col in k:
-                self.assertEqual(target_table.column_definitions[self.table.map_name(col)].nullok, False,
+                self.assertEqual(target_table.columns[self.table.map_name(col)].nullok, False,
                                  msg='nullok not set for {}'.format(col))
             n = [self.table.map_name(i) for i in k]
             n.sort()
             self.assertEqual(n in catalog_keys,True, msg = 'Key missing {}'.format(k))
         # Now check to make sure the key constraints made it....
         for k in target_table.keys:
-            print(k.unique_columns)
+            print(k.columns)
 
         return
 
@@ -193,7 +147,7 @@ class TestDerivaCSV(TestCase):
         self.assertEqual([i['type'] for i in self.table.schema.descriptor['fields']],
                          [i['type'] for i in tableschema.descriptor['fields']])
         print(tableschema.primary_key)
-        self.assertEqual(tableschema.primary_key, ['Id', 'Field_1'])
+        self.assertEqual(set(tableschema.primary_key), {'Id', 'Field_1'})
 
     def test_validate(self):
         self.table = DerivaCSV(self.tablefile, self.schema_name, key_columns='id', column_map=True)
@@ -302,6 +256,7 @@ class TestDerivaCSV(TestCase):
         self.assertEqual(len(list(target_table.entities())), self.table_size)
 
         # Upload table again, using new upload_id.
+        logger.info('Upload table again....')
         row_count, upload_id_1 = self.table.upload_to_deriva(self.catalog)
         self.assertEqual(row_count, self.table_size)
 

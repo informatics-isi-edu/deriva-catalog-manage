@@ -2,7 +2,7 @@ table_file_template="""
 import argparse
 from attrdict import AttrDict
 from deriva.core import ErmrestCatalog, get_credential, DerivaPathError
-from deriva.utils.catalog.components.model_elements import DerivaCatalog
+from deriva.utils.catalog.components.deriva_model import DerivaCatalog
 import deriva.core.ermrest_model as em
 from deriva.core.ermrest_config import tag as chaise_tags
 from deriva.utils.catalog.manage.update_catalog import CatalogUpdater, parse_args
@@ -26,9 +26,9 @@ schema_name = '{schema_name}'
 {table_def}
 
 
-def main(catalog, mode, replace=False):
+def main(catalog, mode, replace=False, really=False):
     updater = CatalogUpdater(catalog)
-    updater.update_table(mode, schema_name, table_def,replace=replace)
+    updater.update_table(mode, schema_name, table_def,replace=replace, really=really)
 
 
 if __name__ == "__main__":
@@ -44,7 +44,7 @@ schema_file_template = """
 import argparse
 from attrdict import AttrDict
 from deriva.core import ErmrestCatalog, get_credential, DerivaPathError
-from deriva.utils.catalog.components.model_elements import DerivaCatalog
+from deriva.utils.catalog.components.deriva_model import DerivaCatalog
 import deriva.core.ermrest_model as em
 from deriva.core.ermrest_config import tag as chaise_tags
 from deriva.utils.catalog.manage.update_catalog import CatalogUpdater, parse_args
@@ -70,7 +70,7 @@ schema_def = em.Schema.define(
 
 def main(catalog, mode, replace=False):
     updater = CatalogUpdater(catalog)
-    updater.update_catalog.update_schema(mode, schema_name, schema_def, replace=replace)
+    updater.update_schema(mode, schema_def, replace=replace)
 
 
 if __name__ == "__main__":
@@ -85,7 +85,7 @@ catalog_file_template = """
 import argparse
 from attrdict import AttrDict
 from deriva.core import ErmrestCatalog, get_credential, DerivaPathError
-from deriva.utils.catalog.components.model_elements import DerivaCatalog
+from deriva.utils.catalog.components.deriva_model import DerivaCatalog
 from deriva.utils.catalog.manage.update_catalog import CatalogUpdater, parse_args
 from deriva.core.ermrest_config import tag as chaise_tags
 import deriva.core.ermrest_model as em

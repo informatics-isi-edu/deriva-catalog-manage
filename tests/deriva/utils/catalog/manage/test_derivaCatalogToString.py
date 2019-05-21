@@ -8,10 +8,9 @@ from deriva.core.ermrest_config import tag as chaise_tags
 from deriva.utils.catalog.manage.dump_catalog import DerivaCatalogToString
 from deriva.utils.catalog.manage.deriva_csv import load_module_from_path
 
-if sys.version_info >= (3, 0):
-    from urllib.parse import urlparse
-if sys.version_info < (3, 0) and sys.version_info >= (2, 5):
-    from urlparse import urlparse
+from urllib.parse import urlparse
+
+from .. test_utils import *
 
 
 class TestDerivaCatalogToString(TestCase):
@@ -32,24 +31,38 @@ class TestDerivaCatalogToString(TestCase):
         pass
 
     def test_schema_to_str(self):
-        pass
+        catalog = create_catalog(self.server)
+        catalog.create_schema('TestSchema')
+        generate_test_tables(catalog, 'TestSchema')
+
+        stringer = DerivaCatalogToString(catalog)
+        schema_string = stringer.schema_to_str('TestSchema')
+        tdir = tempfile.mkdtemp()
+        modfile = '{}/TestSchema.py'.format(tdir)
+        with open(modfile, mode='w') as f:
+            print(schema_string, file=f)
+        m = load_module_from_path(modfile)
+
+        test_catalog = create_catalog(self.server)
+        m.main(test_catalog, 'schema')
+        m.main(test_catalog, 'annotations')
+        m.main(test_catalog, 'acls')
+        m.main(test_catalog, 'comment')
 
     def test_catalog_to_str(self):
-        with TempErmrestCatalog('https', self.server, credentials=self.credentials) as catalog:
-            model = catalog.getCatalogModel()
-            model.create_schema(catalog, em.Schema.define('TestSCchema'))
-            stringer = DerivaCatalogToString(catalog)
-            catalog_string = stringer.catalog_to_str()
-            tdir = tempfile.mkdtemp()
-            modfile = '{}/TestCatalog.py'.format(tdir)
-            with open(modfile, mode='w') as f:
-                print(catalog_string, file=f)
-            m = load_module_from_path(modfile)
+        catalog = create_catalog(self.server)
+        catalog.create_schema('TestSchema')
 
-            with TempErmrestCatalog('https', self.server, credentials=self.credentials) as test_catalog:
-                server = urlparse(test_catalog.get_server_uri()).hostname
-                catalog_id = catalog.get_server_uri().split('/')[-1]
-                m.main(test_catalog, 'annotations')
+        stringer = DerivaCatalogToString(catalog)
+        catalog_string = stringer.catalog_to_str()
+        tdir = tempfile.mkdtemp()
+        modfile = '{}/TestCatalog.py'.format(tdir)
+        with open(modfile, mode='w') as f:
+            print(catalog_string, file=f)
+        m = load_module_from_path(modfile)
+
+        test_catalog = create_catalog(self.server)
+        m.main(test_catalog, 'annotations')
 
     def test_table_annotations_to_str(self):
         pass
@@ -70,4 +83,24 @@ class TestDerivaCatalogToString(TestCase):
         pass
 
     def test_table_to_str(self):
-        pass
+        catalog = create_catalog(self.server)
+        catalog.create_schema('TestSchema')
+        generate_test_tables(catalog, 'TestSchema')
+
+        stringer = DerivaCatalogToString(catalog)
+        table_string = stringer.table_to_str('TestSchema','Table1')
+        tdir = tempfile.mkdtemp()
+        modfile = '{}/TestTable.py'.format(tdir)
+        with open(modfile, mode='w') as f:
+            print(table_string, file=f)
+        m = load_module_from_path(modfile)
+
+        test_catalog = create_catalog(self.server)
+        test_catalog.create_schema('TestSchema')
+        m.main(test_catalog, 'table')
+        m.main(test_catalog, 'annotations')
+        m.main(test_catalog, 'acls')
+        m.main(test_catalog, 'comment')
+        m.main(test_catalog, 'keys')
+        m.main(test_catalog, 'fkeys')
+        m.main(test_catalog, 'columns', replace=True, really=True)

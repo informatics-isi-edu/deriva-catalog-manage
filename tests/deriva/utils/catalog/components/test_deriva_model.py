@@ -228,6 +228,41 @@ class TestDerivaTable(TestCase):
             print(table, catalog[schema_name])
             self.assertEqual(table.name, 'TestTable')
 
+    def test_table_attributes(self):
+        generate_test_tables(catalog, schema_name)
+        table = catalog['TestSchema']['Table1']
+
+        table.comment ='Comment 1'
+        table.acls = {'owner': ['carl']}
+        table.acl_bindings =  {'set_owner': {"types": ["update"], "projection": ["RCB"], "projection_type": "acl"}}
+        table.display = {'tag:misd.isi.edu,2015:display': {'name': 'foo'}}
+        catalog.refresh()
+        table = catalog['TestSchema']['Table1']
+
+        self.assertEqual(table.comment, 'Comment 1')
+        self.assertEqual(table.acls, {'owner': ['carl']})
+        self.assertEqual(table.acl_bindings,
+                         {'set_owner':
+                              {"types": ["update"], "projection": ["RCB"], "projection_type": "acl", 'scope_acl': ['*']}}
+                         )
+        self.assertEqual(table.display, {'tag:misd.isi.edu,2015:display': {'name': 'foo'}})
+
+        table.comment = 'Comment 2'
+        table.acls.update({'owner': ['carl1']})
+        table.acl_bindings = {'set_owner': {"types": ["update"], "projection": ["RMB"], "projection_type": "acl"}}
+        table.display = {'tag:misd.isi.edu,2015:display': {'name': 'foo1'}}
+        catalog.refresh()
+        table = catalog['TestSchema']['Table1']
+
+        self.assertEqual(table.comment, 'Comment 2')
+        self.assertEqual(table.acls, {'owner': ['carl1']})
+        self.assertEqual(table.acl_bindings,
+                         {'set_owner':
+                              {"types": ["update"], "projection": ["RMB"], "projection_type": "acl",
+                               'scope_acl': ['*']}}
+                         )
+        self.assertEqual(table.display, {'tag:misd.isi.edu,2015:display': {'name': 'foo1'}})
+
     def test_create_table(self):
         table = catalog[schema_name].create_table('TestTable1', [], comment='My test table')
         self.assertEqual(table.name, 'TestTable1')
@@ -332,6 +367,8 @@ class TestDerivaTable(TestCase):
                                                    DerivaColumn.define('Foo3', 'text')],
                                                   key_defs=[DerivaKey.define(['Foo1', 'Foo2'])])
         table.create_key(['Foo1'], comment='My Key')
+
+        self.assertEqual({i.name for i in table.keys}, {'TestTable1_RIDkey1', 'TestTable1_Foo1_key', 'TestTable1_Foo1_Foo2_key'})
 
         self.assertEqual(table.key['Foo1'].name, 'TestTable1_Foo1_key')
         self.assertEqual([i.name for i in table.key['Foo1'].columns], ['Foo1'])

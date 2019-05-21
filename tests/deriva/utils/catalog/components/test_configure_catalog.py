@@ -66,6 +66,7 @@ class TestConfigureCatalog(TestCase):
                                      constraint_names=[[schema_name, 'TestTable1_Foo2_fkey']])
             )
 
+    @unittest.skip
     def test_catalog_defaults(self):
         catalog.configure_baseline_catalog(catalog_name='test', admin='isrd-systems')
 
