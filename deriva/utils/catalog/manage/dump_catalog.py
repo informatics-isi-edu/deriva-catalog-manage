@@ -6,13 +6,10 @@ import logging
 import os
 import re
 import sys
-from requests import exceptions
 import traceback
 import requests
 from requests.exceptions import HTTPError, ConnectionError
 
-import deriva.core.ermrest_model as em
-from deriva.core.ermrest_config import tag as chaise_tags
 from deriva.core import format_exception
 from deriva.core.utils import eprint
 from deriva.core.base_cli import BaseCLI

@@ -25,8 +25,9 @@ catalog = None
 schema_name = 'TestSchema'
 
 def setUpModule():
-    global catalog
+    global catalog, catalog_id
     catalog = create_catalog(server)
+    catalog_id = catalog.catalog_id
     with DerivaModel(catalog) as m:
         model = m.catalog_model()
         model.create_schema(catalog.ermrest_catalog, em.Schema.define(schema_name))
@@ -213,6 +214,20 @@ class TestColumnMap(TestCase):
                               'Bozo': 'text'},
                              main)
         print(cm)
+
+class TestAttributes(TestCase):
+    def setUp(self):
+        clean_schema(catalog, schema_name)
+
+    def test_display(self):
+        logger.info('Creating tables....')
+        generate_test_tables(catalog, schema_name)
+        logger.info('done')
+        table = catalog['TestSchema']['Table1']
+        table.display = 'Foobar'
+        catalog.refresh()
+        self.assertEqual(table.display, 'Foobar')
+        print(table.chaise_uri)
 
 
 class TestDerivaTable(TestCase):

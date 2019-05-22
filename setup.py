@@ -40,6 +40,7 @@ setup(
     packages=find_packages(),
     package_data={},
     python_requires='>=3.5.4',
+    test_suite='tests',
     entry_points={
         'console_scripts': [
             'deriva-catalog-dump = deriva.utils.catalog.manage.dump_catalog:main',

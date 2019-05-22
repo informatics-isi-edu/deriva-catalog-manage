@@ -381,9 +381,12 @@ class DerivaCatalog(DerivaCore):
 
     @navbar_menu.setter
     def navbar_menu(self, value):
+        if not isinstance(value, dict):
+            raise ValueError('Menu must be a dictionary')
         if chaise_tags.chaise_config not in self.annotations:
-            self.annotations[chaise_tags.chaise_config] = {}
-        self.annotations[chaise_tags.chaise_config]['navbarMenu'] = value
+            self.annotations[chaise_tags.chaise_config] = {'navbarMenu': value}
+        else:
+            self.annotations[chaise_tags.chaise_config]['navbarMenu'] = value
 
     def apply(self):
         self.logger.debug('%s', self.model_instance)
@@ -1202,6 +1205,7 @@ class DerivaSourceSpec(DerivaLogging):
             self.validate()
         return self
 
+
 class DerivaColumn(DerivaCore):
     class _DerivaColumnDef(DerivaLogging):
         def __init__(self, name, type, nullok=True, default=None, fill=None, comment=None, acls={},
@@ -1340,6 +1344,14 @@ class DerivaColumn(DerivaCore):
             self.column.comment = comment
         else:
             raise DerivaCatalogError(self, 'Cannot alter defined column type')
+
+    @property
+    def display(self):
+        return self.annotations[chaise_tags.display]
+
+    @display.setter
+    def display(self, value):
+        self.annotations[chaise_tags.display] = value
 
     @property
     def acls(self):
@@ -1520,6 +1532,14 @@ class DerivaKey(DerivaCore):
             self.key.comment = comment
         else:
             raise DerivaCatalogError(self, 'Cannot alter defined key type')
+
+    @property
+    def display(self):
+        return self.annotations[chaise_tags.display]
+
+    @display.setter
+    def display(self, value):
+        self.annotations[chaise_tags.display] = value
 
     @staticmethod
     def define(columns, name=None, comment=None, annotations={}):
@@ -1938,6 +1958,14 @@ class DerivaTable(DerivaCore):
     def acl_bindings(self, value):
         with DerivaModel(self.catalog) as m:
             m.table_model(self).acl_bindings = value
+
+    @property
+    def display(self):
+        return self.annotations[chaise_tags.display]
+
+    @display.setter
+    def display(self, value):
+        self.annotations[chaise_tags.display] = value
 
     @property
     def visible_columns(self):
