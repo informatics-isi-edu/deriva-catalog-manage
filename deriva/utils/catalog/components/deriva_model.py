@@ -344,11 +344,6 @@ class DerivaCatalog(DerivaCore):
     def __str__(self):
         return '\n'.join([i.name for i in self.schemas])
 
-    def apply(self):
-        self.logger.debug('%s', self.model_instance)
-        self.model_instance.apply(self.ermrest_catalog)
-        return self
-
     def __getitem__(self, schema_name):
         return self.schemas.__getitem__(schema_name)
 
@@ -365,6 +360,11 @@ class DerivaCatalog(DerivaCore):
     @property
     def catalog_id(self):
         return self.ermrest_catalog.catalog_id
+
+    @property
+    def server_uri(self):
+        return self.ermrest_catalog.get_server_uri()
+
     @property
     def schemas(self):
         with DerivaModel(self) as m:
@@ -381,7 +381,14 @@ class DerivaCatalog(DerivaCore):
 
     @navbar_menu.setter
     def navbar_menu(self, value):
-        self.annotations[chaise_tags.chaise_config]['navabarMenu'] = value
+        if chaise_tags.chaise_config not in self.annotations:
+            self.annotations[chaise_tags.chaise_config] = {}
+        self.annotations[chaise_tags.chaise_config]['navbarMenu'] = value
+
+    def apply(self):
+        self.logger.debug('%s', self.model_instance)
+        self.model_instance.apply(self.ermrest_catalog)
+        return self
 
     def refresh(self):
         assert (self.nesting == 0)
@@ -1015,7 +1022,10 @@ class DerivaSourceSpec(DerivaLogging):
         super().__init__()
         self.logger.debug('table: %s spec: %s', table.name, spec)
         self.table = table
-        self.spec = copy.deepcopy(spec.spec) if isinstance(spec, DerivaSourceSpec) else self._normalize_source_spec(spec)
+        self.spec = (
+            copy.deepcopy(spec.spec)
+            if isinstance(spec, DerivaSourceSpec) else self._normalize_source_spec(spec)
+        )
         self.logger.debug('normalized: %s', self.spec)
         if validate:
             self.validate()
@@ -1487,7 +1497,8 @@ class DerivaKey(DerivaCore):
 
     @property
     def columns(self):
-        # The column order of key columns is not maintained, so try to reconstruct it from the key name or table columns.
+        # The column order of key columns is not maintained,
+        # so try to reconstruct it from the key name or table columns.
         with DerivaModel(self.catalog) as m:
             key_columns = []
             if self.name:
@@ -1888,6 +1899,13 @@ class DerivaTable(DerivaCore):
         )
 
     @property
+    def chaise_uri(self):
+        p = urlparse(self.catalog.server_uri)
+        print('{}://{}/chaise/recordset/#{}/{}:{}'.format(
+            p.scheme, p.hostname, self.catalog.catalog_id, self.schema_name, self.name)
+        )
+
+    @property
     def name(self):
         return self._table_name
 
@@ -2046,13 +2064,6 @@ class DerivaTable(DerivaCore):
     def _column_map(self, column_map, dest_table):
         return DerivaColumnMap(self, column_map, dest_table)
 
-    def chaise_uri(self):
-        p = urlparse(self.catalog.model.get_server_uri())
-        catalog_id = p.path.split('/')[-1]
-        print('{}://{}/chaise/recordset/#{}/{}:{}'.format(
-            p.scheme, p.hostname, catalog_id, self.schema_name, self.name)
-        )
-
     def entities(self, *attributes, **renamed_attributes):
         return self.datapath().entities(*attributes, **renamed_attributes)
 
@@ -2127,7 +2138,6 @@ class DerivaTable(DerivaCore):
         """
         def full_key_name(k):
             return (k.table.schema_name, k.name)
-
 
         # Go through the list of foreign keys and create a list of key columns in simple foreign keys
         fkey_names = {
@@ -2681,10 +2691,10 @@ class DerivaTable(DerivaCore):
 
         column_defs = [
                           DerivaColumn.define('{}'.format(self.name),
-                                           'text',
-                                           nullok=False,
-                                           comment="The {} entry to which this asset is attached".format(
-                                               self.name)),
+                                              'text',
+                                              nullok=False,
+                                              comment="The {} entry to which this asset is attached".format(
+                                                  self.name)),
                       ] + column_defs
 
         # Set up policy so that you can only add an asset to a record that you own.
