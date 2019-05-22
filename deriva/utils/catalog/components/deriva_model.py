@@ -15,6 +15,8 @@ from deriva.core.ermrest_config import MultiKeyedList
 from deriva.core.ermrest_config import tag as chaise_tags
 
 chaise_tags['catalog_config'] = 'tag:isrd.isi.edu,2019:catalog-config'
+chaise_tags['chaise_config'] = 'tag:isrd.isi.edu,2019:chaise-config'
+
 CATALOG_CONFIG__TAG = 'tag:isrd.isi.edu,2019:catalog-config'
 
 logger = logging.getLogger(__name__)
@@ -86,7 +88,7 @@ logger_config = {
           #     'level': 'DEBUG'
         },
         'deriva_model.DerivaSourceSpec': {
-            #   'level': 'DEBUG'
+          #     'level': 'DEBUG'
         },
         'deriva_model.DerivaTable': {
             #   'level': 'DEBUG'
@@ -372,6 +374,14 @@ class DerivaCatalog(DerivaCore):
     def acls(self):
         with DerivaModel(self) as m:
             return m.catalog_model().acls
+
+    @property
+    def navbar_menu(self):
+        return self.annotations[chaise_tags.chaise_config]['navbarMenu']
+
+    @navbar_menu.setter
+    def navbar_menu(self, value):
+        self.annotations[chaise_tags.chaise_config]['navabarMenu'] = value
 
     def refresh(self):
         assert (self.nesting == 0)
@@ -738,6 +748,8 @@ class DerivaVisibleSources(DerivaLogging):
         pass
 
     def validate(self):
+        if self.tag not in self.table.annotations:
+            return
         for c, l in self.table.annotations[self.tag].items():
             DerivaContext(c)  # Make sure that we have a valid context value.
             for j in l:
@@ -1094,7 +1106,7 @@ class DerivaSourceSpec(DerivaLogging):
             else:
                 raise DerivaSourceError(self, 'Invalid source entry {}'.format(spec))
         # Check for old style foreign key notation and turn into inbound or outbound source.
-        elif isinstance(spec, (tuple, list)) and len(spec) == 2 and spec[0] == self.table.schema_name:
+        elif isinstance(spec, (tuple, list)) and len(spec) == 2:
             if spec[1] in self.table.keys:
                 return {'source': next(iter(self.table.keys[spec[1]].columns)).name}
             elif spec[1] in self.table.foreign_keys:
@@ -1106,9 +1118,12 @@ class DerivaSourceSpec(DerivaLogging):
         else:
             # We have a spec that is already in source form.
             # every element of pseudo column source except the last must be either an inbound or outbound spec.
-            if not (isinstance(spec['source'], str) or
-                    all(map(lambda x: len(x.get('inbound', x.get('outbound',[]))) == 2, spec['source'][0:-1]))):
-                raise DerivaSourceError(self, 'Invalid source entry is not in key list{}'.format(spec))
+            try:
+                if not (isinstance(spec['source'], str) or
+                        all(map(lambda x: len(x.get('inbound', x.get('outbound',[]))) == 2, spec['source'][0:-1]))):
+                    raise DerivaSourceError(self, 'Invalid source entry is not in key list{}'.format(spec))
+            except TypeError:
+                raise DerivaSourceError(self, 'Invalid source entry {}'.format(spec))
         return spec
 
     def rename_column(self, column_map):
@@ -2022,6 +2037,11 @@ class DerivaTable(DerivaCore):
         self.visible_columns.validate()
         self.visible_foreign_keys.validate()
         self.validate_display()
+
+    def validate_display(self):
+        # TODO Need to go through display annotation and make sure it references proper columns.
+        pass
+
 
     def _column_map(self, column_map, dest_table):
         return DerivaColumnMap(self, column_map, dest_table)
