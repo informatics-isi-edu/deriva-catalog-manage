@@ -82,7 +82,7 @@ logger_config = {
             #  'level': 'DEBUG'
         },
         'deriva_model.DerivaSchema': {
-
+            'level': 'DEBUG'
         },
         'deriva_model.DerivaVisibleSources': {
           #     'level': 'DEBUG'
@@ -524,7 +524,21 @@ class DerivaSchema(DerivaCore):
                      comment=None,
                      acls={},
                      acl_bindings={},
-                     annotations={}):
+                     annotations={},
+                     default_config=True):
+        """
+        Create a new table from the provided arguments.
+
+        :param table_name:
+        :param column_defs:
+        :param key_defs:
+        :param fkey_defs:
+        :param comment:
+        :param acls:
+        :param acl_bindings:
+        :param annotations:
+        :return:
+        """
         self.logger.debug('table_name: %s', table_name)
         # Now that we know the table name, patch up the key and fkey defs to have the correct name.
         proto_table = namedtuple('ProtoTable', ['catalog', 'schema', 'schema_name', 'name', 'columns'])
@@ -561,6 +575,19 @@ class DerivaSchema(DerivaCore):
                      acls={},
                      acl_bindings={},
                      annotations={}):
+        """
+        Create an asset table.  This funcation creates a new table that has the standard asset columns in addition
+        to columns provided by the caller.
+        :param table_name:
+        :param column_defs:
+        :param key_defs:
+        :param fkey_defs:
+        :param comment:
+        :param acls:
+        :param acl_bindings:
+        :param annotations:
+        :return:
+        """
 
         self.logger.debug('table_name: %s', table_name)
         # Now that we know the table name, patch up the key and fkey defs to have the correct name.
@@ -588,6 +615,21 @@ class DerivaSchema(DerivaCore):
                           acls={}, acl_bindings={},
                           annotations={}
                           ):
+        """
+        Create a vocabulary table that can be used to reference externally defined terms. This funcion provides the
+        option to add additional columns to the table, as well as set access control and additional table annotations.
+        :param vocab_name:
+        :param curie_template: Default shortform name for the term, in the form of 'NAMESPACE:{RID}',
+        :param uri_template:
+        :param column_defs:
+        :param key_defs:
+        :param fkey_defs:
+        :param comment:
+        :param acls:
+        :param acl_bindings:
+        :param annotations:
+        :return:
+        """
         return self._create_table(
             em.Table.define_vocabulary(vocab_name, curie_template, uri_template=uri_template,
                                        column_defs=column_defs,
@@ -597,6 +639,10 @@ class DerivaSchema(DerivaCore):
         )
 
     def validate(self):
+        """
+        Validate the annotations associated with the tables in this schema.
+        :return:
+        """
         for t in self.tables:
             t.validate()
 
@@ -2821,7 +2867,7 @@ class DerivaTable(DerivaCore):
         :param term_table: The term table.
         :return: None.
         """
-        if not ({'ID', 'URI', 'Description', 'Name'} < set(term_table._column_names())):
+        if not self.is_vocabulary_table():
             raise DerivaCatalogError(self, 'Attempt to link_vocabulary on a non-vocabulary table')
 
         self.link_tables(column_name, term_table, target_column='ID')
@@ -2856,9 +2902,56 @@ class DerivaTable(DerivaCore):
             DerivaForeignKey.define([self.name], self, [table_column]),
             DerivaForeignKey.define([target_table.name], target_table, [target_column])
         ]
-
         table_def = self.schema.create_table(
             association_table_name,
             column_defs,
             key_defs=key_defs, fkey_defs=fkey_defs,
             comment='Association table for {}'.format(association_table_name))
+
+    def is_pure_binary(self):
+        """
+        Check to see if the table has the propoerties of a pure binary association.
+          1. It only has two foreign keys,
+          2. There is a uniqueness constraint on the two keys.
+          3. NULL values are not allowed in the foreign keys.
+        :param table:
+        :return:
+        """
+        # table has only two foreign_key constraints.
+        # Each constraint is over only one column.
+        if [len(fk.columns) for fk in self.foreign_keys] != [1,1]:
+            return False
+
+        [c0, c1]  = [ next(iter(fk.columns)) for fk in self.foreign_keys]
+
+        # There is a key constraint on the pair of fkey columns.
+
+        try:
+            self.key[c0.name, c1.name]
+        except DerivaKeyError:
+            return False
+
+        # Null is not allowed on the column.
+        if c0.nullok or c1.nullok:
+            return False
+
+        return True
+
+    def associated_tables(self):
+        """
+        Assuming the table is an pure binary association table, return the two table endpoints
+        :param table: ermrest table object for a table that is a pure binary association table.
+        :return: list of 2-tuples that are the schema and table for the two tables in the M:N relationship
+        """
+        if not self.is_pure_binary():
+            raise DerivaCatalogError(self,msg='Table not pure binary %s'.format(self.name))
+
+        return [fk.referenced_table for fk in self.foreign_keys]
+
+    def is_vocabulary_table(self):
+        """
+        Test to see if a table is a deriva vocabulary table.
+        :return: True or False.
+        """
+
+        return  ({'ID', 'URI', 'Description', 'Name'} < set(self._column_names()))

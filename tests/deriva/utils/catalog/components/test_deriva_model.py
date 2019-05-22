@@ -691,6 +691,11 @@ class TestDerivaTable(TestCase):
         print(table1_copy)
         print(table2_copy)
 
+    def test_vocabulary_table(self):
+        table1 = catalog[schema_name].create_table('TestTable1', [DerivaColumn.define('Foo1a', 'text')])
+        v = catalog[schema_name].create_vocabulary('testterms', 'TESTSCHEMA:{RID}')
+        self.assertTrue(v.is_vocabulary_table())
+
     def test_link_tables(self):
         table1 = catalog[schema_name].create_table('TestTable1', [DerivaColumn.define('Foo1a', 'text')])
         table2 = catalog[schema_name].create_table('TestTable2', [DerivaColumn.define('Foo1', 'text')])
@@ -701,6 +706,11 @@ class TestDerivaTable(TestCase):
         table1 = catalog[schema_name].create_table('TestTable1', [DerivaColumn.define('Foo1a', 'text')])
         table2 = catalog[schema_name].create_table('TestTable2', [DerivaColumn.define('Foo1', 'text')])
         table1.associate_tables(table2)
+        assoc_table = catalog[schema_name]['TestTable1_TestTable2']
+        self.assertTrue(assoc_table.is_pure_binary())
+        assoc_table.associated_tables()
+        generate_test_tables(catalog, schema_name)
+        self.assertFalse(catalog['TestSchema']['Table2'].is_pure_binary())
 
     def test_create_asset_table(self):
         table = catalog[schema_name].create_table('TestTable1', [DerivaColumn.define('Foo1a', 'text')])

@@ -13,3 +13,11 @@ from deriva.utils.catalog.components.deriva_model import DerivaTable, DerivaCata
      DerivaKey, DerivaForeignKey, DerivaVisibleSources, DerivaContext, DerivaColumn
 
 
+
+configure_catalog_defaults
+
+# Create basic tables
+
+# Create links
+
+# Create collections
