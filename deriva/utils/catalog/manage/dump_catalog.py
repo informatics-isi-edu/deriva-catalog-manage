@@ -25,6 +25,8 @@ from deriva.core import ErmrestCatalog, get_credential
 from deriva.core.ermrest_config import tag as chaise_tags
 from deriva.utils.catalog.manage.deriva_file_templates import table_file_template, schema_file_template, \
     catalog_file_template
+from deriva.utils.catalog.components.deriva_model import DerivaCatalog, DerivaModel
+
 from deriva.utils.catalog.version import __version__ as VERSION
 from deriva.utils.catalog.manage.graph_catalog import DerivaCatalogToGraph
 
@@ -385,8 +387,7 @@ class DerivaDumpCatalogCLI (BaseCLI):
     def _graph_catalog(self):
         graph = DerivaCatalogToGraph(self.catalog)
         graphfile = '{}_{}'.format(self.host, self.catalog_id)
-        graph.catalog_to_graph(schemas=
-                               [s for s in self.schemas if s not in ['_acl_admin', 'public', 'WWW']],
+        graph.catalog_to_graph(schemas=[s for s in self.schemas if s not in ['_acl_admin', 'public', 'WWW']],
                                skip_terms=True,
                                skip_assocation_tables=True)
         graph.save(filename=graphfile, format=self.graph_format)
@@ -396,63 +397,62 @@ class DerivaDumpCatalogCLI (BaseCLI):
 
         self.dumpdir = args.dir
         self.host = args.host
-        self.catalog_id = args.catalog_model
+        self.catalog_id = args.catalog
         self.graph_format = args.graph_format
 
         if self.host is None:
             eprint('Host name must be provided')
             return 1
 
-        credential = self._get_credential(self.host)
-        self.catalog = ErmrestCatalog('https', self.host, self.catalog_id, credentials=credential)
-        model_root = self.catalog.getCatalogModel()
+        self.catalog = DerivaCatalog(self.host, catalog_id=self.catalog_id)
 
-        self.schemas = [s for s in (args.schemas if args.schemas else model_root.schemas)
-                        if s not in args.skip_schemas
-                        ]
+        with DerivaModel(self.catalog) as m:
+            model_root = m.catalog_model()
 
-        try:
-            os.makedirs(self.dumpdir, exist_ok=True)
-        except OSError as e:
-            sys.stderr.write(str(e))
-            return 1
+            self.schemas = [s for s in (args.schemas if args.schemas else model_root.schemas)
+                            if s not in args.skip_schemas
+                            ]
 
+            try:
+                os.makedirs(self.dumpdir, exist_ok=True)
+            except OSError as e:
+                sys.stderr.write(str(e))
+                return 1
 
-
-        logger.info('Catalog has {} schema and {} tables'.format(len(model_root.schemas),
-                                                                 sum([len(v.tables) for k, v in
-                                                                      model_root.schemas.items()])))
-        logger.info('\n'.join(['    {} has {} tables'.format(k, len(s.tables))
-                               for k, s in model_root.schemas.items()]))
-        try:
-            if args.table_model:
-                if ':' not in args.table_model:
+            logger.info('Catalog has {} schema and {} tables'.format(len(model_root.schemas),
+                                                                     sum([len(v.tables) for k, v in
+                                                                          model_root.schemas.items()])))
+            logger.info('\n'.join(['    {} has {} tables'.format(k, len(s.tables))
+                                   for k, s in model_root.schemas.items()]))
+            try:
+                if args.table:
+                    if ':' not in args.table_model:
                         raise DerivaDumpCatalogException('Table name must be in form of schema:table')
-                [schema_name, table_name] = args.table_model.split(":")
-                self._dump_table(schema_name, table_name)
-            elif args.graph:
-                self._graph_catalog()
-            else:
-                self._dump_catalog(model_root)
-        except DerivaDumpCatalogException as e:
-            print(e.msg)
-        except HTTPError as e:
-            if e.response.status_code == requests.codes.unauthorized:
-                msg = 'Authentication required for {}'.format(args.server)
-            elif e.response.status_code == requests.codes.forbidden:
-                msg = 'Permission denied'
-            else:
-                msg = e
-            logging.debug(format_exception(e))
-            eprint(msg)
-        except RuntimeError as e:
-            sys.stderr.write(str(e))
-            return 1
-        except:
-            traceback.print_exc()
-            return 1
-        finally:
-            sys.stderr.write("\n\n")
+                    [schema_name, table_name] = args.table_model.split(":")
+                    self._dump_table(schema_name, table_name)
+                elif args.graph:
+                    self._graph_catalog()
+                else:
+                    self._dump_catalog(model_root)
+            except DerivaDumpCatalogException as e:
+                print(e.msg)
+            except HTTPError as e:
+                if e.response.status_code == requests.codes.unauthorized:
+                    msg = 'Authentication required for {}'.format(args.server)
+                elif e.response.status_code == requests.codes.forbidden:
+                    msg = 'Permission denied'
+                else:
+                    msg = e
+                logging.debug(format_exception(e))
+                eprint(msg)
+            except RuntimeError as e:
+                sys.stderr.write(str(e))
+                return 1
+            except:
+                traceback.print_exc()
+                return 1
+            finally:
+                sys.stderr.write("\n\n")
         return
 
 
