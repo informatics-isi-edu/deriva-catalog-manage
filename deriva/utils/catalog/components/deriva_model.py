@@ -598,7 +598,7 @@ class DerivaSchema(DerivaCore):
         for k in fkey_defs:
             k.update_table(proto_table(self.catalog, self.schema, self.name, table_name, column_defs))
 
-        return self._create_table(em.Table.define_asset(
+        asset_table = self._create_table(em.Table.define_asset(
             self.schema_name,
             table_name,
             key_defs=[key.definition() if isinstance(key, DerivaKey) else key for key in key_defs],
@@ -608,6 +608,13 @@ class DerivaSchema(DerivaCore):
             acls=acls, acl_bindings=acl_bindings,
             comment=comment)
         )
+        asset_table.columns['URL'].annotations[chaise_tags.column_display] = {'*': {'markdown_pattern': '[**{{URL}}**]({{{URL}}})'}}
+        asset_table.columns['Filename'].annotations[chaise_tags.column_display] = {'*': {'markdown_pattern': '[**{{Filename}}**]({{{URL}}})'}}
+        asset_table.columns['Length'].annotations[chaise_tags.generated]= True
+        asset_table.columns['MD5'].annotations[chaise_tags.generated] = True
+        asset_table.columns['URL'].annotations[chaise_tags.generated] = True
+        return asset_table
+
 
     def create_vocabulary(self, vocab_name, curie_template, uri_template='/id/{RID}', column_defs=[],
                           key_defs=[], fkey_defs=[],
@@ -2872,6 +2879,20 @@ class DerivaTable(DerivaCore):
 
         self.link_tables(column_name, term_table, target_column='ID')
         return
+
+    def associate_vocabulary(self, column_name, term_table):
+        """
+        Set an existing column in the table to refer to an existing vocabulary table.
+        :param column_name: Name of the column whose value is to be from the vocabular
+        :param term_table: The term table.
+        :return: None.
+        """
+        if not self.is_vocabulary_table():
+            raise DerivaCatalogError(self, 'Attempt to link_vocabulary on a non-vocabulary table')
+
+        self.associate_tables(column_name, term_table, target_column='ID')
+        return
+
 
     def disassociate_tables(self, target_table):
         association_table_name = '{}_{}'.format(self.name, target_table.name)
