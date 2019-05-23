@@ -1,5 +1,5 @@
 deriva.utils.catalog.components package
-============================
+=======================================
 
 Submodules
 ----------
@@ -12,7 +12,7 @@ deriva.utils.catalog.components.configure\_catalog module
     :undoc-members:
     :show-inheritance:
 
-deriva.utils.catalog.components module
+deriva.utils.catalog.components.deriva\_catalog module
 ---------------------------
 
 .. automodule:: deriva.utils.catalog.components.deriva_catalog
