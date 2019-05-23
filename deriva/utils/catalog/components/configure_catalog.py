@@ -8,7 +8,7 @@ import deriva.core.ermrest_model as em
 from deriva.core.ermrest_config import tag as chaise_tags
 
 from deriva.utils.catalog.components.deriva_model import DerivaCatalog, DerivaSchema, DerivaColumn, \
-    DerivaTable, DerivaContext, DerivaKey, DerivaForeignKey, DerivaCatalogError
+    DerivaTable, DerivaContext, DerivaKey, DerivaForeignKey, DerivaCatalogError, DerivaModel
 
 logger = logging.getLogger(__name__)
 
@@ -275,34 +275,34 @@ class DerivaCatalogConfigure(DerivaCatalog):
         :param public: Set to true if anonymous read access should be allowed.
         :return:
         """
+        with DerivaModel(self.catalog):
+            if not catalog_name:
+                # If catalog name is not provided, default to the host name of the host.
+                catalog_name = urlparse(self.ermrest_catalog.get_server_uri()).hostname.split('.')[0]
+            groups = self.set_core_groups(catalog_name=catalog_name,
+                                          admin=admin, curator=curator, writer=writer, reader=reader)
 
-        if not catalog_name:
-            # If catalog name is not provided, default to the host name of the host.
-            catalog_name = urlparse(self.ermrest_catalog.get_server_uri()).hostname.split('.')[0]
-        groups = self.set_core_groups(catalog_name=catalog_name,
-                                      admin=admin, curator=curator, writer=writer, reader=reader)
+            # Record configuration of catalog so we can retrieve when we configure tables later on.
+            self.annotations[chaise_tags.catalog_config] = {'name': catalog_name, 'groups': groups}
 
-        # Record configuration of catalog so we can retrieve when we configure tables later on.
-        self.annotations[chaise_tags.catalog_config] = {'name': catalog_name, 'groups': groups}
+            # Set up default name style for all schemas.
+            for s in self.schemas:
+                s.annotations[chaise_tags.display] = {'name_style': {'underline_space': True}}
 
-        # Set up default name style for all schemas.
-        for s in self.schemas:
-            s.annotations[chaise_tags.display] = {'name_style': {'underline_space': True}}
+            # modify catalog ACL config to support basic admin/curator/writer/reader access.
+            if set_policy:
+                self.acls.update({
+                    "owner": [groups['admin']],
+                    "insert": [groups['curator'], groups['writer']],
+                    "update": [groups['curator']],
+                    "delete": [groups['curator']],
+                    "select": [groups['writer'], groups['reader']] if not public else ['*'],
+                    "enumerate": ["*"],
+                })
 
-        # modify catalog ACL config to support basic admin/curator/writer/reader access.
-        if set_policy:
-            self.acls.update({
-                "owner": [groups['admin']],
-                "insert": [groups['curator'], groups['writer']],
-                "update": [groups['curator']],
-                "delete": [groups['curator']],
-                "select": [groups['writer'], groups['reader']] if not public else ['*'],
-                "enumerate": ["*"],
-            })
-
-        self.configure_ermrest_client(groups)
-        self.configure_group_table(groups)
-        self._configure_www_schema()
+            self.configure_ermrest_client(groups)
+            self.configure_group_table(groups)
+            self._configure_www_schema()
 
         return
 

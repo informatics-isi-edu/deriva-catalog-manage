@@ -1,7 +1,7 @@
 import logging
 
 from deriva.core import get_credential, DerivaServer
-from deriva.utils.catalog.components.deriva_model import DerivaColumn
+from deriva.utils.catalog.components.deriva_model import DerivaColumn, DerivaModel
 from deriva.utils.catalog.components.configure_catalog import DerivaCatalogConfigure
 
 logging.basicConfig(
@@ -11,6 +11,7 @@ logging.basicConfig(
 # These need to be changed depending on the host and groups available.
 host = 'dev.isrd.isi.edu'
 catalog_name='test'
+schema_name='Demo'
 
 
 logger = logging.getLogger(__name__)
@@ -24,6 +25,8 @@ def create_catalog(server):
      logger.info('Catalog_id is {}'.format(catalog_id))
      return catalog_id
 
+def menu_url(table_name):
+     return "/chaise/recordset/#{{{$catalog.id}}}/{}:{}".format(schema_name, table_name)
 
 logger.info('Creating catalog....')
 catalog_id = create_catalog(host)
@@ -37,14 +40,14 @@ catalog.navbar_menu = {
      'children': [
           {'name': "Browse",
            'children': [
-                {'name': "Collections", 'url': "/chaise/recordset/#{{{$catalog.id}}}/Beta_Cell:Dataset"},
-                {'name': "Study", 'url': "/chaise/recordset/##{{{$catalog.id}}}/Beta_Cell:Protocol"},
-                {'name': "Experiment", 'url': "/chaise/recordset/#{{{$catalog.id}}}/Beta_Cell:Experiment"},
-                {'name': "Replicate", 'url': "/chaise/recordset/#{{{$catalog.id}}}/Beta_Cell:Biosample"},
-                {'name': "Specimens", 'url': "/chaise/recordset/#{{{$catalog.id}}}/Beta_Cell:Specimen"},
-                {'name': "File", 'url': "/chaise/recordset/#{{{$catalog.id}}}/Beta_Cell:Cell_Line"},
-                {'name': "Imaging", 'url': "/chaise/recordset/#{{{$catalog.id}}}/Beta_Cell:Cell_Line"},
-                {'name': "Anatomy", 'url': "/chaise/recordset/#{{{$catalog.id}}}/Common:Collection"}
+                {'name': "Collections", 'url': menu_url('Collection')},
+                {'name': "Study", 'url': menu_url('Study')},
+                {'name': "Experiment", 'url': menu_url("Experiment")},
+                {'name': "Replicate", 'url': menu_url('Replicate')},
+                {'name': "Specimens", 'url': menu_url('Specimen')},
+                {'name': "File", 'url': menu_url("File")},
+                {'name': "Imaging", 'url': menu_url("Imaging")},
+                {'name': "Anatomy", 'url': menu_url("Anatomy")}
            ]
            },
           {'name': "About", 'url': "https:/chase/record/#{{{$catalog.id}}}/WWW:About"},
@@ -56,47 +59,53 @@ logger.info('Creating schema')
 schema = catalog.create_schema('DemoSchema')
 
 # Create Basic Tables.
+with DerivaModel(catalog):
+     logger.info('Creating tables....')
+     study = schema.create_table('Study',
+                                 [DerivaColumn.define('Title', 'text'),
+                                  DerivaColumn.define('Description', 'text')])
+     study.configure_table_defaults()
 
-logger.info('Creating tables....')
-study = schema.create_table('Study',
-                            [DerivaColumn.define('Title', 'text'),
-                             DerivaColumn.define('Description', 'text')])
-study.configure_table_defaults()
+     experiment = schema.create_table('Experiment', [DerivaColumn.define('Experiment_Type', 'text')])
+     experiment.configure_table_defaults()
 
-experiment = schema.create_table('Experiment', [DerivaColumn.define('Experiment_Type', 'text')])
-experiment.configure_table_defaults()
+     replicate = schema.create_table('Replicate', [DerivaColumn.define('Replicate_Number', 'int4')])
+     replicate.configure_table_defaults()
 
-replicate = schema.create_table('Replicate', [DerivaColumn.define('Replicate_Number', 'int4')])
-replicate.configure_table_defaults()
+     specimen = schema.create_table('Specimen', [DerivaColumn.define('Specimen_Type', 'text')])
+     specimen.configure_table_defaults()
 
-specimen = schema.create_table('Specimen', [DerivaColumn.define('Specimen_Type', 'text')])
-specimen.configure_table_defaults()
+     # Asset tables
+     logger.info('Creating asset tables....')
+     file = schema.create_asset('File',
+                                column_defs=[
+                                     DerivaColumn.define('File_Type', 'text'),
+                                     DerivaColumn.define('Description', 'text')
+                                ])
+     file.configure_table_defaults()
 
-# Asset tables
+     imaging = schema.create_asset('Imaging')
+     imaging.configure_table_defaults()
 
-#file = schema.create_asset('File')
-#file.configure_table_defaults()
+     # Create collections.
+     collection = schema.create_table('Collection',[DerivaColumn.define('Description', 'text'),
+                                                    DerivaColumn.define('Name', 'text')
+                                                    ])
 
-#imaging = schema.create_asset('Imaging')
-#imaging.configure_table_defaults()
+     # Create links between tables.
+     logger.info('Linking tables....')
+     experiment.link_tables(study)
+     replicate.link_tables(file)
 
-#imaging.create_asset_table('Imaging', set_policy=False)
-#file.create_asset_table('File', set_policy=False)
+     collection.associate_tables(specimen)
+     collection.associate_tables(study)
 
-# Create links between tables.
-experiment.link_tables(study)
+     specimen.associate_tables(imaging)
+     experiment.associate_tables(imaging)
 
-# Create collections.
-collection = schema.create_table('Collection',[DerivaColumn.define('Description', 'text'),
-                                               DerivaColumn.define('Name', 'text')
-                                               ])
-collection.associate_tables(specimen)
-collection.associate_tables(study)
-
-
-anatomy = catalog.create_vocabulary('Anatomy')
-specimen.associate_vocabulary(anatomy)
+     anatomy = schema.create_vocabulary('Anatomy', 'DEMO:{RID}')
+     specimen.associate_vocabulary(anatomy)
 
 # Now add some content.....
 
-logger.info('Catalog %s', catalog.server_uri)
+logger.info('Catalog %s', study.chaise_uri)
