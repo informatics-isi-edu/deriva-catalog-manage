@@ -1,8 +1,12 @@
 import logging
+import os
+import os.path
+
 
 from deriva.core import get_credential, DerivaServer
 from deriva.utils.catalog.components.deriva_model import DerivaColumn, DerivaModel
 from deriva.utils.catalog.components.configure_catalog import DerivaCatalogConfigure
+from deriva.utils.catalog.manage.deriva_csv import DerivaCSV
 
 logging.basicConfig(
     level=logging.INFO,
@@ -25,8 +29,12 @@ def create_catalog(server):
      logger.info('Catalog_id is {}'.format(catalog_id))
      return catalog_id
 
-def menu_url(table_name):
-     return "/chaise/recordset/#{{{$catalog.id}}}/" + "{}:{}".format(schema_name, table_name)
+def menu_url(schema_name, table_name):
+     return {
+         'name': table_name,
+         'url': "/chaise/recordset/#{{{$catalog.id}}}/" + "{}:{}".format(schema_name, table_name)
+     }
+
 
 logger.info('Creating catalog....')
 catalog_id = create_catalog(host)
@@ -35,28 +43,50 @@ logger.info('Configuring catalog....')
 catalog = DerivaCatalogConfigure(host, catalog_id=catalog_id)
 catalog.configure_baseline_catalog(catalog_name='test', admin='isrd-systems')
 
+about_content = 'This is a test catalog... should put some markdown in a file and include the picture.'
+
+r = list(
+    catalog['WWW']['Page'].datapath().insert(
+        [
+            {
+                'Title': 'About the Catalog',
+                'Content': about_content
+            },
+            {
+                'Title': 'Help',
+                'Content': 'This is a test catalog... should put some markdown in a file'
+            },
+        ]
+    )
+)
+
+about_rid = r[0]['RID']
+help_rid = r[1]['RID']
+
+# Set up the navigation bar.
 catalog.navbar_menu = {
-     'newTab': False,
-     'children': [
-          {'name': "Browse",
-           'children': [
-                {'name': "Collections", 'url': menu_url('Collection')},
-                {'name': "Study", 'url': menu_url('Study')},
-                {'name': "Experiment", 'url': menu_url("Experiment")},
-                {'name': "Replicate", 'url': menu_url('Replicate')},
-                {'name': "Specimens", 'url': menu_url('Specimen')},
-                {'name': "File", 'url': menu_url("File")},
-                {'name': "Imaging", 'url': menu_url("Imaging")},
-                {'name': "Anatomy", 'url': menu_url("Anatomy")}
-           ]
-           },
-          {'name': "About", 'url': "https:/chase/record/#{{{$catalog.id}}}/WWW:About"},
-          {'name': "Help", 'url': "https:/chase/record/#{{{$catalog.id}}}/WWW:Help"}
-     ]
+    'newTab': False,
+    'children': [
+        {'name': "Browse",
+         'children': [
+             menu_url(schema_name, 'Collection'),
+             menu_url(schema_name, 'Study'),
+             menu_url(schema_name, "Experiment"),
+             menu_url(schema_name, 'Replicate'),
+             menu_url(schema_name, 'Specimen'),
+             menu_url(schema_name, "File"),
+             menu_url(schema_name, "Imaging"),
+             menu_url(schema_name, "Anatomy"),
+             menu_url("WWW", "Page")
+         ]
+         },
+        {'name': "About", 'url': '#{{{$catalog.id}}}/WWW:Page/RID=' + about_rid},
+        {'name': "Help", 'url': '#{{{$catalog.id}}}/WWW:Page/RID=' + help_rid}
+    ]
 }
 
 logger.info('Creating schema')
-schema = catalog.create_schema('DemoSchema')
+schema = catalog.create_schema(schema_name)
 
 # Create Basic Tables.
 with DerivaModel(catalog):
@@ -66,7 +96,10 @@ with DerivaModel(catalog):
                                   DerivaColumn.define('Description', 'text')])
      study.configure_table_defaults()
 
-     experiment = schema.create_table('Experiment', [DerivaColumn.define('Experiment_Type', 'text')])
+     experiment = schema.create_table('Experiment', [
+         DerivaColumn.define('Description', 'markdown'),
+         DerivaColumn.define('Experiment_Type', 'text')
+     ])
      experiment.configure_table_defaults()
 
      replicate = schema.create_table('Replicate', [DerivaColumn.define('Replicate_Number', 'int4')])
@@ -107,6 +140,10 @@ with DerivaModel(catalog):
      specimen.associate_vocabulary(anatomy)
 
 # Now add some content.....
-
+experiment_csv = DerivaCSV('Experiment.csv', schema_name)
+experiment_csv.upload_to_deriva(catalog)
 
 logger.info('Catalog %s', study.chaise_uri)
+
+# Load files into hatrac.
+
