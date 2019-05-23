@@ -27,10 +27,3 @@ deriva.utils.catalog.components.deriva\_model module
     :members:
     :undoc-members:
     :show-inheritance:
-
-Module contents
----------------
-
-.. automodule:: deriva.utils.catalog.components
-    :members:
-    :show-inheritance:
