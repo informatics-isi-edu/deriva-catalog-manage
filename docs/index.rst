@@ -8,12 +8,6 @@ DERIVA Catalog Management Utilities (deriva-catalog-manage)
    overview
 
 .. toctree::
-   :maxdepth: 10
-   :caption: API Reference
-
-   api/deriva.utils.catalog
-
-.. toctree::
    :maxdepth: 2
    :caption: Command Line Interfaces
 
@@ -21,3 +15,10 @@ DERIVA Catalog Management Utilities (deriva-catalog-manage)
    cli/deriva-catalog-config
    cli/deriva-catalog-dump
    cli/deriva-csv
+
+.. toctree::
+   :maxdepth: 10
+   :caption: API Reference
+
+   api/deriva.utils.catalog
+
