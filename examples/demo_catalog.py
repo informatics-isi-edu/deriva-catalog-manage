@@ -26,7 +26,7 @@ def create_catalog(server):
      return catalog_id
 
 def menu_url(table_name):
-     return "/chaise/recordset/#{{{$catalog.id}}}/{}:{}".format(schema_name, table_name)
+     return "/chaise/recordset/#{{{$catalog.id}}}/" + "{}:{}".format(schema_name, table_name)
 
 logger.info('Creating catalog....')
 catalog_id = create_catalog(host)
@@ -107,5 +107,6 @@ with DerivaModel(catalog):
      specimen.associate_vocabulary(anatomy)
 
 # Now add some content.....
+
 
 logger.info('Catalog %s', study.chaise_uri)
