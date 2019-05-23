@@ -576,7 +576,9 @@ class DerivaSchema(DerivaCore):
                      comment=None,
                      acls={},
                      acl_bindings={},
-                     annotations={}):
+                     annotations={},
+                     file_pattern='.*',
+                     extensions=[]):
         """
         Create an asset table.  This funcation creates a new table that has the standard asset columns in addition
         to columns provided by the caller.
@@ -618,8 +620,8 @@ class DerivaSchema(DerivaCore):
             asset_table.columns['Length'].annotations[chaise_tags.generated]= True
             asset_table.columns['MD5'].annotations[chaise_tags.generated] = True
             asset_table.columns['URL'].annotations[chaise_tags.generated] = True
+            asset_table._create_upload_spec(file_pattern, extensions)
             return asset_table
-
 
     def create_vocabulary(self, vocab_name, curie_template, uri_template='/id/{RID}', column_defs=[],
                           key_defs=[], fkey_defs=[],
@@ -2355,6 +2357,81 @@ class DerivaTable(DerivaCore):
                 self._delete_columns_in_display(v, columns)
             elif k == chaise_tags.visible_columns or k == chaise_tags.visible_foreign_keys:
                 DerivaVisibleSources(self, k).delete_visible_source(columns)
+
+    def _create_upload_spec(self, file_pattern, extensions):
+        """
+        Create a basic asset table and configures the bulk upload annotation to load the table along with a table of
+        associated metadata. This routine assumes that the metadata table has already been defined, and there is a key
+        associated metadata. This routine assumes that the metadata table has already been defined, and there is a key
+        column the metadata table that can be used to associate the asset with a row in the table. The default
+        configuration assumes that the assets are in a directory named with the table name for the metadata and that
+        they either are in a subdirectory named by the key value, or that they are in a file whose name starts with the
+        key value.
+
+        :return:
+        """
+        extension_pattern = '^.*[.](?P<file_ext>{})$'.format('|'.join(extensions if extensions else ['.*']))
+
+        spec = [
+                # Any metadata is in a file named /records/schema_name/tablename.[csv|json]
+                {
+                    'default_columns': ['RID', 'RCB', 'RMB', 'RCT', 'RMT'],
+                    'ext_pattern': '^.*[.](?P<file_ext>json|csv)$',
+                    'asset_type': 'table',
+                    'file_pattern': '^((?!/assets/).)*/records/(?P<schema>%s?)/(?P<table>%s)[.]' %
+                                    (self.schema_name, self.name),
+                    'target_table': [self.schema_name, self.name],
+                },
+                # Assets are in format assets/schema_name/table_name/correlation_key/file.ext
+                {
+                    'checksum_types': ['md5'],
+                    'column_map': {
+                        'URL': '{URI}',
+                        'Length': '{file_size}',
+                        self.name: '{table_rid}',
+                        'Filename': '{file_name}',
+                        'MD5': '{md5}',
+                    },
+                    'dir_pattern': '^.*/(?P<schema>%s)/(?P<table>%s)/(?P<key_column>.*)/' %
+                                   (self.schema_name, self.name),
+                    'ext_pattern': extension_pattern,
+                    'file_pattern': file_pattern,
+                    'hatrac_templates': {'hatrac_uri': '/hatrac/{schema}/{table}/{md5}.{file_name}'},
+                    'target_table': [self.schema_name, self.name],
+                    # Look for rows in the metadata table with matching key column values.
+                    'metadata_query_templates': [
+                        '/attribute/D:={schema}:{table}/%s={key_column}/table_rid:=D:RID' % key_column],
+                    # Rows in the asset table should have a FK reference to the RID for the matching metadata row
+                    'record_query_template':
+                        '/entity/{schema}:{table}_Asset/{table}={table_rid}/MD5={md5}/URL={URI_urlencoded}',
+                    'hatrac_options': {'versioned_uris': True},
+                }
+            ]
+
+        # The last thing we should do is update the upload spec to accomidate this new asset table.
+        if chaise_tags.bulk_upload not in self.catalog.annotations:
+            self.catalog.annotations.update({
+                chaise_tags.bulk_upload: {
+                    'asset_mappings': [],
+                    'version_update_url': 'https://github.com/informatics-isi-edu/deriva-qt/releases',
+                    'version_compatibility': [['>=0.4.3', '<1.0.0']]
+                }
+            })
+
+        # Clean out any old upload specs if there are any and add the new specs.
+        upload_annotations = self.catalog.annotations[chaise_tags.bulk_upload]
+        upload_annotations['asset_mappings'] = \
+            [i for i in upload_annotations['asset_mappings'] if
+             not (
+                     i.get('target_table', []) == [self.schema_name, self.name]
+                     or
+                     (
+                             i.get('target_table', []) == [self.schema_name, self.name]
+                             and
+                             i.get('asset_type', '') == 'table'
+                     )
+             )
+             ] + spec
 
     def create_keys(self, keys):
         """
