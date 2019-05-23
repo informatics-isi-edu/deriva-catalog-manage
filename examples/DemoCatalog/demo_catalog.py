@@ -43,7 +43,11 @@ logger.info('Configuring catalog....')
 catalog = DerivaCatalogConfigure(host, catalog_id=catalog_id)
 catalog.configure_baseline_catalog(catalog_name='test', admin='isrd-systems')
 
-about_content = 'This is a test catalog... should put some markdown in a file and include the picture.'
+with open('about.md') as f:
+    about_content = f.read()
+
+with open('help.md') as f:
+    help_content = f.read()
 
 r = list(
     catalog['WWW']['Page'].datapath().insert(
@@ -54,7 +58,7 @@ r = list(
             },
             {
                 'Title': 'Help',
-                'Content': 'This is a test catalog... should put some markdown in a file'
+                'Content': help_content
             },
         ]
     )
@@ -80,8 +84,8 @@ catalog.navbar_menu = {
              menu_url("WWW", "Page")
          ]
          },
-        {'name': "About", 'url': '#{{{$catalog.id}}}/WWW:Page/RID=' + about_rid},
-        {'name': "Help", 'url': '#{{{$catalog.id}}}/WWW:Page/RID=' + help_rid}
+        {'name': "About", 'url': '/chaise/record/#{{{$catalog.id}}}/WWW:Page/RID=' + about_rid},
+        {'name': "Help", 'url': '/chaise/record/#{{{$catalog.id}}}/WWW:Page/RID=' + help_rid}
     ]
 }
 

@@ -2372,6 +2372,7 @@ class DerivaTable(DerivaCore):
         """
         extension_pattern = '^.*[.](?P<file_ext>{})$'.format('|'.join(extensions if extensions else ['.*']))
 
+        key_column = 'foo'
         spec = [
                 # Any metadata is in a file named /records/schema_name/tablename.[csv|json]
                 {
@@ -2403,7 +2404,7 @@ class DerivaTable(DerivaCore):
                         '/attribute/D:={schema}:{table}/%s={key_column}/table_rid:=D:RID' % key_column],
                     # Rows in the asset table should have a FK reference to the RID for the matching metadata row
                     'record_query_template':
-                        '/entity/{schema}:{table}_Asset/{table}={table_rid}/MD5={md5}/URL={URI_urlencoded}',
+                        '/entity/{schema}:{table}/{table}={table_rid}/MD5={md5}/URL={URI_urlencoded}',
                     'hatrac_options': {'versioned_uris': True},
                 }
             ]
