@@ -1,15 +1,9 @@
-Python Command-line Clients and API (deriva-py)
-================================================
+DERIVA Catalog Management Utilities (deriva-catalog-manage)
+===========================================================
 
 .. toctree::
    :maxdepth: 1
-   :caption: Installing 
-   
-   install
-
-.. toctree::
-   :maxdepth: 4
-   :caption: API Guides
+   :caption: Overview
 
    README
 
@@ -17,13 +11,13 @@ Python Command-line Clients and API (deriva-py)
    :maxdepth: 10
    :caption: API Reference
 
-   api/deriva
+   api/deriva/utils/catalog
 
 .. toctree::
-   :maxdepth: 4
+   :maxdepth: 2
    :caption: Command Line Interfaces
 
-   cli/deriva-csv
+   cli/commands
+   cli/deriva-catalog-config
    cli/deriva-catalog-dump
-
-
+   cli/deriva-csv
