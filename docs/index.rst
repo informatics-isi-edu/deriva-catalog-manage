@@ -5,13 +5,13 @@ DERIVA Catalog Management Utilities (deriva-catalog-manage)
    :maxdepth: 1
    :caption: Overview
 
-   README
+   overview
 
 .. toctree::
    :maxdepth: 10
    :caption: API Reference
 
-   api/deriva/utils/catalog
+   api/deriva.utils.catalog
 
 .. toctree::
    :maxdepth: 2
