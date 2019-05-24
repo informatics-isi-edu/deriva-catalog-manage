@@ -215,6 +215,7 @@ class TestColumnMap(TestCase):
                              main)
         print(cm)
 
+
 class TestAttributes(TestCase):
     def setUp(self):
         clean_schema(catalog, schema_name)
@@ -513,7 +514,7 @@ class TestDerivaTable(TestCase):
         table2 = catalog['TestSchema']['Table2']
 
         self.assertEqual(table2.keys['ID2_Table2','ID3_Table2'].name, 'Table2_ID2_Table2_ID3_Table2_key')
-        self.assertEqual(table2.foreign_keys['ID2_Table2','ID3_Table2'].name, 'Table2_ID2_Table2_ID3_Table2_fkey')
+        self.assertEqual(table2.foreign_keys['ID2_Table2', 'ID3_Table2'].name, 'Table2_ID2_Table2_ID3_Table2_fkey')
 
         fk = table1.referenced_by['Table2_ID1_Table2_fkey']
         self.assertEqual(fk.name, 'Table2_ID1_Table2_fkey')
@@ -635,6 +636,31 @@ class TestDerivaTable(TestCase):
         # One column of a compound FK.  This should rename the FK and incoming.
         table2.rename_columns({'ID2_Table2': 'ID2a_Table2'})
 
+    def test_move_columns_between_schema(self):
+        generate_test_tables(catalog, schema_name)
+        table1 = catalog['TestSchema']['Table1']
+        table2 = catalog['TestSchema']['Table2']
+
+        schema1 = catalog.create_schema('TestSchema1')
+
+        newtable = schema1.create_table('TestTable1', [])
+
+        # Plain old column....
+        table1.rename_columns({'Col1_Table1': 'NewFoo1'}, dest_table=newtable)
+        # Check column and visible columns.
+
+        # Column that is pointed to by a FK.  This should fail
+        with self.assertRaises(DerivaCatalogError):
+            table1.rename_columns({'ID1_Table1': 'ID1a_Table1'})
+
+        # Column that is a FK.
+        table2.rename_columns({'ID1_Table2': 'ID1a_Table2'})
+        # FK should be renamed as should incoming visible columns in table1
+
+        # One column of a compound FK.  This should rename the FK and incoming.
+        table2.rename_columns({'ID2_Table2': 'ID2a_Table2'})
+
+
     def test_copy_table(self):
         generate_test_tables(catalog, schema_name)
         table1 = catalog['TestSchema']['Table1']
@@ -674,6 +700,34 @@ class TestDerivaTable(TestCase):
         print(table_copy)
         #foo1 = table1.copy_table('TestSchema', 'Foo1', column_map=column_map)
 
+    def test_copy_table_between_schema(self):
+        generate_test_tables(catalog, schema_name)
+        table1 = catalog['TestSchema']['Table1']
+        table2 = catalog['TestSchema']['Table2']
+
+        catalog.create_schema('TestSchema1')
+
+        table1_copy = table1.copy_table('TestSchema1', 'Table1_Copy')
+
+        table2_copy = table2.copy_table('TestSchema1', 'Table2_Copy')
+        print(table1)
+        print(table1_copy)
+        print(table2_copy)
+
+        self.assertEqual(table2_copy.key['ID1_Table2'].name, 'Table2_Copy_ID1_Table2_key')
+        self.assertEqual(table2_copy.foreign_key['Table2_Copy_ID1_Table2_fkey'].name,
+                         'Table2_Copy_ID1_Table2_fkey')
+
+        print('table1 visible_keys', table1.visible_foreign_keys['*'])
+        self.assertIn({'source': [{'inbound': ('TestSchema1', 'Table2_Copy_ID1_Table2_fkey')}, 'RID']},
+                         table1.visible_foreign_keys['*'])
+        self.assertIn({'source': [{'inbound': ('TestSchema1', 'Table2_Copy_ID2_Table2_ID3_Table2_fkey')}, 'RID']},
+                         table1.visible_foreign_keys['*'])
+
+        self.assertEqual([], table1_copy.visible_foreign_keys['*'])
+        self.assertIn(
+            {'source': [{'inbound': ('TestSchema1', 'Table2_Copy_ID2_Table2_ID3_Table2_fkey')}, 'RID']},
+            table1.visible_foreign_keys['*'])
 
     def test_move_table(self):
         generate_test_tables(catalog, schema_name)
@@ -690,6 +744,22 @@ class TestDerivaTable(TestCase):
         table1_copy = table1.move_table('TestSchema', 'Table1_Copy')
         print(table1_copy)
         print(table2_copy)
+
+    def test_move_table_between_schema(self):
+        generate_test_tables(catalog, schema_name)
+        table1 = catalog['TestSchema']['Table1']
+        table2 = catalog['TestSchema']['Table2']
+        print(table2)
+        catalog.create_schema('TestSchema1')
+
+        #column_defs = [DerivaColumn.define(table, 'Status', 'int4', nullok=False)]
+        table2_copy = table2.move_table('TestSchema1', 'Table2_Copy')
+        print(table1)
+        print('visible keys', pprint.pformat(table1.visible_foreign_keys))
+        print(table2_copy)
+        print('visible keys', pprint.pformat(table2_copy.visible_foreign_keys))
+
+        table1_copy = table1.move_table('TestSchema', 'Table1_Copy')
 
     def test_vocabulary_table(self):
         table1 = catalog[schema_name].create_table('TestTable1', [DerivaColumn.define('Foo1a', 'text')])

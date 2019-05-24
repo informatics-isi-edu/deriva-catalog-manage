@@ -104,7 +104,7 @@ class DerivaCatalogToGraph:
             self.graph.save(filename=file, directory=dir)
         else:
             print('dumping graph in file', file, format)
-            self.graph.render(filename=file, directory=dir, view=view, cleanup=True, formatter=format)
+            self.graph.render(filename=file, directory=dir, view=view, cleanup=True, format=format)
 
     def view(self):
         self.graph.view()

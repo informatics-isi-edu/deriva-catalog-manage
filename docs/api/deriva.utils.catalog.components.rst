@@ -12,18 +12,10 @@ deriva.utils.catalog.components.configure\_catalog module
     :undoc-members:
     :show-inheritance:
 
-deriva.utils.catalog.components.deriva\_catalog module
----------------------------
-
-.. automodule:: deriva.utils.catalog.components.deriva_catalog
-    :members:
-    :undoc-members:
-    :show-inheritance:
-
 deriva.utils.catalog.components.deriva\_model module
 ----------------------------------
 
 .. automodule:: deriva.utils.catalog.components.deriva_model
-    :members:
+    :members: DerivaCatalog, DerivaSchema, DerivaTable
     :undoc-members:
     :show-inheritance:

@@ -15,7 +15,6 @@ from deriva.core.ermrest_config import MultiKeyedList
 from deriva.core.ermrest_config import tag as chaise_tags
 
 chaise_tags['catalog_config'] = 'tag:isrd.isi.edu,2019:catalog-config'
-chaise_tags['chaise_config'] = 'tag:isrd.isi.edu,2019:chaise-config'
 
 CATALOG_CONFIG__TAG = 'tag:isrd.isi.edu,2019:catalog-config'
 
@@ -85,7 +84,7 @@ logger_config = {
             'level': 'DEBUG'
         },
         'deriva_model.DerivaVisibleSources': {
-          #     'level': 'DEBUG'
+         #      'level': 'DEBUG'
         },
         'deriva_model.DerivaSourceSpec': {
           #     'level': 'DEBUG'
@@ -123,17 +122,21 @@ class DerivaSourceError(DerivaCatalogError):
     def __init__(self, obj, msg):
         super().__init__(obj, msg)
 
+
 class DerivaKeyError(DerivaCatalogError):
     def __init__(self, obj, msg):
         super().__init__(obj, msg)
+
 
 class DerivaForeignKeyError(DerivaCatalogError):
     def __init__(self, obj, msg):
         super().__init__(obj, msg)
 
+
 class DerivaTableError(DerivaCatalogError):
     def __init__(self, obj, msg):
         super().__init__(obj, msg)
+
 
 class DerivaContext(Enum):
     compact = "compact"
@@ -193,6 +196,15 @@ class ElementList:
 
 
 class DerivaModel(DerivaLogging):
+    """
+    Representation of a deriva model. Is primarly used as a resource manager to group catalog operations so as to
+    minimize networ round trips.  For example:
+
+    with DerivaModel(catalog)
+       table = schema.create_table('MyTable',[])
+       table.display = 'My Nice Table'
+
+    """
     contexts = {i for i in DerivaContext if i is not DerivaContext("all")}
 
     def __init__(self, catalog):
@@ -209,7 +221,7 @@ class DerivaModel(DerivaLogging):
         self.catalog.nesting -= 1
         if self.catalog.nesting == 0:
             self.logger.debug('applying changes to model %s', self.catalog_model())
-            self.catalog.apply()
+            self.catalog._apply()
 
     def model_element(self, obj):
         try:
@@ -319,14 +331,18 @@ class DerivaCore(DerivaLogging):
 
 
 class DerivaCatalog(DerivaCore):
+    """
+    A Dervia catalog.  Operations on the catalog will alter both the ERMrest service as well as the annotations used
+    by Chaise.
+    """
     model_instance = None
 
     def __init__(self, host, scheme='https', catalog_id=1, ermrest_catalog=None):
         """
         Initialize a DerivaCatalog.
-        :param host:
-        :param scheme:
-        :param catalog_id:
+        :param host: Name of the server hosting the deriva catalog service
+        :param scheme: Scheme to be used for connecting to the host, defaults to https
+        :param catalog_id: The identifer for the catalog in the server.  Is an integer
         """
 
         self.nesting = 0
@@ -388,12 +404,20 @@ class DerivaCatalog(DerivaCore):
         else:
             self.annotations[chaise_tags.chaise_config]['navbarMenu'] = value
 
-    def apply(self):
+    def _apply(self):
+        """
+        Push any pending annotation updates to the server. Should not be need to be called except when things get
+        messed up.
+        :return:
+        """
         self.logger.debug('%s', self.model_instance)
         self.model_instance.apply(self.ermrest_catalog)
-        return self
 
     def refresh(self):
+        """
+        Refresh the any cached model values from the server.
+        :return:
+        """
         assert (self.nesting == 0)
         logger.debug('Refreshing model')
         server_url = urlparse(self.ermrest_catalog.get_server_uri())
@@ -617,7 +641,7 @@ class DerivaSchema(DerivaCore):
                 {'*': {'markdown_pattern': '[**{{URL}}**]({{{URL}}})'}}
             asset_table.columns['Filename'].annotations[chaise_tags.column_display] = \
                 {'*': {'markdown_pattern': '[**{{Filename}}**]({{{URL}}})'}}
-            asset_table.columns['Length'].annotations[chaise_tags.generated]= True
+            asset_table.columns['Length'].annotations[chaise_tags.generated] = True
             asset_table.columns['MD5'].annotations[chaise_tags.generated] = True
             asset_table.columns['URL'].annotations[chaise_tags.generated] = True
             asset_table._create_upload_spec(file_pattern, extensions)
@@ -1058,7 +1082,8 @@ class DerivaVisibleSources(DerivaLogging):
             if context not in context_names:
                 continue
             for col in columns:
-                col_spec = DerivaSourceSpec(self.table, col)
+                # Columns may have already been deleted, so do not validate.
+                col_spec = DerivaSourceSpec(self.table, col, validate=False)
                 self.logger.debug('checking %s %s %s', col, col_spec, vc_list)
                 if col_spec.spec in vc_list:
                     self.logger.debug('deleting %s', col)
@@ -1338,7 +1363,7 @@ class DerivaColumn(DerivaCore):
                                                             annotations=annotations)
             else:
                 raise DerivaCatalogError(self, 'Column does not exist: {}'.format(name)
-                )
+                                         )
 
     def __str__(self):
         return '\n'.join(
@@ -1462,6 +1487,10 @@ class DerivaColumn(DerivaCore):
                                                                   self.column.definition())
 
     def delete(self):
+        """
+        Delete a single column.
+        :return:
+        """
         self.table.delete_columns(self)
 
 
@@ -1571,7 +1600,7 @@ class DerivaKey(DerivaCore):
     def columns(self):
         # The column order of key columns is not maintained,
         # so try to reconstruct it from the key name or table columns.
-        with DerivaModel(self.catalog) as m:
+        with DerivaModel(self.catalog):
             key_columns = []
             if self.name:
                 key_columns = [i.name for i in self.table.columns if i.name in self.name]
@@ -1981,9 +2010,8 @@ class DerivaTable(DerivaCore):
     @property
     def chaise_uri(self):
         p = urlparse(self.catalog.server_uri)
-        print('{}://{}/chaise/recordset/#{}/{}:{}'.format(
+        return '{}://{}/chaise/recordset/#{}/{}:{}'.format(
             p.scheme, p.hostname, self.catalog.catalog_id, self.schema_name, self.name)
-        )
 
     @property
     def name(self):
@@ -2298,10 +2326,11 @@ class DerivaTable(DerivaCore):
         """
         Given a set of columns and a key, return true if the key is in that column set.  If we are simply renaming
         columns, rather then moving them to a new table, not all of the columns in a composite key have to be present
-        as we still have the other columns available to us.
+        as we still have the other columns available to us.  Return false if there is no overlap.  Raise an exception
+        if you are attmpting to break up a composite key.
         :param columns:  List of columns in a table that are being altered
         :param key_columns: list of columns in the key
-
+        :param rename: true if you are renaming columns within a single table, rather then deleting or moving them.
         :return: True if the key is contained within columns.
         """
 
@@ -2318,8 +2347,8 @@ class DerivaTable(DerivaCore):
         """
         Go over all of the keys, incoming and outgoing foreign keys and check to make sure that renaming the set of
         columns  won't break up composite keys if they are renamed.
-        :param columns:
-        :param rename:
+        :param columns:list of columns that you want to check.
+        :param rename: true if you are renaming columns within a single table, rather then deleting or moving them.
         :return:
         """
         columns = set(columns)
@@ -2351,12 +2380,12 @@ class DerivaTable(DerivaCore):
     def _delete_columns_in_display(self, annotation, columns):
         raise DerivaCatalogError(self, 'Cannot delete column from display annotation')
 
-    def _delete_columns_from_annotations(self, columns):
+    def _delete_columns_from_annotations(self, columns, column_specs):
         for k, v in self.annotations.items():
             if k == chaise_tags.display:
                 self._delete_columns_in_display(v, columns)
             elif k == chaise_tags.visible_columns or k == chaise_tags.visible_foreign_keys:
-                DerivaVisibleSources(self, k).delete_visible_source(columns)
+                DerivaVisibleSources(self, k).delete_visible_source(column_specs)
 
     def _create_upload_spec(self, file_pattern, extensions):
         """
@@ -2434,17 +2463,6 @@ class DerivaTable(DerivaCore):
              )
              ] + spec
 
-    def create_keys(self, keys):
-        """
-        Create a new column in the table.
-        :param keys: A list of DerivaKey.
-        :return:
-        """
-        keys = keys if type(keys) is list else [keys]
-
-        for key in keys:
-            key.create()
-
     def delete_columns(self, columns):
         """
         Drop a set of columns from a table, cleaning up visible columns and keys.
@@ -2457,30 +2475,37 @@ class DerivaTable(DerivaCore):
 
         self.logger.debug('%s', columns)
 
+        # Don't delete just part of a key or foreign_key.
         self._check_composite_keys(columns)
 
-        with DerivaModel(self.catalog) as m:
+        # If columns are being referenced by another table, then do not delete them.
+        for fk in self.referenced_by:
+            self.logger.debug('referenced_columns %s %s %s %s',
+                              columns, fk.table.name, fk.referenced_table.name,
+                              [i.name for i in fk.referenced_columns])
+            if self._key_in_columns(columns, fk.referenced_columns) and fk.on_delete != 'CASCADE':
+                raise DerivaCatalogError(self, msg='Key referenced by foreign key {}'.format(columns))
 
-            # Check to see if this column is being used by a foreign key
-            table = m.table_model(self)
-            for column in columns:
-                try:
-                    table.column_definitions[column].delete(self.catalog.ermrest_catalog, table)
-                except HTTPError as e:
-                    raise DerivaCatalogError(self, msg=str(e))
+        with DerivaModel(self.catalog) as m:
+            # Capture the source specs before we start deleting columns....
+            column_specs = [DerivaSourceSpec(self, c) for c in columns]
 
             # Remove keys...
-            try:
-                self.key[columns].delete()
-            except DerivaKeyError:
-                pass
+            for k in self.keys:
+                if self._key_in_columns(columns, k.columns):
+                    k.delete()
 
-            try:
-                self.foreign_key[columns].delete()
-            except DerivaForeignKeyError:
-                pass
+            for fk in self.foreign_keys:
+                if self._key_in_columns(columns, fk.columns):
+                    fk.delete()
 
-            self._delete_columns_from_annotations(columns)
+            # Now delete the actual columns
+            for c in columns:
+                m.column_model(self.column(c)).delete(self.catalog.ermrest_catalog, m.table_model(self.table))
+
+            # Now clean up all the annotations.
+            self._delete_columns_from_annotations(columns, column_specs)
+
 
         return
 
@@ -2581,12 +2606,13 @@ class DerivaTable(DerivaCore):
             dest_table = dest_table if dest_table else self
             column_map = self._column_map(column_map, dest_table)
 
-
             for fk in self.referenced_by:
                 self.logger.debug('referenced_columns %s %s %s %s',
-                            column_map.get_names(), fk.table.name, fk.referenced_table.name, [i.name for i in fk.referenced_columns])
+                                  column_map.get_names(), fk.table.name, fk.referenced_table.name,
+                                  [i.name for i in fk.referenced_columns])
                 if self._key_in_columns(column_map.get_names(), fk.referenced_columns, rename=(self == dest_table)):
-                    raise DerivaCatalogError(self, msg='Key referenced by foreign key {}'.format(column_map.get_names()))
+                    raise DerivaCatalogError(self,
+                                             msg='Key referenced by foreign key {}'.format(column_map.get_names()))
 
             self.copy_columns(column_map, dest_table)
             # Update column name in ACL bindings....
@@ -2594,8 +2620,8 @@ class DerivaTable(DerivaCore):
             # Update annotations where the old spec was being used. We have already moved over
             # the visible columns, so skip the visible columns annotation.
             self.annotations.update(
-                    self._rename_columns_in_annotations(column_map, skip_annotations=[chaise_tags.visible_columns])
-                )
+                self._rename_columns_in_annotations(column_map, skip_annotations=[chaise_tags.visible_columns])
+            )
             if delete:
                 columns = [k for k in column_map.get_columns().keys()]
                 # Go through the keys and foreign_keys and delete any constraints that include the columns.
@@ -2711,7 +2737,7 @@ class DerivaTable(DerivaCore):
             annotations = self._rename_columns_in_annotations(column_map)
             annotations.pop(chaise_tags.visible_foreign_keys, None)
 
-            new_table = self.catalog[self.schema_name].create_table(
+            new_table = self.catalog[schema_name].create_table(
                 table_name,
                 # Use column_map to change the name of columns in the new table.
                 column_defs=column_map.get_columns().values(),
@@ -2891,9 +2917,9 @@ class DerivaTable(DerivaCore):
         # Link asset table to metadata table with additional information about assets.
         asset_fkey_defs = [
                               DerivaForeignKey.define([self.name],
-                                                   self.schema_name, self.name, ['RID'],
-                                                   acls=fkey_acls, acl_bindings=fkey_acl_bindings,
-                                                   )
+                                                      self.schema_name, self.name, ['RID'],
+                                                      acls=fkey_acls, acl_bindings=fkey_acl_bindings,
+                                                      )
                           ] + fkey_defs
         comment = comment if comment else 'Asset table for {}'.format(self.name)
 
@@ -2939,6 +2965,7 @@ class DerivaTable(DerivaCore):
         :param column_name: Column or list of columns in current table which will hold the FK
         :param target_table:
         :param target_column:
+        :param create_column:
         :return:
         """
 
