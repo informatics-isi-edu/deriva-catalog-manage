@@ -28,14 +28,6 @@ deriva.utils.catalog.manage.dump\_catalog module
     :undoc-members:
     :show-inheritance:
 
-deriva.utils.catalog.manage.globus\_groups module
--------------------------------------------------
-
-.. automodule:: deriva.utils.catalog.manage.globus_groups
-    :members:
-    :undoc-members:
-    :show-inheritance:
-
 deriva.utils.catalog.manage.graph\_catalog module
 -------------------------------------------------
 
