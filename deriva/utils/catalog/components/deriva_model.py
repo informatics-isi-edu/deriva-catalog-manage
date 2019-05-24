@@ -34,7 +34,7 @@ class DerivaMethodFilter:
 
 # Add filters: ['source_spec'] to use filter.
 logger_config = {
-    'disable_existing_loggers': True,
+    'disable_existing_loggers': False,
     'version': 1,
     'filters': {
         'method_filter': {
