@@ -128,7 +128,6 @@ with DerivaModel(catalog):
      collection = schema.create_table('Collection',[DerivaColumn.define('Description', 'text'),
                                                     DerivaColumn.define('Name', 'text')
                                                     ])
-
      # Create links between tables.
      logger.info('Linking tables....')
      experiment.link_tables(study)

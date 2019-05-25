@@ -2,6 +2,7 @@ import logging
 import logging.config
 import pprint
 from collections import namedtuple, OrderedDict
+from collections.abc import MutableMapping
 import copy
 from enum import Enum
 from urllib.parse import urlparse
@@ -71,8 +72,8 @@ logger_config = {
             'propagate': False
         },
         'deriva_model.DerivaModel': {
-            #   'level': 'DEBUG',
-            #   'filters': ['model_filter']
+         #      'level': 'DEBUG',
+         #      'filters': ['model_filter']
         },
         'deriva_model.DerivaCatalog': {
             #   'level': 'DEBUG',
@@ -81,7 +82,7 @@ logger_config = {
             #  'level': 'DEBUG'
         },
         'deriva_model.DerivaSchema': {
-         #   'level': 'DEBUG'
+          #  'level': 'DEBUG'
         },
         'deriva_model.DerivaVisibleSources': {
             #      'level': 'DEBUG'
@@ -320,6 +321,43 @@ class DerivaModel(DerivaLogging):
     def foreign_key_model(self, fkey):
         return self.table_model(fkey.table).foreign_keys[(fkey.table.schema_name, fkey.name)]
 
+class DerivaAnnotations(MutableMapping):
+    """
+    Class used to represent an annotation.  Main reason for this class is to make sure apply function is called
+    when needed.
+    """
+    annotation_tags = {v for v in chaise_tags.values()}
+
+    def __init__(self, obj):
+        print('creating annotations', type(obj))
+        self.catalog = obj.catalog
+        with DerivaModel(self.catalog) as m:
+            self.annotations = m.model_element(obj).annotations
+
+    def __setitem__(self, key, value):
+        if key not in DerivaAnnotations.annotation_tags:
+            raise DerivaCatalogError(self, msg='Unknow annotation tag: {}'.format(key))
+
+        with DerivaModel(self.catalog) as m:
+            print('setting item', key, value, self)
+            self.annotations[key] = value
+
+    def __delitem__(self, key):
+        with DerivaModel(self.catalog):
+            self.annotations.pop(key)
+
+    def __getitem__(self, key):
+        return self.annotations[key]
+
+    def __iter__(self):
+        return iter(self.annotations)
+
+    def __len__(self):
+        return len(self.annotations)
+
+    def __repr__(self):
+        return "{}({})".format({type(self).__name__}, self.annotations)
+
 
 class DerivaCore(DerivaLogging):
     def __init__(self, catalog):
@@ -328,8 +366,7 @@ class DerivaCore(DerivaLogging):
 
     @property
     def annotations(self):
-        with DerivaModel(self.catalog) as m:
-            return m.model_element(self).annotations
+        return DerivaAnnotations(self)
 
 
 class DerivaCatalog(DerivaCore):
@@ -1566,11 +1603,20 @@ class DerivaKey(DerivaCore):
             self.unique_columns = columns
             self.name = name
             self.comment = comment
-            self.annotations = annotations
-
+            self.annotations = copy.deepcopy(
+                annotations.annotations if isinstance(annotations, DerivaAnnotations) else annotations
+            )
+            print('KeyDef annotation', annotations)
             self.update_name(table)
 
         def definition(self, key):
+            print(
+                em.Key.define(
+                    self.unique_columns,
+                    constraint_names=[(key.table.schema_name, self.name)],
+                    comment=self.comment,
+                    annotations=self.annotations))
+
             return em.Key.define(
                 self.unique_columns,
                 constraint_names=[(key.table.schema_name, self.name)],
@@ -1755,7 +1801,8 @@ class DerivaForeignKey(DerivaCore):
             self.on_delete = on_delete
             self.acls = acls
             self.acl_bindings = acl_bindings
-            self.annotations = annotations
+            self.annotations =  copy.deepcopy(annotations.annotations
+                if isinstance(annotations, DerivaAnnotations) else annotations)
 
             self.update_name(table)
             fk_ops = ['CASCADE', 'DELETE', 'RESTRICT', 'NO ACTION', 'SET NULL']

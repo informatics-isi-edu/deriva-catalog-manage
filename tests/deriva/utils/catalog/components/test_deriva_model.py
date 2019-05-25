@@ -15,6 +15,7 @@ logging.basicConfig(
 )
 
 logger = logging.getLogger(__name__)
+logger.setLevel(logging.INFO)
 
 warnings.filterwarnings("ignore", category=DeprecationWarning)
 warnings.filterwarnings('ignore', category=ResourceWarning)
@@ -227,8 +228,11 @@ class TestAttributes(TestCase):
         logger.info('done')
         table = catalog['TestSchema']['Table1']
         table.display = 'Foobar'
-        catalog.refresh()
+        root_model = catalog.ermrest_catalog.getCatalogModel()
+        self.assertEqual(root_model.schemas['TestSchema'].tables['Table1'].annotations[chaise_tags.display], 'Foobar')
         self.assertEqual(table.display, 'Foobar')
+
+
 
 class TestDerivaTable(TestCase):
 
@@ -640,7 +644,7 @@ class TestDerivaTable(TestCase):
         table1 = catalog['TestSchema']['Table1']
         table2 = catalog['TestSchema']['Table2']
 
-        schema1 = catalog.create_schema('TestSchema1')
+        schema1 = catalog['TestSchema1']
 
         newtable = schema1.create_table('TestTable1', [])
 
@@ -704,8 +708,6 @@ class TestDerivaTable(TestCase):
         table1 = catalog['TestSchema']['Table1']
         table2 = catalog['TestSchema']['Table2']
 
-        catalog.create_schema('TestSchema1')
-
         table1_copy = table1.copy_table('TestSchema1', 'Table1_Copy')
 
         table2_copy = table2.copy_table('TestSchema1', 'Table2_Copy')
@@ -749,7 +751,6 @@ class TestDerivaTable(TestCase):
         table1 = catalog['TestSchema']['Table1']
         table2 = catalog['TestSchema']['Table2']
         print(table2)
-        catalog.create_schema('TestSchema1')
 
         #column_defs = [DerivaColumn.define(table, 'Status', 'int4', nullok=False)]
         table2_copy = table2.move_table('TestSchema1', 'Table2_Copy')
