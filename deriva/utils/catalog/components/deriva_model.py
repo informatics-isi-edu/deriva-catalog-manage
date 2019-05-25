@@ -81,7 +81,7 @@ logger_config = {
             #  'level': 'DEBUG'
         },
         'deriva_model.DerivaSchema': {
-            'level': 'DEBUG'
+         #   'level': 'DEBUG'
         },
         'deriva_model.DerivaVisibleSources': {
             #      'level': 'DEBUG'
@@ -373,23 +373,44 @@ class DerivaCatalog(DerivaCore):
 
     @property
     def host(self):
+        """
+        Get catalog host.
+        :return: Hostname of the current catalog
+        """
         return urlparse(self.ermrest_catalog.get_server_uri()).hostname
 
     @property
     def catalog_id(self):
+        """
+        Get catalog id
+        :return: catalog identifier
+        """
         return self.ermrest_catalog.catalog_id
 
     @property
     def server_uri(self):
+        """
+        URI for the catalog server
+        :return: server uri
+        """
         return self.ermrest_catalog.get_server_uri()
 
     @property
     def schemas(self):
+        """
+        Return an interable for the schemas contained in the the catalog. The return value can be indexed by
+        schema name, or iterated over.
+        :return:
+        """
         with DerivaModel(self) as m:
             return ElementList(self.schema, m.catalog_model().schemas)
 
     @property
     def acls(self):
+        """
+        Return the ACLs associated with this catalog
+        :return: catalog ACLs
+        """
         with DerivaModel(self) as m:
             return m.catalog_model().acls
 
@@ -453,6 +474,14 @@ class DerivaCatalog(DerivaCore):
                 raise DerivaCatalogError(self, 'schema {} not defined'.format(schema_name))
 
     def create_schema(self, schema_name, comment=None, acls={}, annotations={}):
+        """
+        Create a new schema in this catalog.
+        :param schema_name: The name of the schema
+        :param comment: A comment for the schema
+        :param acls: ACLs for the schema
+        :param annotations: Schema annotations.
+        :return: A DerivaSchema object
+        """
         self.logger.debug('name: %s', schema_name)
         self.model_instance.create_schema(self.ermrest_catalog,
                                           em.Schema.define(
@@ -606,7 +635,7 @@ class DerivaSchema(DerivaCore):
                      file_pattern='.*',
                      extensions=[]):
         """
-        Create an asset table.  This funcation creates a new table that has the standard asset columns in addition
+        Create an asset table.  This function creates a new table that has the standard asset columns in addition
         to columns provided by the caller.
         :param table_name:
         :param column_defs:
@@ -616,7 +645,7 @@ class DerivaSchema(DerivaCore):
         :param acls:
         :param acl_bindings:
         :param annotations:
-        :return:
+        :return: A DerivaTable object
         """
 
         self.logger.debug('table_name: %s', table_name)
@@ -668,7 +697,7 @@ class DerivaSchema(DerivaCore):
         :param acls:
         :param acl_bindings:
         :param annotations:
-        :return:
+        :return: A DerivaTable object
         """
         return self._create_table(
             em.Table.define_vocabulary(vocab_name, curie_template, uri_template=uri_template,
@@ -2742,7 +2771,7 @@ class DerivaTable(DerivaCore):
         :param acls:
         :param acl_bindings:
         :param annotations:
-        :return:
+        :return: The new table
         """
         self.logger.debug('schema_name %s dest_table %s', schema_name, table_name)
 
@@ -2804,6 +2833,21 @@ class DerivaTable(DerivaCore):
                    acl_bindings={},
                    annotations={}
                    ):
+        """
+        Move a table, renaming and inserting new columns.
+
+        :param schema_name: Schema for new table
+        :param table_name: Name of new table
+        :param delete: Delete the origional table.  Defaults to True
+        :param column_map: A DerivaColumnMap that defines and column renaming or insertions.
+        :param key_defs: New keys that should be defined in the target table
+        :param fkey_defs:
+        :param comment:
+        :param acls:
+        :param acl_bindings:
+        :param annotations:
+        :return: New DerivaTable object
+        """
         self.logger.debug('%s %s %s', schema_name, table_name, column_map)
 
         with DerivaModel(self.catalog):
@@ -2987,10 +3031,9 @@ class DerivaTable(DerivaCore):
         """
         Create a foreign key link from the specified column to the target table and column.
         :param column_name: Column or list of columns in current table which will hold the FK
-        :param target_table:
-        :param target_column:
-        :param create_column:
-        :return:
+        :param target_table: Target table to link to.
+        :param target_column: Column to link the table on.  Defaults to *RID*
+        :param create_column: Create a new column for the foreign key.  Name defaults to the target table name.
         """
 
         if not column_name:
@@ -3065,11 +3108,13 @@ class DerivaTable(DerivaCore):
     def is_pure_binary(self):
         """
         Check to see if the table has the propoerties of a pure binary association.
+
           1. It only has two foreign keys,
           2. There is a uniqueness constraint on the two keys.
           3. NULL values are not allowed in the foreign keys.
+
         :param table:
-        :return:
+        :return: Boolean
         """
         # table has only two foreign_key constraints.
         # Each constraint is over only one column.

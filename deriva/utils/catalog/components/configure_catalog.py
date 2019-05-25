@@ -21,6 +21,13 @@ class DerivaConfigError(Exception):
 
 
 class DerivaCatalogConfigure(DerivaCatalog):
+    """
+    DerovaCatalogConfigure extends DerivaCatalog by providing methods for creating a default configuration for a
+    catalog.
+
+    The only method of interest in this class is configure_baseline_catalog.
+
+    """
     def __init__(self, host, scheme='https', catalog_id=1):
         super().__init__(host, scheme=scheme, catalog_id=catalog_id)
 
@@ -262,9 +269,12 @@ class DerivaCatalogConfigure(DerivaCatalog):
                                    public=False):
         """
         Put catalog into standard configuration which includes:
+
         1. Setting default display mode to be to turn underscores to spaces.
         2. Set access control assuming admin, curator, writer, and reader groups.
         3. Configure ermrest_client to have readable names.
+        4. Create a schema called *WWW* and create a *Page* table in that schema configured to display web-page like
+        content.
 
         :param catalog_name: Name to use when looking up catalog groups.  Defaults to host name if not provided.
         :param admin: Name of the admin group.  Defaults to catalog-admin, where catalog is the catalog_name
@@ -273,7 +283,6 @@ class DerivaCatalogConfigure(DerivaCatalog):
         :param reader: Name of the reader group. Defaults to catalog-reader
         :param set_policy: Set policy for catalog to support reader/writer/curator/admin groups.
         :param public: Set to true if anonymous read access should be allowed.
-        :return:
         """
         with DerivaModel(self.catalog):
             if not catalog_name:
@@ -304,8 +313,6 @@ class DerivaCatalogConfigure(DerivaCatalog):
             self._configure_group_table(groups)
             self._configure_www_schema()
 
-        return
-
 
 def update_group_table(catalog):
     def group_urls(group):
@@ -322,6 +329,9 @@ def update_group_table(catalog):
 
 
 class DerivaSchemaConfigure(DerivaSchema):
+    """
+    This is a shim class that is used to make sure that a DerivaCatalogConfigure returns a DerivaTableConfigure
+    """
     def __init__(self, catalog, schema_name):
         super(DerivaSchemaConfigure, self).__init__(catalog, schema_name)
 
@@ -330,6 +340,9 @@ class DerivaSchemaConfigure(DerivaSchema):
 
 
 class DerivaTableConfigure(DerivaTable):
+    """
+    This class is used to create a default configuration for a Deriva Table.
+    """
     def __init__(self, catalog, schema_name, table_name):
         super(DerivaTableConfigure, self).__init__(catalog, schema_name, table_name)
         return
@@ -424,14 +437,17 @@ class DerivaTableConfigure(DerivaTable):
     def configure_table_defaults(self, set_policy=True, public=False, reset_visible_columns=True):
         """
         This function adds the following basic configuration details to an existing table:
-        1) Creates a self service modification policy in which creators can update update any row they create.
+
+        1. Creates a self service modification policy in which creators can update update any row they create.
            Optionally, an Owner column can be provided, which allows the creater of a row to delegate row ownership to
            a specific group.
-        2) Adds display annotations and foreign key declarations so that system columns RCB, RMB display in a user
+        2. Adds display annotations and foreign key declarations so that system columns RCB, RMB display in a user
            friendly way.
+        3. Adds a visible_foreign_keys and visible_columns annotation.
+
         :param set_policy: If true, then configure the table to have a self service policy
         :param public: Make table acessible without logging in.
-        :return:
+        :param reset_visible_columns: Overwrite any existing visible_columns annotation.
         """
 
         if chaise_tags.catalog_config not in self.catalog.annotations:
@@ -472,5 +488,3 @@ class DerivaTableConfigure(DerivaTable):
         self.columns['RMT'].annotations.update({chaise_tags.display: {'name': 'Modified Time'}})
 
         self.create_default_visible_columns(really=reset_visible_columns)
-
-        return self
