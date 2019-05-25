@@ -31,6 +31,7 @@ def setUpModule():
     with DerivaModel(catalog) as m:
         model = m.catalog_model()
         model.create_schema(catalog.ermrest_catalog, em.Schema.define(schema_name))
+        model.create_schema(catalog.ermrest_catalog, em.Schema.define('TestSchema1'))
 
 
 def tearDownModule():
@@ -43,10 +44,10 @@ class TestVisibleSources(TestCase):
     @classmethod
     def setUpClass(cls):
         global catalog
-        clean_schema(catalog, 'TestSchema')
+        clean_schema(catalog, ['TestSchema', 'TestSchema1'])
 
     def setUp(self):
-        clean_schema(catalog, schema_name)
+        clean_schema(catalog, ['TestSchema', 'TestSchema1'])
         ermrest_catalog = catalog.ermrest_catalog
         with DerivaModel(catalog) as m:
             model = m.catalog_model()
@@ -184,10 +185,10 @@ class TestColumnMap(TestCase):
     @classmethod
     def setUpClass(cls):
         global catalog
-        clean_schema(catalog, 'TestSchema')
+        clean_schema(catalog, ['TestSchema', 'TestSchema1'])
 
     def setUp(self):
-        clean_schema(catalog, schema_name)
+        clean_schema(catalog, [schema_name, 'TestSchema1'])
         ermrest_catalog = catalog.ermrest_catalog
         with DerivaModel(catalog) as m:
             model = m.catalog_model()
@@ -218,7 +219,7 @@ class TestColumnMap(TestCase):
 
 class TestAttributes(TestCase):
     def setUp(self):
-        clean_schema(catalog, schema_name)
+        clean_schema(catalog, [schema_name, 'TestSchema1'])
 
     def test_display(self):
         logger.info('Creating tables....')
@@ -228,13 +229,11 @@ class TestAttributes(TestCase):
         table.display = 'Foobar'
         catalog.refresh()
         self.assertEqual(table.display, 'Foobar')
-        print(table.chaise_uri)
-
 
 class TestDerivaTable(TestCase):
 
     def setUp(self):
-        clean_schema(catalog, schema_name)
+        clean_schema(catalog, [schema_name, 'TestSchema1'])
 
     def test_lookup_table(self):
         with DerivaModel(catalog) as m:

@@ -11,14 +11,18 @@ from deriva.utils.catalog.components.deriva_model import DerivaModel, DerivaCata
 logger = logging.getLogger(__name__)
 
 
-def clean_schema(catalog, schema_name):
+def clean_schema(catalog, schemas):
+    if type(schemas) is str:
+        schemas =[schemas]
     with DerivaModel(catalog) as m:
         model = m.catalog_model()
-        for k, t in model.schemas[schema_name].tables.copy().items():
-            for fk in t.foreign_keys.copy():
-                fk.delete(catalog.ermrest_catalog, t)
-        for k, t in model.schemas[schema_name].tables.copy().items():
-            t.delete(catalog.ermrest_catalog, model.schemas[schema_name])
+        for s in schemas:
+            for k, t in model.schemas[s].tables.copy().items():
+                for fk in t.foreign_keys.copy():
+                    fk.delete(catalog.ermrest_catalog, t)
+        for s in schemas:
+            for k, t in model.schemas[s].tables.copy().items():
+                t.delete(catalog.ermrest_catalog, model.schemas[s])
 
 
 def generate_test_tables(catalog, schema_name):

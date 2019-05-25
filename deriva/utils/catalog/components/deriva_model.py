@@ -71,11 +71,11 @@ logger_config = {
             'propagate': False
         },
         'deriva_model.DerivaModel': {
-        #      'level': 'DEBUG',
-        #      'filters': ['model_filter']
+            #   'level': 'DEBUG',
+            #   'filters': ['model_filter']
         },
         'deriva_model.DerivaCatalog': {
-         #   'level': 'DEBUG',
+            #   'level': 'DEBUG',
         },
         'deriva_model.DerivaColumnMap': {
             #  'level': 'DEBUG'
@@ -84,10 +84,10 @@ logger_config = {
             'level': 'DEBUG'
         },
         'deriva_model.DerivaVisibleSources': {
-         #      'level': 'DEBUG'
+            #      'level': 'DEBUG'
         },
         'deriva_model.DerivaSourceSpec': {
-          #     'level': 'DEBUG'
+            #     'level': 'DEBUG'
         },
         'deriva_model.DerivaTable': {
             #   'level': 'DEBUG'
@@ -96,7 +96,7 @@ logger_config = {
             #   'level': 'DEBUG'
         },
         'deriva_model.DerivaKey': {
-           #     'level': 'DEBUG'
+            #     'level': 'DEBUG'
         },
         'deriva_model.DerivaForeignKey': {
             #   'level': 'DEBUG',
@@ -106,6 +106,7 @@ logger_config = {
 }
 
 logging.config.dictConfig(logger_config)
+
 
 class DerivaLogging:
     def __init__(self, **kwargs):
@@ -194,15 +195,16 @@ class ElementList:
         return element_iterator(self.lst)
 
 
-
 class DerivaModel(DerivaLogging):
     """
-    Representation of a deriva model. Is primarly used as a resource manager to group catalog operations so as to
-    minimize networ round trips.  For example:
+    Representation of a deriva model. Is primarily used as a resource manager to group catalog operations so as to
+    minimize network round trips.  For example:
 
+    ``
     with DerivaModel(catalog)
        table = schema.create_table('MyTable',[])
        table.display = 'My Nice Table'
+    ``
 
     """
     contexts = {i for i in DerivaContext if i is not DerivaContext("all")}
@@ -656,13 +658,13 @@ class DerivaSchema(DerivaCore):
         """
         Create a vocabulary table that can be used to reference externally defined terms. This funcion provides the
         option to add additional columns to the table, as well as set access control and additional table annotations.
-        :param vocab_name:
+        :param vocab_name: Name of the vocabulary table to be created.
         :param curie_template: Default shortform name for the term, in the form of 'NAMESPACE:{RID}',
         :param uri_template:
-        :param column_defs:
+        :param column_defs: Additional columns to be added to the vocabulary table.
         :param key_defs:
         :param fkey_defs:
-        :param comment:
+        :param comment: Comment string.
         :param acls:
         :param acl_bindings:
         :param annotations:
@@ -678,14 +680,32 @@ class DerivaSchema(DerivaCore):
 
     def validate(self):
         """
-        Validate the annotations associated with the tables in this schema.
-        :return:
+        Validate the annotations associated with the tables in this schema.  Look at all visable column,
+        visible foreign key, display and other configurable fields associated with the catalog and check to ensure
+        they use valid column and key definitions.  Some limited syntax checking is done as well.  Throws an
+        exception if an invalid value is found.
+        :return: True if all values are valid.
         """
         for t in self.tables:
             t.validate()
+        return True
 
 
 class DerivaColumnMap(DerivaLogging, OrderedDict):
+    """
+    The DerivaColumnMap class is used to define a mapping between columns.  This mapping is used to define how
+    columns are renamed.  A column map is an ordered dictionary that reflects the order that the columns should
+    be added to the table.  The key of the dictionary is the *current* column name.  The value may take several forms:
+
+    * A string which is the new name of the column.  In this case, all attributes of the column are preserved.
+
+    * A Deriva DerivaColumnDef or ermrest_model Column object, which provides all of the values for the new column.
+
+    * A dictionary that can specify standard column attributes (name, type, nullok,
+    default, comment, acls, acl_bindings). In addition the attribute **fill* can be provided, which is a value to
+    be used to fill in missing values when mapping a column that has nullok=True to a column that has nullok=Falsue
+
+    """
     def __init__(self, table, column_map, dest_table):
         self.table = table
         self.dest_table = dest_table
@@ -736,9 +756,9 @@ class DerivaColumnMap(DerivaLogging, OrderedDict):
             except DerivaCatalogError:
                 # Column is new, so create a default definition for it. If value is a string, then its the type.
                 col = DerivaColumn(**{'define': True,
-                    'name': k,
-                    'table': dest_table,
-                    **({'type': v} if type(v) is str else v)})
+                                      'name': k,
+                                      'table': dest_table,
+                                      **({'type': v} if type(v) is str else v)})
                 name = k
 
             # We have a column remap in the form of col: new_name or col: dictionary
@@ -1292,6 +1312,10 @@ class DerivaSourceSpec(DerivaLogging):
 
 
 class DerivaColumn(DerivaCore):
+    """
+    Class that represents columns in Deriva catalog.  The same class is used for columns that are being defined
+    as well as columns that have already been defined.
+    """
     class _DerivaColumnDef(DerivaLogging):
         def __init__(self, name, type, nullok=True, default=None, fill=None, comment=None, acls={},
                      acl_bindings={}, annotations={}):

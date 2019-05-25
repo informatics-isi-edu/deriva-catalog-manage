@@ -27,7 +27,7 @@ class DerivaCatalogConfigure(DerivaCatalog):
     def _make_schema_instance(self, schema_name):
         return DerivaSchemaConfigure(self, schema_name)
 
-    def configure_ermrest_client(self, groups):
+    def _configure_ermrest_client(self, groups):
         """
         Set up ermrest_client table so that it has readable names and uses the display name of the user as the row name.
         :param groups:
@@ -104,8 +104,8 @@ class DerivaCatalogConfigure(DerivaCatalog):
 
         return self
 
-    def set_core_groups(self, catalog_name=None, admin=None, curator=None, writer=None, reader=None,
-                        replace=False):
+    def _set_core_groups(self, catalog_name=None, admin=None, curator=None, writer=None, reader=None,
+                         replace=False):
         """
         Look in the catalog to get the group IDs for the four core groups used in the baseline configuration. There are
         three options:  1) core group name can be provided explicitly, 2) group name can be formed from a catalog
@@ -159,7 +159,7 @@ class DerivaCatalogConfigure(DerivaCatalog):
 
         return groups
 
-    def configure_group_table(self, groups):
+    def _configure_group_table(self, groups):
         """
         Create a table in the public schema for tracking mapping of group names.
         :param groups:
@@ -262,12 +262,12 @@ class DerivaCatalogConfigure(DerivaCatalog):
                                    public=False):
         """
         Put catalog into standard configuration which includes:
-        1) Setting default display mode to be to turn underscores to spaces.
-        2) Set access control assuming admin, curator, writer, and reader groups.
-        3) Configure ermrest_client to have readable names.
+        1. Setting default display mode to be to turn underscores to spaces.
+        2. Set access control assuming admin, curator, writer, and reader groups.
+        3. Configure ermrest_client to have readable names.
 
-        :param catalog_name:
-        :param admin: Name of the admin group.  Defaults to catalog-admin
+        :param catalog_name: Name to use when looking up catalog groups.  Defaults to host name if not provided.
+        :param admin: Name of the admin group.  Defaults to catalog-admin, where catalog is the catalog_name
         :param curator: Name of the curator group. Defaults to catalog-curator
         :param writer: Name of the writer group. Defaults to catalog-writer
         :param reader: Name of the reader group. Defaults to catalog-reader
@@ -279,8 +279,8 @@ class DerivaCatalogConfigure(DerivaCatalog):
             if not catalog_name:
                 # If catalog name is not provided, default to the host name of the host.
                 catalog_name = urlparse(self.ermrest_catalog.get_server_uri()).hostname.split('.')[0]
-            groups = self.set_core_groups(catalog_name=catalog_name,
-                                          admin=admin, curator=curator, writer=writer, reader=reader)
+            groups = self._set_core_groups(catalog_name=catalog_name,
+                                           admin=admin, curator=curator, writer=writer, reader=reader)
 
             # Record configuration of catalog so we can retrieve when we configure tables later on.
             self.annotations[chaise_tags.catalog_config] = {'name': catalog_name, 'groups': groups}
@@ -300,8 +300,8 @@ class DerivaCatalogConfigure(DerivaCatalog):
                     "enumerate": ["*"],
                 })
 
-            self.configure_ermrest_client(groups)
-            self.configure_group_table(groups)
+            self._configure_ermrest_client(groups)
+            self._configure_group_table(groups)
             self._configure_www_schema()
 
         return
