@@ -118,5 +118,5 @@ class TestCatalogUpdater(TestCase):
         # Create empty table.
         updater.update_schema('schema', em.Schema.define('TestSchema'))
         self.assertEqual(catalog[schema_name].name, 'TestSchema')
-        updater.update_table('table', schema_name, em.Table.define('TestTable'))
+        updater.update_table('table', schema_name, em.Table.define('TestTable'), really=True)
         self.assertEqual(catalog[schema_name].tables[table_name].name, 'TestTable')

@@ -342,6 +342,7 @@ class DerivaCatalog(DerivaCore):
     def __init__(self, host, scheme='https', catalog_id=1, ermrest_catalog=None):
         """
         Initialize a DerivaCatalog.
+
         :param host: Name of the server hosting the deriva catalog service
         :param scheme: Scheme to be used for connecting to the host, defaults to https
         :param catalog_id: The identifer for the catalog in the server.  Is an integer
@@ -476,6 +477,7 @@ class DerivaCatalog(DerivaCore):
     def create_schema(self, schema_name, comment=None, acls={}, annotations={}):
         """
         Create a new schema in this catalog.
+
         :param schema_name: The name of the schema
         :param comment: A comment for the schema
         :param acls: ACLs for the schema
@@ -637,6 +639,7 @@ class DerivaSchema(DerivaCore):
         """
         Create an asset table.  This function creates a new table that has the standard asset columns in addition
         to columns provided by the caller.
+
         :param table_name:
         :param column_defs:
         :param key_defs:
@@ -687,6 +690,7 @@ class DerivaSchema(DerivaCore):
         """
         Create a vocabulary table that can be used to reference externally defined terms. This funcion provides the
         option to add additional columns to the table, as well as set access control and additional table annotations.
+
         :param vocab_name: Name of the vocabulary table to be created.
         :param curie_template: Default shortform name for the term, in the form of 'NAMESPACE:{RID}',
         :param uri_template:
@@ -3113,7 +3117,6 @@ class DerivaTable(DerivaCore):
           2. There is a uniqueness constraint on the two keys.
           3. NULL values are not allowed in the foreign keys.
 
-        :param table:
         :return: Boolean
         """
         # table has only two foreign_key constraints.
@@ -3139,6 +3142,7 @@ class DerivaTable(DerivaCore):
     def associated_tables(self):
         """
         Assuming the table is an pure binary association table, return the two table endpoints
+
         :param table: ermrest table object for a table that is a pure binary association table.
         :return: list of 2-tuples that are the schema and table for the two tables in the M:N relationship
         """

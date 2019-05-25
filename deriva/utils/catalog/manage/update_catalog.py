@@ -70,7 +70,7 @@ class CatalogUpdater:
             elif mode == 'acls':
                 self.update_acls(m.catalog_model(), acls, replace=replace)
 
-    def update_schema(self, mode, schema_def, replace=False):
+    def update_schema(self, mode, schema_def, replace=False, really=False):
         schema_name = schema_def['schema_name']
         annotations = schema_def['annotations']
         acls = schema_def['acls']
@@ -82,8 +82,8 @@ class CatalogUpdater:
             if mode == 'schema':
                 if replace:
                     schema = m.schema_exists(schema_name)
-                    print('Deleting schema ', schema.name)
-                    ok = input('Type YES to confirm:')
+                    logger.info('Deleting schema %s', schema.name)
+                    ok = 'YES' if really else input('Type YES to confirm:')
                     if ok == 'YES':
                         schema.delete(self._catalog.catalog_model, self._catalog.model)
                 schema = m.catalog_model().create_schema(self._catalog.ermrest_catalog, schema_def)
@@ -120,7 +120,7 @@ class CatalogUpdater:
             if mode == 'table':
                 if replace:
                     table = schema.tables[table_name]
-                    logger.info('Deleting table ', table.name)
+                    logger.info('Deleting table %s', table.name)
                     ok = 'YES' if really else input('Type YES to confirm:')
                     if ok == 'YES':
                         table.delete(self._catalog.ermrest_catalog, schema)
