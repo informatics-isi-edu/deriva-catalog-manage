@@ -28,6 +28,7 @@ def clean_schema(catalog, schemas):
     logger.critical('Time to clear schema %s', time.time()-t0)
 
 def generate_test_tables(catalog, schema_name):
+    logging.info('generating test tables')
     logging.disable(logging.CRITICAL)
     t0 = time.time()
     table1 = catalog[schema_name].create_table(
@@ -43,7 +44,9 @@ def generate_test_tables(catalog, schema_name):
                   DerivaKey.define(['ID4_Table1']),
                   DerivaKey.define(['ID2_Table1', 'ID3_Table1'])]
     )
-    logger.critical('Time to create table1 %s', time.time()-t0)
+    logging.disable(logging.NOTSET)
+    logger.info('Time to create table1 %s', time.time()-t0)
+    logging.disable(logging.CRITICAL)
     t0 = time.time()
     table2 = catalog[schema_name].create_table(
         'Table2',
@@ -59,8 +62,9 @@ def generate_test_tables(catalog, schema_name):
                    DerivaForeignKey.define(['ID2_Table2', 'ID3_Table2'], table1,
                                            ['ID2_Table1', 'ID3_Table1'])]
     )
-    logger.critical('Time to create table1 %s', time.time()-t0)
     logging.disable(logging.NOTSET)
+    logger.info('Time to create table2 %s', time.time()-t0)
+
 
 def generate_test_csv(columncnt):
     """

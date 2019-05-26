@@ -467,6 +467,7 @@ class DerivaCatalog(DerivaCore):
         """
         Push any pending annotation updates to the server. Should not be need to be called except when things get
         messed up.
+
         :return:
         """
         self.logger.debug('%s', self.model_instance)
@@ -959,6 +960,7 @@ class DerivaVisibleSources(DerivaLogging):
           {context,context}
         where context can be all.  Convert these into a standard format:
            { context: {key:list} ...}
+
         :param positions: position list
         :return: normalized position.
         """
@@ -999,6 +1001,7 @@ class DerivaVisibleSources(DerivaLogging):
         """
         Insert a set of columns into a source list.  If column is included in a foreign-key, make source an outgoing
         spec.
+
         :param source_list: A column map which will indicate the sources to be included.
         :param positions: where it insert the so
         :return:
@@ -1420,6 +1423,7 @@ class DerivaColumn(DerivaCore):
         The
         Column name already exists in table. If so the existing definition is used.
         Column name doesn't exist, if so other arguments are used to initialize the columns def.
+
         :param table: DerivaTable object, or None if the table is being defined along with the class.
         :param name: Name of the column.  If a em.Column is passed in as a name, then its name is used.
         """
@@ -2802,6 +2806,7 @@ class DerivaTable(DerivaCore):
         Key and foreign key definitions can be augmented or overwritten by providing appropriate arguments. Lastly
         if the clone argument is set to true, the RIDs of the source table are reused, so that the equivalent of a
         move operation can be obtained.
+
         :param schema_name: Target schema name
         :param table_name:  Target table name
         :param column_map: A dictionary that is used to rename columns in the target table.
@@ -3071,6 +3076,7 @@ class DerivaTable(DerivaCore):
     def link_tables(self, target_table, column_name=None, target_column='RID', create_column=True):
         """
         Create a foreign key link from the specified column to the target table and column.
+
         :param column_name: Column or list of columns in current table which will hold the FK
         :param target_table: Target table to link to.
         :param target_column: Column to link the table on.  Defaults to *RID*
@@ -3100,6 +3106,7 @@ class DerivaTable(DerivaCore):
     def associate_vocabulary(self, term_table, table_column='RID'):
         """
         Set an existing column in the table to refer to an existing vocabulary table.
+
         :param column_name: Name of the column whose value is to be from the vocabular
         :param term_table: The term table.
         :return: None.
@@ -3118,7 +3125,8 @@ class DerivaTable(DerivaCore):
     def associate_tables(self, target_table, table_column='RID', target_column='RID'):
         """
         Create a pure binary association table that connects rows in the table to rows in the target table.
-        Assume that RIDs are used for linking. however, this can be overridder.
+        Assume that RIDs are used for linking. however, this can be over riden.
+
         :param target_schema: Schema of the table that is to be associated with current table
         :param target_table: Name of the table that is to be associated with the current table
         :param table_column: Name of the column in the current table that is used for the foreign key, defaults to RID

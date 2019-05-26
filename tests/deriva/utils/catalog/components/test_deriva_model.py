@@ -31,11 +31,13 @@ def setUpModule():
     global catalog, catalog_id
     catalog = create_catalog(server)
     catalog_id = catalog.catalog_id
+    t0 = time.time()
+    logging.info('Creating schema')
     with DerivaModel(catalog) as m:
         model = m.catalog_model()
         model.create_schema(catalog.ermrest_catalog, em.Schema.define(schema_name))
         model.create_schema(catalog.ermrest_catalog, em.Schema.define('TestSchema1'))
-
+    logging.info('Schema created %s', time.time() - t0)
 
 def tearDownModule():
     # catalog.ermrest_catalog.delete_ermrest_catalog(really=True)
@@ -239,6 +241,7 @@ class TestAttributes(TestCase):
 class TestDerivaTable(TestCase):
 
     def setUp(self):
+        logging.info('Calling table setup...')
         clean_schema(catalog, [schema_name, 'TestSchema1'])
 
     def test_lookup_table(self):
@@ -667,13 +670,15 @@ class TestDerivaTable(TestCase):
 
 
     def test_copy_table(self):
+        logging.info('Starting copy_table test...')
         generate_test_tables(catalog, schema_name)
         table1 = catalog['TestSchema']['Table1']
         table2 = catalog['TestSchema']['Table2']
 
+        t0 = time.time()
         table1_copy = table1.copy_table('TestSchema', 'Table1_Copy')
-
         table2_copy = table2.copy_table('TestSchema', 'Table2_Copy')
+        logging.info('Tables copied %s', time.time() - t0)
         print(table1)
         print(table1_copy)
         print(table2_copy)
