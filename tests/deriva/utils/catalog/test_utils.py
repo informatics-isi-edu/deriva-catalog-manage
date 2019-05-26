@@ -12,6 +12,7 @@ logger = logging.getLogger(__name__)
 
 
 def clean_schema(catalog, schemas):
+    logging.info('Cleaning schema...')
     t0 = time.time()
     if type(schemas) is str:
         schemas =[schemas]
@@ -25,11 +26,11 @@ def clean_schema(catalog, schemas):
             for k, t in model.schemas[s].tables.copy().items():
                 t.delete(catalog.ermrest_catalog, model.schemas[s])
 
-    logger.critical('Time to clear schema %s', time.time()-t0)
+    logger.info('Time to clear schema %s', time.time()-t0)
 
 def generate_test_tables(catalog, schema_name):
     logging.info('generating test tables')
-    logging.disable(logging.CRITICAL)
+  #  logging.disable(logging.CRITICAL)
     t0 = time.time()
     table1 = catalog[schema_name].create_table(
         'Table1',
@@ -46,7 +47,7 @@ def generate_test_tables(catalog, schema_name):
     )
     logging.disable(logging.NOTSET)
     logger.info('Time to create table1 %s', time.time()-t0)
-    logging.disable(logging.CRITICAL)
+ #   logging.disable(logging.CRITICAL)
     t0 = time.time()
     table2 = catalog[schema_name].create_table(
         'Table2',

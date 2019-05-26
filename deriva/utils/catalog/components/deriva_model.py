@@ -1,6 +1,7 @@
 import logging
 import logging.config
 import pprint
+import time
 from collections import namedtuple, OrderedDict
 from collections.abc import MutableMapping
 import copy
@@ -20,6 +21,20 @@ chaise_tags['catalog_config'] = 'tag:isrd.isi.edu,2019:catalog-config'
 CATALOG_CONFIG__TAG = 'tag:isrd.isi.edu,2019:catalog-config'
 
 logger = logging.getLogger(__name__)
+
+
+def timeit(method):
+    def timed(*args, **kw):
+        ts = time.time()
+        result = method(*args, **kw)
+        te = time.time()
+        if 'log_time' in kw:
+            name = kw.get('log_name', method.__class__, method.__name__.upper())
+            kw['log_time'][name] = int((te - ts) * 1000)
+        else:
+            logger.info('%r  %2.2f ms', method.__name__, (te - ts) * 1000)
+        return result
+    return timed
 
 class DerivaMethodFilter:
     def __init__(self, include=True, exclude=[]):
@@ -49,6 +64,10 @@ logger_config = {
         'foreign_key_filter': {
             '()': DerivaMethodFilter,
             'include': ['delete']
+        },
+        'table_filter': {
+            '()': DerivaMethodFilter,
+            'exclude': ['_foreign_key', '_referenced', '_key_in_columns']
         }
     },
     'formatters': {
@@ -82,7 +101,7 @@ logger_config = {
             #  'level': 'DEBUG'
         },
         'deriva_model.DerivaSchema': {
-          #  'level': 'DEBUG'
+            'level': 'DEBUG'
         },
         'deriva_model.DerivaVisibleSources': {
             #      'level': 'DEBUG'
@@ -91,7 +110,8 @@ logger_config = {
             #     'level': 'DEBUG'
         },
         'deriva_model.DerivaTable': {
-            #   'level': 'DEBUG'
+         #      'level': 'DEBUG',
+        #   'filters': ['table_filter']
         },
         'deriva_model.DerivaColumn': {
             #   'level': 'DEBUG'
@@ -105,6 +125,7 @@ logger_config = {
         }
     },
 }
+
 
 logging.config.dictConfig(logger_config)
 
@@ -364,6 +385,10 @@ class DerivaCore(DerivaLogging):
 
     @property
     def annotations(self):
+        """
+        Get/Set a Deriva Annotation.
+        :return:
+        """
         return DerivaAnnotations(self)
 
 
@@ -452,6 +477,11 @@ class DerivaCatalog(DerivaCore):
 
     @property
     def navbar_menu(self):
+        """
+        Get/Set the navigation bar menu.
+
+        :return:
+        """
         return self.annotations[chaise_tags.chaise_config]['navbarMenu']
 
     @navbar_menu.setter
@@ -538,6 +568,10 @@ class DerivaCatalog(DerivaCore):
             raise DerivaCatalogError(self, msg='Attempting to configure table before catalog is configured')
 
     def validate(self):
+        """
+        Validate all of the objects in the catalog.
+        :return:
+        """
         for s in self.schemas:
             s.validate()
 
@@ -655,11 +689,11 @@ class DerivaSchema(DerivaCore):
                 _, _, inbound_sources = fkey.referenced_table.sources()
                 fkey.referenced_table.visible_foreign_keys.insert_sources(inbound_sources)
 
-        column_sources, outbound_sources, inbound_sources = table.sources(merge_outbound=True)
-        table.visible_columns.insert_context(DerivaContext('*'), column_sources)
-        table.visible_columns.insert_context(DerivaContext('entry'), column_sources)
+            column_sources, outbound_sources, inbound_sources = table.sources(merge_outbound=True)
+            table.visible_columns.insert_context(DerivaContext('*'), column_sources)
+            table.visible_columns.insert_context(DerivaContext('entry'), column_sources)
 
-        table.visible_foreign_keys.insert_context(DerivaContext('*'), inbound_sources)
+            table.visible_foreign_keys.insert_context(DerivaContext('*'), inbound_sources)
 
         return table
 
@@ -2563,9 +2597,11 @@ class DerivaTable(DerivaCore):
 
     def delete_columns(self, columns):
         """
-        Drop a set of columns from a table, cleaning up visible columns and keys.
-        :param columns:
-        :return:
+        Drop a set of columns from a table, cleaning up visible columns and keys.  You cannot delete columns if they
+        are being used by a foreign key in another table, or if they are part of a composite key and you are only
+        deleting a subset of the columns.
+
+        :param columns: A list of column names or DerivaColumn instances for the current table
         """
 
         if isinstance(columns, DerivaColumn):
@@ -2604,9 +2640,6 @@ class DerivaTable(DerivaCore):
             # Now clean up all the annotations.
             self._delete_columns_from_annotations(columns, column_specs)
 
-
-        return
-
     def copy_columns(self, column_map, dest_table=None):
         """
         Copy a set of columns, updating visible columns list and keys to mirror source columns. The columns to copy
@@ -2618,42 +2651,43 @@ class DerivaTable(DerivaCore):
         :param column_map: A dictionary that specifies column name mapping
         :return:
         """
-        dest_table = dest_table if dest_table else self
-        column_map = self._column_map(column_map, dest_table)
+        with DerivaModel(self.catalog):
+            dest_table = dest_table if dest_table else self
+            column_map = self._column_map(column_map, dest_table)
 
-        columns = column_map.get_columns()
-        column_names = [k for k in column_map.get_columns().keys()]
+            columns = column_map.get_columns()
+            column_names = [k for k in column_map.get_columns().keys()]
 
-        # TODO we need to figure out what to do about ACL binding
+            # TODO we need to figure out what to do about ACL binding
 
-        # Make sure that we can rename the columns
-        overlap = {v.name for v in columns.values()}.intersection(set(dest_table._column_names()))
-        if len(overlap) != 0:
-            raise ValueError('Column {} already exists.'.format(overlap))
+            # Make sure that we can rename the columns
+            overlap = {v.name for v in columns.values()}.intersection(set(dest_table._column_names()))
+            if len(overlap) != 0:
+                raise ValueError('Column {} already exists.'.format(overlap))
 
-        self._check_composite_keys(column_names, rename=(dest_table == self))
+            self._check_composite_keys(column_names, rename=(dest_table == self))
 
-        # Update visible column spec, putting copied column right next to the source column.
-        positions = {col: [column_map[col].name] for col in column_map.get_columns()} if dest_table is self else {}
-        dest_table.create_columns([i for i in columns.values()], positions)
+            # Update visible column spec, putting copied column right next to the source column.
+            positions = {col: [column_map[col].name] for col in column_map.get_columns()} if dest_table is self else {}
+            dest_table.create_columns([i for i in columns.values()], positions)
 
-        # Copy over the old values
-        from_path = self.datapath()
-        to_path = dest_table.datapath()
+            # Copy over the old values
+            from_path = self.datapath()
+            to_path = dest_table.datapath()
 
-        # Get the values of the columns, and remap the old column names to the new names.  Skip over new columns that
-        # don't exist in the source table.
-        rows = from_path.entities(
-            **{
-                **{val.name: getattr(from_path, col) for col, val in column_map.get_columns().items()
-                   if col in self.columns},
-                **{'RID': from_path.RID}
-            }
-        )
-        to_path.update(rows)
+            # Get the values of the columns, and remap the old column names to the new names.  Skip over new columns that
+            # don't exist in the source table.
+            rows = from_path.entities(
+                **{
+                    **{val.name: getattr(from_path, col) for col, val in column_map.get_columns().items()
+                       if col in self.columns},
+                    **{'RID': from_path.RID}
+                }
+            )
+            to_path.update(rows)
 
-        # Copy over the keys.
-        self._copy_keys(column_map)
+            # Copy over the keys.
+            self._copy_keys(column_map)
         return
 
     def create_columns(self, columns, positions={}, visible=True):

@@ -74,5 +74,6 @@ class TestConfigureCatalog(TestCase):
         catalog.configure_baseline_catalog(catalog_name='test', admin='isrd-systems')
         catalog[schema_name]['TestTable1'].configure_table_defaults()
         print(catalog)
-        print(catalog['public'])
+        self.assertEqual({s.name for s in catalog['public']},
+                         {'ERMrest_Client', 'ERMrest_Group', 'Catalog_Group'})
         print(catalog['WWW'])
