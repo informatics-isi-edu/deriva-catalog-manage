@@ -4,6 +4,8 @@ import warnings
 from requests.exceptions import HTTPError
 import logging
 
+print(__name__)
+print(__package__)
 from deriva.core import get_credential, DerivaServer
 import deriva.core.ermrest_model as em
 from deriva.utils.catalog.components.deriva_model import *

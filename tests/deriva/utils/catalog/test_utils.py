@@ -2,7 +2,7 @@ import os
 import random
 import datetime
 import string
-
+import time
 import logging
 
 from deriva.core import get_credential, DerivaServer
@@ -12,6 +12,7 @@ logger = logging.getLogger(__name__)
 
 
 def clean_schema(catalog, schemas):
+    t0 = time.time()
     if type(schemas) is str:
         schemas =[schemas]
     with DerivaModel(catalog) as m:
@@ -24,9 +25,11 @@ def clean_schema(catalog, schemas):
             for k, t in model.schemas[s].tables.copy().items():
                 t.delete(catalog.ermrest_catalog, model.schemas[s])
 
+    logger.critical('Time to clear schema %s', time.time()-t0)
 
 def generate_test_tables(catalog, schema_name):
     logging.disable(logging.CRITICAL)
+    t0 = time.time()
     table1 = catalog[schema_name].create_table(
         'Table1',
         [DerivaColumn.define('ID1_Table1', 'int4'),
@@ -40,7 +43,8 @@ def generate_test_tables(catalog, schema_name):
                   DerivaKey.define(['ID4_Table1']),
                   DerivaKey.define(['ID2_Table1', 'ID3_Table1'])]
     )
-
+    logger.critical('Time to create table1 %s', time.time()-t0)
+    t0 = time.time()
     table2 = catalog[schema_name].create_table(
         'Table2',
         [DerivaColumn.define('ID1_Table2', 'int4'),
@@ -55,6 +59,7 @@ def generate_test_tables(catalog, schema_name):
                    DerivaForeignKey.define(['ID2_Table2', 'ID3_Table2'], table1,
                                            ['ID2_Table1', 'ID3_Table1'])]
     )
+    logger.critical('Time to create table1 %s', time.time()-t0)
     logging.disable(logging.NOTSET)
 
 def generate_test_csv(columncnt):
@@ -124,10 +129,12 @@ def create_upload_dirs(schema_name, table_name, iditer):
 
 
 def create_catalog(server):
+    t0 = time.time()
     credentials = get_credential(server)
     catalog = DerivaServer('https', server, credentials=credentials).create_ermrest_catalog()
     catalog_id = catalog.catalog_id
     logger.info('Catalog_id is {}'.format(catalog_id))
 
     catalog = DerivaCatalog(server, catalog_id=catalog_id)
+    logger.critical('Time to create catalog %s', time.time()-t0)
     return catalog
