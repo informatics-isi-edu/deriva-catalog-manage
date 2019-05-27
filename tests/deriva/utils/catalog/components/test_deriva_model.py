@@ -259,13 +259,14 @@ class TestDerivaTable(TestCase):
         table.comment ='Comment 1'
         table.acls = {'owner': ['carl']}
         table.acl_bindings =  {'set_owner': {"types": ["update"], "projection": ["RCB"], "projection_type": "acl"}}
+        table.acls['select'] = ['bubba']
         table.display = {'tag:misd.isi.edu,2015:display': {'name': 'foo'}}
         catalog.refresh()
         table = catalog['TestSchema']['Table1']
 
         self.assertEqual(table.comment, 'Comment 1')
-        self.assertEqual(table.acls, {'owner': ['carl']})
-        self.assertEqual(table.acl_bindings,
+        self.assertEqual(table.acls.acls, {'owner': ['carl'], 'select': ['bubba']})
+        self.assertEqual(table.acl_bindings.acl_bindings,
                          {'set_owner':
                               {"types": ["update"], "projection": ["RCB"], "projection_type": "acl", 'scope_acl': ['*']}}
                          )
@@ -278,9 +279,10 @@ class TestDerivaTable(TestCase):
         catalog.refresh()
         table = catalog['TestSchema']['Table1']
 
+        del table.acls['select']
         self.assertEqual(table.comment, 'Comment 2')
-        self.assertEqual(table.acls, {'owner': ['carl1']})
-        self.assertEqual(table.acl_bindings,
+        self.assertEqual(table.acls.acls, {'owner': ['carl1']})
+        self.assertEqual(table.acl_bindings.acl_bindings,
                          {'set_owner':
                               {"types": ["update"], "projection": ["RMB"], "projection_type": "acl",
                                'scope_acl': ['*']}}

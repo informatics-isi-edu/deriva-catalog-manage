@@ -342,6 +342,86 @@ class DerivaModel(DerivaLogging):
     def foreign_key_model(self, fkey):
         return self.table_model(fkey.table).foreign_keys[(fkey.table.schema_name, fkey.name)]
 
+class DerivaACL(MutableMapping):
+    acl_matrix = {
+        'DerivaCatalog': {'owner', 'create', 'select', 'insert', 'update', 'write', 'delete', 'enumerate'},
+        'DerivaSchema': {'owner', 'create', 'select', 'insert', 'update', 'write', 'delete', 'enumerate'},
+        'DerivaTable': {'owner', 'create', 'select', 'insert', 'update', 'write', 'delete', 'enumerate'},
+        'DerivaColumn': {'owner', 'create', 'select', 'insert', 'update', 'write', 'delete', 'enumerate'},
+        'DerivaForeignKey': {'owner', 'create', 'select', 'insert', 'update', 'write', 'delete', 'enumerate'}
+    }
+
+    def __init__(self, obj):
+        self.catalog = obj.catalog
+        self.obj_type = type(obj).__name__
+        with DerivaModel(self.catalog) as m:
+            self.acls = m.model_element(obj).acls
+
+    def __setitem__(self, key, value):
+        if key not in DerivaACL.acl_matrix[self.obj_type]:
+            raise DerivaCatalogError(self, msg='Invalid ACL: {}'.format(key))
+
+        with DerivaModel(self.catalog) as m:
+            self.acls[key] = value
+
+    def __delitem__(self, key):
+        with DerivaModel(self.catalog):
+            self.acls.pop(key)
+
+    def __getitem__(self, key):
+        return self.acls[key]
+
+    def __iter__(self):
+        return iter(self.acls)
+
+    def __len__(self):
+        return len(self.acls)
+
+    def __repr__(self):
+        return "{}({})".format({type(self).__name__}, self.acls)
+
+    def __str__(self):
+        return self.acls.__str__()
+
+class DerivaACLBinding(MutableMapping):
+    acl_binding_matrix = {
+        'DerivaTable': {'owner', 'create', 'select', 'update', 'write', 'delete', 'enumerate'},
+        'DerivaColumn': {'owner', 'create', 'select', 'update', 'write', 'delete', 'enumerate'},
+        'DerivaForeignKey': {'owner', 'insert', 'update'}
+    }
+
+    def __init__(self, obj):
+        self.catalog = obj.catalog
+        self.obj_type = type(obj).__name__
+        with DerivaModel(self.catalog) as m:
+            self.acl_bindings = m.model_element(obj).acl_bindings
+
+    def __setitem__(self, key, value):
+        if key not in DerivaACLBinding.acl_binding_matrix[self.obj_type]:
+            raise DerivaCatalogError(self, msg='Invalid ACL Binding: {}'.format(key))
+
+        with DerivaModel(self.catalog) as m:
+            self.acl_bindings[key] = value
+
+    def __delitem__(self, key):
+        with DerivaModel(self.catalog):
+            self.acl_bindings.pop(key)
+
+    def __getitem__(self, key):
+        return self.acl_bindings[key]
+
+    def __iter__(self):
+        return iter(self.acl_bindings)
+
+    def __len__(self):
+        return len(self.acl_bindings)
+
+    def __repr__(self):
+        return "{}({})".format({type(self).__name__}, self.acl_bindings)
+
+    def __str__(self):
+        return self.acl_bindings.__str__()
+
 class DerivaAnnotations(MutableMapping):
     """
     Class used to represent an annotation.  Main reason for this class is to make sure apply function is called
@@ -377,6 +457,9 @@ class DerivaAnnotations(MutableMapping):
     def __repr__(self):
         return "{}({})".format({type(self).__name__}, self.annotations)
 
+    def __str__(self):
+        return self.annotations.__str__()
+
 
 class DerivaCore(DerivaLogging):
     def __init__(self, catalog):
@@ -390,6 +473,45 @@ class DerivaCore(DerivaLogging):
         :return:
         """
         return DerivaAnnotations(self)
+
+    @annotations.setter
+    def annotations(self, value):
+        with DerivaModel(self.catalog) as m:
+            m.schema_model(self).annotations.clear()
+            m.schema_model(self).annotations.update(value)
+
+    @property
+    def acls(self):
+        """
+        Get/Set a Deriva ACL.
+        :return:
+        """
+        return DerivaACL(self)
+
+    @acls.setter
+    def acls(self, value):
+        with DerivaModel(self.catalog) as m:
+            m.model_element(self).acls.clear()
+            m.model_element(self).acls.update(value)
+
+    @property
+    def acl_bindings(self):
+        """
+        Get/Set a Deriva ACL.
+        :return:
+        """
+
+        if type(self).__name__ not in DerivaACLBinding.acl_binding_matrix:
+            raise DerivaCatalogError(msg='ACL Bindings not defined for {}'.format(type(self).__name__))
+        return DerivaACLBinding(self)
+
+    @acl_bindings.setter
+    def acl_bindings(self, value):
+        if type(self).__name__ not in DerivaACLBinding.acl_binding_matrix:
+            raise DerivaCatalogError(msg='ACL Bindings not defined for {}'.format(type(self).__name__))
+        with DerivaModel(self.catalog) as m:
+            m.model_element(self).acl_bindings.clear()
+            m.model_element(self).acl_bindings.update(value)
 
 
 class DerivaCatalog(DerivaCore):
@@ -465,15 +587,6 @@ class DerivaCatalog(DerivaCore):
         """
         with DerivaModel(self) as m:
             return ElementList(self.schema, m.catalog_model().schemas)
-
-    @property
-    def acls(self):
-        """
-        Return the ACLs associated with this catalog
-        :return: catalog ACLs
-        """
-        with DerivaModel(self) as m:
-            return m.catalog_model().acls
 
     @property
     def navbar_menu(self):
@@ -616,11 +729,6 @@ class DerivaSchema(DerivaCore):
     def comment(self, value):
         with DerivaModel(self.catalog) as m:
             m.schema_model(self).comment = value
-
-    @property
-    def acls(self):
-        with DerivaModel(self.catalog) as m:
-            return m.schema_model(self).acls
 
     @property
     def tables(self):
@@ -1432,9 +1540,12 @@ class DerivaColumn(DerivaCore):
             self.default = default
             self.fill = fill
             self.comment = comment
-            self.acls = acls
-            self.acl_bindings = acl_bindings
-            self.annotations = annotations
+            self.acls = copy.deepcopy(acls.acls
+                                      if isinstance(acls, DerivaACL) else acls)
+            self.acl_bindings = copy.deepcopy(acl_bindings.acl_bindings
+                                              if isinstance(acl_bindings, DerivaACLBinding) else acl_bindings)
+            self.annotations =  copy.deepcopy(annotations.annotations
+                if isinstance(annotations, DerivaAnnotations) else annotations)
 
         def definition(self):
             return em.Column.define(
@@ -1568,31 +1679,14 @@ class DerivaColumn(DerivaCore):
     def display(self, value):
         self.annotations[chaise_tags.display] = value
 
-    @property
-    def acls(self):
-        return self.column.acls
-
-    @acls.setter
-    def acls(self, acls):
-        with DerivaModel(self.table.catalog) as m:
-            m.column_model(self).acls.update(acls)
-
-    @property
-    def acl_bindings(self):
-        return self.column.acl_bindings
-
-    @acl_bindings.setter
-    def acl_bindings(self, item):
-        with DerivaModel(self.catalog) as m:
-            m.column_model(self).acl_bindings.update(item)
-
     @staticmethod
     def convert_def(table, column_def):
         return DerivaColumn(table,
                             column_def.name, column_def.type,
                             column_def.nullok, column_def.default,
                             comment=column_def.comment,
-                            acls=column_def.acls, acl_bindings=column_def.acl_bindings,
+                            acls=column_def.acls,
+                            acl_bindings=column_def.acl_bindings,
                             annotations=column_def.annotations
                             )
 
@@ -1827,8 +1921,10 @@ class DerivaForeignKey(DerivaCore):
             self.comment = comment
             self.on_update = on_update
             self.on_delete = on_delete
-            self.acls = acls
-            self.acl_bindings = acl_bindings
+            self.acls = copy.deepcopy(acls.acls
+                                      if isinstance(acls, DerivaACL) else acls)
+            self.acl_bindings = copy.deepcopy(acl_bindings.acl_bindings
+                                              if isinstance(acl_bindings, DerivaACLBinding) else acl_bindings)
             self.annotations =  copy.deepcopy(annotations.annotations
                 if isinstance(annotations, DerivaAnnotations) else annotations)
 
@@ -2008,24 +2104,6 @@ class DerivaForeignKey(DerivaCore):
             return ElementList(self._referenced_column, m.foreign_key_model(self).referenced_columns)
 
     @property
-    def acls(self):
-        return self.fkey.acls
-
-    @acls.setter
-    def acls(self, acls):
-        with DerivaModel(self.table.catalog) as m:
-            m.foreign_key_model(self).acls.update(acls)
-
-    @property
-    def acl_bindings(self):
-        return self.fkey.acl_bindings
-
-    @acl_bindings.setter
-    def acl_bindings(self, item):
-        with DerivaModel(self.catalog) as m:
-            m.foreign_key_model(self).acl_bindings.update(item)
-
-    @property
     def comment(self):
         return self.fkey.comment
 
@@ -2158,26 +2236,6 @@ class DerivaTable(DerivaCore):
     def comment(self, value):
         with DerivaModel(self.catalog) as m:
             m.table_model(self).comment = value
-
-    @property
-    def acls(self):
-        with DerivaModel(self.catalog) as m:
-            return m.table_model(self).acls
-
-    @acls.setter
-    def acls(self, value):
-        with DerivaModel(self.catalog) as m:
-            m.table_model(self).acls = value
-
-    @property
-    def acl_bindings(self):
-        with DerivaModel(self.catalog) as m:
-            return m.table_model(self).acl_bindings
-
-    @acl_bindings.setter
-    def acl_bindings(self, value):
-        with DerivaModel(self.catalog) as m:
-            m.table_model(self).acl_bindings = value
 
     @property
     def display(self):
