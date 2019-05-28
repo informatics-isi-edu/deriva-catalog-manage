@@ -751,14 +751,6 @@ class DerivaSchema(DerivaCore):
         self.tables.__contains__(table_name)
 
     @property
-    def display(self):
-        return self.annotations[chaise_tags.display]
-
-    @display.setter
-    def display(self, value):
-        self.annotations[chaise_tags.display] = value
-
-    @property
     def name(self):
         return self.schema_name
 
@@ -776,6 +768,14 @@ class DerivaSchema(DerivaCore):
     def tables(self):
         with DerivaModel(self.catalog) as m:
             return ElementList(self.table, m.schema_model(self).tables)
+
+    @property
+    def display(self):
+        return self.annotations[chaise_tags.display]
+
+    @display.setter
+    def display(self, value):
+        self.annotations[chaise_tags.display] = value
 
     def _make_table_instance(self, schema_name, table_name):
         return DerivaTable(self.catalog, schema_name, table_name)
@@ -1124,7 +1124,7 @@ class DerivaVisibleSources(DerivaLogging):
 
     def clean(self, dryrun=False):
         new_vs = {}
-        for c, l in self.table.get_annotation(self.tag).items():
+        for c, l in self.table.annotations[self.tag].items():
             new_context = []
             for j in l:
                 try:
@@ -1721,6 +1721,14 @@ class DerivaColumn(DerivaCore):
     def display(self, value):
         self.annotations[chaise_tags.display] = value
 
+    @property
+    def column_display(self):
+        return self.annotations[chaise_tags.column_display]
+
+    @column_display.setter
+    def column_display(self, value):
+        self.annotations[chaise_tags.column_display] = value
+
     @staticmethod
     def convert_def(table, column_def):
         return DerivaColumn(table,
@@ -1905,11 +1913,19 @@ class DerivaKey(DerivaCore):
 
     @property
     def display(self):
-        return self.annotations[chaise_tags.display]
+        return self.annotations[chaise_tags.key_display]
 
     @display.setter
     def display(self, value):
         self.annotations[chaise_tags.display] = value
+
+    @property
+    def key_display(self):
+        return self.annotations[chaise_tags.key_display]
+
+    @key_display.setter
+    def key_display(self, value):
+        self.annotations[chaise_tags.key_display] = value
 
     @staticmethod
     def define(columns, name=None, comment=None, annotations={}):
@@ -2324,6 +2340,14 @@ class DerivaTable(DerivaCore):
         self.annotations[chaise_tags.display] = value
 
     @property
+    def table_display(self):
+        return self.annotations[chaise_tags.table_display]
+
+    @table_display.setter
+    def table_display(self, value):
+        self.annotations[chaise_tags.table_display] = value
+
+    @property
     def visible_columns(self):
         return DerivaVisibleSources(self, chaise_tags.visible_columns)
 
@@ -2573,7 +2597,7 @@ class DerivaTable(DerivaCore):
         for k, v in self.annotations.items():
             if k in skip_annotations:
                 renamed = v
-            elif k == chaise_tags.display:
+            elif k == chaise_tags.display or k == chaise_tags.table_display or k == chaise_tags.column_display:
                 renamed = self._rename_columns_in_display(v, column_map)
             elif k == chaise_tags.visible_columns:
                 renamed = self.visible_columns.rename_columns(column_map, validate=validate)
@@ -3031,11 +3055,13 @@ class DerivaTable(DerivaCore):
             self.logger.debug('copying columns: %s',
                               {column_map.get(i.name, i).name: getattr(from_path, i.name) for i in self.columns})
 
+            v = from_path.attributes(
+                    **{column_map.get(i.name, i).name: getattr(from_path, i.name) for i in self.columns})
+
             rows = map(
                 lambda x: {**x, **{k: v.fill for k, v in column_map.get_columns().items() if v.fill}},
-                from_path.entities(
-                    **{column_map.get(i.name, i).name: getattr(from_path, i.name) for i in self.columns})
-            )
+                v.fetch())
+
             to_path.insert(list(rows), **({'nondefaults': {'RID', 'RCT', 'RCB'}} if clone else {}))
         return new_table
 
