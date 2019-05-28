@@ -156,7 +156,7 @@ class DerivaCatalogToString:
         catalog_id = self._catalog.catalog_id
 
         annotations = self.variable_to_str('annotations', schema.annotations)
-        acls = self.variable_to_str('acls', schema.acls)
+        acls = self.variable_to_str('acls', schema.acls.value)
         comments = self.variable_to_str('comment', schema.comment)
         groups = self.variable_to_str('groups', self._referenced_groups, substitute=False)
 
@@ -173,7 +173,7 @@ class DerivaCatalogToString:
 
         tag_variables = self.tag_variables_to_str(self._catalog.annotations)
         annotations = self.annotations_to_str(self._catalog.annotations)
-        acls = self.variable_to_str('acls', self._catalog.acls)
+        acls = self.variable_to_str('acls', self._catalog.acls.value)
         groups = self.variable_to_str('groups', self._referenced_groups, substitute=False)
 
         s = catalog_file_template.format(host=host, catalog_id=catalog_id, groups=groups,
@@ -187,8 +187,8 @@ class DerivaCatalogToString:
         s = ''.join([self.tag_variables_to_str(table.annotations), '\n',
                      self.annotations_to_str(table.annotations, var_name='table_annotations'), '\n',
                      self.variable_to_str('table_comment', table.comment), '\n',
-                     self.variable_to_str('table_acls', table.acls), '\n',
-                     self.variable_to_str('table_acl_bindings', table.acl_bindings)])
+                     self.variable_to_str('table_acls', table.acls.value), '\n',
+                     self.variable_to_str('table_acl_bindings', table.acl_bindings.value)])
         return s
 
     def column_annotations_to_str(self, table):

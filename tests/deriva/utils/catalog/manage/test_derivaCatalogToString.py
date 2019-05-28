@@ -103,4 +103,4 @@ class TestDerivaCatalogToString(TestCase):
         m.main(test_catalog, 'comment')
         m.main(test_catalog, 'keys')
         m.main(test_catalog, 'fkeys')
-        m.main(test_catalog, 'columns', replace=True, really=True)
+#        m.main(test_catalog, 'columns', replace=True, really=True)

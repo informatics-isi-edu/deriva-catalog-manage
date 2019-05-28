@@ -140,6 +140,8 @@ class CatalogUpdater:
                     ok = 'YES' if really else input('Type YES to confirm:')
                     if ok == 'YES':
                         for k in table.column_definitions:
+                            if k.name in ['RID', 'RMB', 'RCB', 'RCT', 'RMT']:
+                                continue
                             k.delete(self._catalog.ermrest_catalog, table)
                 # Go through the column definitions and add a new column if it doesn't already exist.
                 for i in column_defs:
