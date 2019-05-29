@@ -183,8 +183,9 @@ class TestVisibleSources(TestCase):
         vs.insert_context('*')
         vs.insert_context('filter')
         vs.insert_sources([DerivaSourceSpec(table, 'Foo'), DerivaSourceSpec(table, 'Foo2')])
+        print('star', table.visible_columns['*'])
+        print('filter', table.visible_columns['filter'])
         self.assertIn({'source': 'Foo2'}, table.visible_columns['*'])
-        print(table.visible_columns)
 
 
 class TestColumnMap(TestCase):

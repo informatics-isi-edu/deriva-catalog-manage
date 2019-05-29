@@ -1236,6 +1236,9 @@ class DerivaVisibleSources(DerivaLogging):
                 if DerivaContext(context) not in positions.keys():
                     continue
 
+                if context == 'filter':
+                    context_list = context_list['and']
+
                 # Get list of column names that are in the spec, mapping back simple FK references.
                 self.logger.debug('source_specs %s %s', self.table.name, [i.spec for i in source_list])
                 self.logger.debug('context %s %s', context, [i for i in context_list])
@@ -1253,7 +1256,7 @@ class DerivaVisibleSources(DerivaLogging):
                         continue
                     new_context.append(source.spec)
 
-                sources[context] = new_context
+                sources[context] = {'and': new_context} if context == 'filter' else new_context
             self.logger.debug('updated sources: %s', sources)
             sources = self._reorder_sources(sources, positions)
             self.logger.debug('reordered sources: source:%s',sources)
@@ -1416,10 +1419,13 @@ class DerivaSourceSpec(DerivaLogging):
         super().__init__()
         self.logger.debug('table: %s spec: %s', table.name, spec)
         self.table = table
-        self.spec = (
-            copy.deepcopy(spec.spec)
-            if isinstance(spec, DerivaSourceSpec) else self._normalize_source_spec(spec, src_tag)
-        )
+        self.tag = src_tag
+        if isinstance(spec, DerivaSourceSpec):
+            self.spec = copy.deepcopy(spec.spec)
+            self.tag = spec.tag
+        else:
+            self.spec = self._normalize_source_spec(spec, src_tag)
+
         self.logger.debug('normalized: %s', self.spec)
         if validate:
             self.validate()
@@ -1575,7 +1581,7 @@ class DerivaSourceSpec(DerivaLogging):
 
     def make_outbound(self, validate=True):
         col_name = self.table.foreign_key[self.source].name
-        self.spec.update(self._normalize_source_spec([self.table.schema_name, col_name]))
+        self.spec.update(self._normalize_source_spec([self.table.schema_name, col_name], self.tag))
         if validate:
             self.validate()
         return self
@@ -1589,8 +1595,7 @@ class DerivaSourceSpec(DerivaLogging):
         # Get the fk_name from the spec and then change spec to be the key column.
         fk_name = self.source[0]['outbound'][1]
         self.spec.update(self._normalize_source_spec(
-            next(iter(self.table.foreign_keys[fk_name].columns)).name
-        )
+            next(iter(self.table.foreign_keys[fk_name].columns)).name, self.tag)
         )
 
         if validate:
