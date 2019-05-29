@@ -1193,8 +1193,7 @@ class DerivaVisibleSources(DerivaLogging):
         context = DerivaContext(context)
         # Map over sources and make sure that they are all ok before we instert...
         sources = [DerivaSourceSpec(self.table, j).spec for j in sources]
-        if context == DerivaContext('filter'):
-            sources = {'and': sources}
+        sources = {'and': copy.deepcopy(sources)} if context == DerivaContext('filter') else copy.deepcopy(sources)
         if self.tag not in self.table.annotations:
             self.table.annotations[self.tag] = {context.value: sources}
         elif context.value not in self.table.annotations[self.tag] or replace:
@@ -1374,7 +1373,7 @@ class DerivaVisibleSources(DerivaLogging):
                 reordered_names = mapped_list
 
             source_list = [source_list[source_names.index(i)] for i in reordered_names]
-            new_sources[context] = {'and': source_list} if DerivaContext('filter') else source_list
+            new_sources[context] = {'and': source_list} if context == 'filter' else source_list
 
         return {**sources, **new_sources}
 
