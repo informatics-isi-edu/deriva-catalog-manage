@@ -697,9 +697,6 @@ class TestDerivaTable(TestCase):
 
         table2_copy = table2.copy_table('TestSchema', 'Table2_Copy')
         logging.info('Tables copied %s', time.time() - t0)
-        print(table1)
-        print(table1_copy)
-        print(table2_copy)
 
         self.assertEqual(table2_copy.key['ID1_Table2'].name, 'Table2_Copy_ID1_Table2_key')
         self.assertEqual(table2_copy.foreign_key['Table2_Copy_ID1_Table2_fkey'].name,

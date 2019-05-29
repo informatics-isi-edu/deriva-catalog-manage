@@ -68,7 +68,12 @@ logger_config = {
         'table_filter': {
             '()': DerivaMethodFilter,
             'exclude': ['_foreign_key', '_referenced', '_key_in_columns']
+        },
+        'visiblesources_filter': {
+            '()': DerivaMethodFilter,
+            'include': ['insert_sources']
         }
+
     },
     'formatters': {
         'class': {
@@ -101,16 +106,17 @@ logger_config = {
             #  'level': 'DEBUG'
         },
         'deriva_model.DerivaSchema': {
-            #  'level': 'DEBUG'
+          #    'level': 'DEBUG'
         },
         'deriva_model.DerivaVisibleSources': {
-            #      'level': 'DEBUG'
+                  'level': 'DEBUG',
+            'filters': ['visiblesources_filter']
         },
         'deriva_model.DerivaSourceSpec': {
-            #     'level': 'DEBUG'
+          #       'level': 'DEBUG'
         },
         'deriva_model.DerivaTable': {
-            #      'level': 'DEBUG',
+           #       'level': 'DEBUG',
             #   'filters': ['table_filter']
         },
         'deriva_model.DerivaColumn': {
@@ -120,7 +126,7 @@ logger_config = {
             #     'level': 'DEBUG'
         },
         'deriva_model.DerivaForeignKey': {
-            #   'level': 'DEBUG',
+          #     'level': 'DEBUG',
             #   'filters': ['foreign_key_filter']
         }
     },
@@ -825,6 +831,7 @@ class DerivaSchema(DerivaCore):
             k.update_table(proto_table(self.catalog, self.schema, self.name, table_name, column_defs))
 
         with DerivaModel(self.catalog) as m:
+            self.logger.debug('create_fkeys ', [fk.name for fk in fkey_defs])
 
             table = self._create_table(em.Table.define(
                 table_name, [col.definition() for col in column_defs],
@@ -1118,9 +1125,16 @@ class DerivaVisibleSources(DerivaLogging):
         if self.tag not in self.table.annotations:
             return
         for c, l in self.table.annotations[self.tag].items():
-            DerivaContext(c)  # Make sure that we have a valid context value.
+            try:
+                DerivaContext(c)  # Make sure that we have a valid context value.
+            except ValueError:
+                logger.info('Invalid context name %s', c)
             for j in l:
-                DerivaSourceSpec(self.table, j)
+                try:
+                    print('checking ',j)
+                    DerivaSourceSpec(self.table, j)
+                except DerivaCatalog as e:
+                    logger.info('Invalid source specification %s', e.msg)
 
     def clean(self, dryrun=False):
         new_vs = {}
@@ -1220,8 +1234,10 @@ class DerivaVisibleSources(DerivaLogging):
                 self.logger.debug('source_specs %s %s', self.table.name, [i.spec for i in source_list])
                 self.logger.debug('context %s %s', context, [i for i in context_list])
                 self.logger.debug('referenced_by %s', [i.name for i in self.table.referenced_by])
-                source_specs = [DerivaSourceSpec(self.table, i) for i in source_list]
-                new_context = [DerivaSourceSpec(self.table, i).spec for i in context_list]
+                source_specs = [DerivaSourceSpec(self.table, i, validate=False) for i in source_list]
+                new_context = [
+                    DerivaSourceSpec(self.table, i, validate=False, src_tag=self.tag).spec for i in context_list
+                ]
                 self.logger.debug('getting source names %s %s', source_specs, new_context)
 
                 for source in source_specs:
@@ -1324,7 +1340,7 @@ class DerivaVisibleSources(DerivaLogging):
             # Get the list of column names for the spec.
             source_names = []
             for i in range(len(source_list)):
-                name = DerivaSourceSpec(self.table, source_list[i]).column_name
+                name = DerivaSourceSpec(self.table, source_list[i], validate=False, src_tag=self.tag).column_name
                 source_names.append(name + str(i) if name == 'pseudo_column' else name)
 
             self.logger.debug('source_names %s', source_names)
@@ -1381,13 +1397,13 @@ class DerivaVisibleForeignKeys(DerivaVisibleSources):
 
 
 class DerivaSourceSpec(DerivaLogging):
-    def __init__(self, table, spec, validate=True):
+    def __init__(self, table, spec, validate=True, src_tag=chaise_tags.visible_columns):
         super().__init__()
         self.logger.debug('table: %s spec: %s', table.name, spec)
         self.table = table
         self.spec = (
             copy.deepcopy(spec.spec)
-            if isinstance(spec, DerivaSourceSpec) else self._normalize_source_spec(spec)
+            if isinstance(spec, DerivaSourceSpec) else self._normalize_source_spec(spec, src_tag)
         )
         self.logger.debug('normalized: %s', self.spec)
         if validate:
@@ -1439,7 +1455,7 @@ class DerivaSourceSpec(DerivaLogging):
         Check the values of a normalized spec and make sure that all of the columns and keys in the source exist.
         :return:
         """
-        spec = self._normalize_source_spec(self.spec)
+        spec = self._normalize_source_spec(self.spec, None)
         source_entry = spec['source']
         if type(spec['source']) is str:
             if spec['source'] not in [i.name for i in self.table.columns]:
@@ -1462,7 +1478,7 @@ class DerivaSourceSpec(DerivaLogging):
                 raise DerivaSourceError(self, 'Invalid source entry {}'.format(source_entry[-1]))
         return spec
 
-    def _normalize_source_spec(self, spec):
+    def _normalize_source_spec(self, spec, src_tag):
         """
         Convert a source spec into a uniform form using the new source notations.
         :param spec:
@@ -1487,14 +1503,15 @@ class DerivaSourceSpec(DerivaLogging):
             elif spec[1] in self.table.referenced_by:
                 return {'source': [{'inbound': tuple(spec)}, 'RID']}
             else:
-                raise DerivaSourceError(self, 'Invalid source entry {}'.format(spec))
+                default_direction = 'inbound' if src_tag == chaise_tags.visible_foreign_keys else 'outbound'
+                return {'source': [{default_direction: tuple(spec)} ]}
         else:
             # We have a spec that is already in source form.
             # every element of pseudo column source except the last must be either an inbound or outbound spec.
             try:
                 if not (isinstance(spec['source'], str) or
                         all(map(lambda x: len(x.get('inbound', x.get('outbound',[]))) == 2, spec['source'][0:-1]))):
-                    raise DerivaSourceError(self, 'Invalid source entry is not in key list{}'.format(spec))
+                    raise DerivaSourceError(self, 'Invalid source entry {}'.format(spec))
             except TypeError:
                 raise DerivaSourceError(self, 'Invalid source entry {}'.format(spec))
         return spec
