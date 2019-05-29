@@ -1129,6 +1129,8 @@ class DerivaVisibleSources(DerivaLogging):
                 DerivaContext(c)  # Make sure that we have a valid context value.
             except ValueError:
                 logger.info('Invalid context name %s', c)
+            if c == 'filter':
+                l = l['filter']
             for j in l:
                 try:
                     print('checking ',j)
@@ -1140,12 +1142,14 @@ class DerivaVisibleSources(DerivaLogging):
         new_vs = {}
         for c, l in self.table.annotations[self.tag].items():
             new_context = []
+            if c == 'filter':
+                l = l['and']
             for j in l:
                 try:
                     new_context.append(DerivaSourceSpec(self.table, j).spec)
                 except DerivaCatalogError:
                     print("Removing {} {}".format(c, j))
-            new_vs.update({c: new_context})
+            new_vs.update({c: {'and': new_context} if c == 'filter' else new_context})
         if not dryrun:
             self.table.annotations[self.tag] = new_vs
 
@@ -1189,6 +1193,8 @@ class DerivaVisibleSources(DerivaLogging):
         context = DerivaContext(context)
         # Map over sources and make sure that they are all ok before we instert...
         sources = [DerivaSourceSpec(self.table, j).spec for j in sources]
+        if context == DerivaContext('filter'):
+            sources = {'and': sources}
         if self.tag not in self.table.annotations:
             self.table.annotations[self.tag] = {context.value: sources}
         elif context.value not in self.table.annotations[self.tag] or replace:
@@ -1337,6 +1343,9 @@ class DerivaVisibleSources(DerivaLogging):
             if deriva_context not in positions.keys():
                 continue
 
+            if deriva_context == DerivaContext('filter'):
+                source_list = source_list['and']
+
             # Get the list of column names for the spec.
             source_names = []
             for i in range(len(source_list)):
@@ -1361,7 +1370,9 @@ class DerivaVisibleSources(DerivaLogging):
                                ]
                 reordered_names = mapped_list
 
-            new_sources[context] = [source_list[source_names.index(i)] for i in reordered_names]
+            source_list = [source_list[source_names.index(i)] for i in reordered_names]
+            new_sources[context] = {'and': source_list} if DerivaContext('filter') else source_list
+
         return {**sources, **new_sources}
 
     def delete_visible_source(self, columns, contexts=[]):
@@ -1372,6 +1383,10 @@ class DerivaVisibleSources(DerivaLogging):
             # Get list of column names that are in the spec, mapping back simple FK references.
             if context not in context_names:
                 continue
+
+            if context == 'filter':
+                vc_list = vc_list['and']
+
             for col in columns:
                 # Columns may have already been deleted, so do not validate.
                 col_spec = DerivaSourceSpec(self.table, col, validate=False)

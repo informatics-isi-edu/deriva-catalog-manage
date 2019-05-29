@@ -181,8 +181,10 @@ class TestVisibleSources(TestCase):
         table = catalog['TestSchema']['TestTable1']
         vs = table.visible_columns
         vs.insert_context('*')
+        vs.insert_context('filter')
         vs.insert_sources([DerivaSourceSpec(table, 'Foo'), DerivaSourceSpec(table, 'Foo2')])
         self.assertIn({'source': 'Foo2'}, table.visible_columns['*'])
+        print(table.visible_columns)
 
 
 class TestColumnMap(TestCase):
