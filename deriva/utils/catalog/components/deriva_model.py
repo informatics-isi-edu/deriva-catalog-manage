@@ -1134,7 +1134,11 @@ class DerivaVisibleSources(DerivaLogging):
             except ValueError:
                 logger.info('Invalid context name %s', c)
             if c == 'filter':
-                l = l['and']
+                if type(l) is not dict:
+                    logger.info('Invalid source specification %s', {c: l})
+                    continue
+                else:
+                    l = l['and']
             for j in l:
                 try:
                     DerivaSourceSpec(self.table, j)
@@ -1669,8 +1673,8 @@ class DerivaColumn(DerivaCore):
 
         if table:
             self.schema = self.catalog[table.schema_name]
-            with DerivaModel(self.catalog) as m:
-                self.column = m.column_exists(table, name)
+            m = DerivaModel(self.catalog)
+            self.column = m.column_exists(table, name)
 
         if self.column:
             if define:
