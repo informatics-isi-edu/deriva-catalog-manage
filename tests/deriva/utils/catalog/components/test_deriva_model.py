@@ -268,8 +268,8 @@ class TestDerivaTable(TestCase):
         table = catalog['TestSchema']['Table1']
 
         self.assertEqual(table.comment, 'Comment 1')
-        self.assertEqual(table.acls.acls, {'owner': ['carl'], 'select': ['bubba']})
-        self.assertEqual(table.acl_bindings.acl_bindings,
+        self.assertEqual(table.acls, {'owner': ['carl'], 'select': ['bubba']})
+        self.assertEqual(table.acl_bindings,
                          {'set_owner':
                               {"types": ["update"], "projection": ["RCB"], "projection_type": "acl", 'scope_acl': ['*']}}
                          )
@@ -284,8 +284,8 @@ class TestDerivaTable(TestCase):
 
         del table.acls['select']
         self.assertEqual(table.comment, 'Comment 2')
-        self.assertEqual(table.acls.acls, {'owner': ['carl1']})
-        self.assertEqual(table.acl_bindings.acl_bindings,
+        self.assertEqual(table.acls, {'owner': ['carl1']})
+        self.assertEqual(table.acl_bindings,
                          {'set_owner':
                               {"types": ["update"], "projection": ["RMB"], "projection_type": "acl",
                                'scope_acl': ['*']}}
@@ -691,7 +691,7 @@ class TestDerivaTable(TestCase):
         )))
 
         t0 = time.time()
-        table1_copy = table1.copy_table('TestSchema', 'Table1_Copy')
+        #table1_copy = table1.copy_table('TestSchema', 'Table1_Copy')
 
         t1 = table1.datapath()
         print(list(table1.datapath().attributes(
