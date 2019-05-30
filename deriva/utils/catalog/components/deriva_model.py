@@ -21,7 +21,7 @@ chaise_tags['catalog_config'] = 'tag:isrd.isi.edu,2019:catalog-config'
 CATALOG_CONFIG__TAG = 'tag:isrd.isi.edu,2019:catalog-config'
 
 logger = logging.getLogger(__name__)
-
+logger.setLevel(logging.INFO)
 
 def timeit(method):
     def timed(*args, **kw):
@@ -399,6 +399,7 @@ class DerivaACL(MutableMapping):
     def value(self):
         return self._acls
 
+
 class DerivaACLBinding(MutableMapping):
     acl_binding_matrix = {
         'DerivaTable': {'owner', 'create', 'select', 'update', 'write', 'delete', 'enumerate'},
@@ -446,8 +447,8 @@ class DerivaAnnotations(MutableMapping):
 
     def __init__(self, obj):
         self.catalog = obj.catalog
-        with DerivaModel(self.catalog) as m:
-            self.annotations = m.model_element(obj).annotations
+        m = DerivaModel(self.catalog)
+        self.annotations = m.model_element(obj).annotations
 
     def __setitem__(self, key, value):
         if key not in DerivaAnnotations.annotation_tags:
@@ -634,8 +635,8 @@ class DerivaCatalog(DerivaCore):
         schema name, or iterated over.
         :return:
         """
-        with DerivaModel(self) as m:
-            return ElementList(self.schema, m.catalog_model().schemas)
+        m = DerivaModel(self)
+        return ElementList(self.schema, m.catalog_model().schemas)
 
     @property
     def navbar_menu(self):
@@ -696,11 +697,11 @@ class DerivaCatalog(DerivaCore):
         return DerivaSchema(self, schema_name)
 
     def schema(self, schema_name):
-        with DerivaModel(self) as m:
-            if m.schema_exists(schema_name):
-                return self.schema_classes.setdefault(schema_name, self._make_schema_instance(schema_name))
-            else:
-                raise DerivaCatalogError(self, 'schema {} not defined'.format(schema_name))
+        m = DerivaModel(self)
+        if m.schema_exists(schema_name):
+            return self.schema_classes.setdefault(schema_name, self._make_schema_instance(schema_name))
+        else:
+            raise DerivaCatalogError(self, 'schema {} not defined'.format(schema_name))
 
     def create_schema(self, schema_name, comment=None, acls={}, annotations={}):
         """
@@ -735,6 +736,7 @@ class DerivaCatalog(DerivaCore):
         :return:
         """
         for s in self.schemas:
+            logger.info('Validating %s', s.name)
             s.validate()
 
 
@@ -773,8 +775,8 @@ class DerivaSchema(DerivaCore):
 
     @property
     def tables(self):
-        with DerivaModel(self.catalog) as m:
-            return ElementList(self.table, m.schema_model(self).tables)
+        m = DerivaModel(self.catalog)
+        return ElementList(self.table, m.schema_model(self).tables)
 
     @property
     def display(self):
@@ -796,12 +798,12 @@ class DerivaSchema(DerivaCore):
         return table
 
     def table(self, table_name):
-        with DerivaModel(self.catalog) as m:
-            if m.table_exists(self, table_name):
-                return self.table_classes.setdefault(table_name,
-                                                     self._make_table_instance(self.name, table_name))
-            else:
-                raise DerivaCatalogError(self, 'table {}:{} not defined'.format(self.name, table_name))
+        m = DerivaModel(self.catalog)
+        if m.table_exists(self, table_name):
+            return self.table_classes.setdefault(table_name,
+                                                 self._make_table_instance(self.name, table_name))
+        else:
+            raise DerivaCatalogError(self, 'table {}:{} not defined'.format(self.name, table_name))
 
     def create_table(self, table_name, column_defs,
                      key_defs=[], fkey_defs=[],
@@ -948,6 +950,7 @@ class DerivaSchema(DerivaCore):
         :return: True if all values are valid.
         """
         for t in self.tables:
+            logger.info('Validating table %s', t.name)
             t.validate()
         return True
 
@@ -1131,12 +1134,11 @@ class DerivaVisibleSources(DerivaLogging):
             except ValueError:
                 logger.info('Invalid context name %s', c)
             if c == 'filter':
-                l = l['filter']
+                l = l['and']
             for j in l:
                 try:
-                    print('checking ',j)
                     DerivaSourceSpec(self.table, j)
-                except DerivaCatalog as e:
+                except DerivaCatalogError as e:
                     logger.info('Invalid source specification %s', e.msg)
 
     def clean(self, dryrun=False):
@@ -1152,7 +1154,8 @@ class DerivaVisibleSources(DerivaLogging):
                     print("Removing {} {}".format(c, j))
             new_vs.update({c: {'and': new_context} if c == 'filter' else new_context})
         if not dryrun:
-            self.table.annotations[self.tag] = new_vs
+            with DerivaModel(self.catalgo):
+                self.table.annotations[self.tag] = new_vs
 
     @staticmethod
     def _normalize_positions(positions):
@@ -2497,10 +2500,9 @@ class DerivaTable(DerivaCore):
         return DerivaColumn(self.catalog[self.schema_name][self.name], column_name)
 
     def validate(self):
-        with DerivaModel(self.catalog):
-            self.visible_columns.validate()
-            self.visible_foreign_keys.validate()
-            self.validate_display()
+        self.visible_columns.validate()
+        self.visible_foreign_keys.validate()
+        self.validate_display()
 
     def validate_display(self):
         # TODO Need to go through display annotation and make sure it references proper columns.

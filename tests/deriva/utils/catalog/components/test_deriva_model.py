@@ -691,7 +691,7 @@ class TestDerivaTable(TestCase):
         )))
 
         t0 = time.time()
-        #table1_copy = table1.copy_table('TestSchema', 'Table1_Copy')
+        table1_copy = table1.copy_table('TestSchema', 'Table1_Copy')
 
         t1 = table1.datapath()
         print(list(table1.datapath().attributes(
