@@ -109,8 +109,8 @@ logger_config = {
           #    'level': 'DEBUG'
         },
         'deriva_model.DerivaVisibleSources': {
-                  'level': 'DEBUG',
-            'filters': ['visiblesources_filter']
+           #       'level': 'DEBUG',
+           # 'filters': ['visiblesources_filter']
         },
         'deriva_model.DerivaSourceSpec': {
           #       'level': 'DEBUG'
@@ -126,8 +126,8 @@ logger_config = {
             #     'level': 'DEBUG'
         },
         'deriva_model.DerivaForeignKey': {
-          #     'level': 'DEBUG',
-            #   'filters': ['foreign_key_filter']
+        #     'level': 'DEBUG',
+        #   'filters': ['foreign_key_filter']
         }
     },
 }
@@ -367,6 +367,7 @@ class DerivaACL(MutableMapping):
     def __init__(self, obj):
         self._catalog = obj.catalog
         self._acls = obj.get_acls()
+        self._obj_type = obj.object_type()
 
     def __setitem__(self, key, value):
         if key not in DerivaACL.acl_matrix[self._obj_type]:
