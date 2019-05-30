@@ -16,6 +16,6 @@ deriva.utils.catalog.components.deriva\_model module
 ----------------------------------------------------
 
 .. automodule:: deriva.utils.catalog.components.deriva_model
-    :members: DerivaCatalog, DerivaSchema, DerivaTable, DerivaColumn, DerivaKey, DerivaForeignKey
+    :members: DerivaModel, DerivaCatalog, DerivaSchema, DerivaTable, DerivaColumn, DerivaKey, DerivaForeignKey
     :undoc-members:
     :show-inheritance:

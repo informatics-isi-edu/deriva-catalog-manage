@@ -609,6 +609,7 @@ class DerivaCatalog(DerivaCore):
     def host(self):
         """
         Get catalog host.
+
         :return: Hostname of the current catalog
         """
         return urlparse(self.ermrest_catalog.get_server_uri()).hostname
@@ -617,6 +618,7 @@ class DerivaCatalog(DerivaCore):
     def catalog_id(self):
         """
         Get catalog id
+
         :return: catalog identifier
         """
         return self.ermrest_catalog.catalog_id
@@ -625,6 +627,7 @@ class DerivaCatalog(DerivaCore):
     def server_uri(self):
         """
         URI for the catalog server
+
         :return: server uri
         """
         return self.ermrest_catalog.get_server_uri()
@@ -634,6 +637,7 @@ class DerivaCatalog(DerivaCore):
         """
         Return an interable for the schemas contained in the the catalog. The return value can be indexed by
         schema name, or iterated over.
+
         :return:
         """
         m = DerivaModel(self)
@@ -734,6 +738,7 @@ class DerivaCatalog(DerivaCore):
     def validate(self):
         """
         Validate all of the objects in the catalog.
+
         :return:
         """
         for s in self.schemas:
@@ -799,6 +804,12 @@ class DerivaSchema(DerivaCore):
         return table
 
     def table(self, table_name):
+        """
+        Return a DerivaTable object for the named table.
+
+        :param table_name:
+        :return:
+        """
         m = DerivaModel(self.catalog)
         if m.table_exists(self, table_name):
             return self.table_classes.setdefault(table_name,
@@ -816,7 +827,7 @@ class DerivaSchema(DerivaCore):
         """
         Create a new table from the provided arguments.
 
-        :param table_name:
+        :param table_name: The name of the new table to be created.
         :param column_defs:
         :param key_defs:
         :param fkey_defs:
@@ -948,6 +959,7 @@ class DerivaSchema(DerivaCore):
         visible foreign key, display and other configurable fields associated with the catalog and check to ensure
         they use valid column and key definitions.  Some limited syntax checking is done as well.  Throws an
         exception if an invalid value is found.
+
         :return: True if all values are valid.
         """
         for t in self.tables:
@@ -1279,6 +1291,7 @@ class DerivaVisibleSources(DerivaLogging):
     def rename_columns(self, column_map, validate=True):
         """
         Go through a list of visible specs and rename the spec, returning a new visible column spec.
+
         :param column_map:
         :return:
         """
@@ -1390,6 +1403,13 @@ class DerivaVisibleSources(DerivaLogging):
         return {**sources, **new_sources}
 
     def delete_visible_source(self, columns, contexts=[]):
+        """
+        Delete the named columns from a visible source list.
+
+        :param columns: A list of column names.
+        :param contexts: Names of the context to delete the sources from.
+        :return:
+        """
         self.logger.debug('tag: %s columns: %s vc before %s', self.tag, columns, self.table.annotations[self.tag])
         context_names = [i.value for i in (DerivaContext if contexts == [] else contexts)]
         columns = [columns] if isinstance(columns, str) else columns
@@ -1469,6 +1489,7 @@ class DerivaSourceSpec(DerivaLogging):
         Return the column name that is referenced in the source spec.
         If the spec is a a path then return the value pseudo_column.  If it is a single
         This will require us to look up the column behind an outbound foreign key reference. If
+
         :return:
         """
 
@@ -1485,6 +1506,7 @@ class DerivaSourceSpec(DerivaLogging):
     def validate(self):
         """
         Check the values of a normalized spec and make sure that all of the columns and keys in the source exist.
+
         :return:
         """
         spec = self._normalize_source_spec(self.spec, None)
@@ -1513,6 +1535,7 @@ class DerivaSourceSpec(DerivaLogging):
     def _normalize_source_spec(self, spec, src_tag):
         """
         Convert a source spec into a uniform form using the new source notations.
+
         :param spec:
         :return:
         """
@@ -2666,6 +2689,7 @@ class DerivaTable(DerivaCore):
         columns, rather then moving them to a new table, not all of the columns in a composite key have to be present
         as we still have the other columns available to us.  Return false if there is no overlap.  Raise an exception
         if you are attmpting to break up a composite key.
+
         :param columns:  List of columns in a table that are being altered
         :param key_columns: list of columns in the key
         :param rename: true if you are renaming columns within a single table, rather then deleting or moving them.
@@ -2685,6 +2709,7 @@ class DerivaTable(DerivaCore):
         """
         Go over all of the keys, incoming and outgoing foreign keys and check to make sure that renaming the set of
         columns  won't break up composite keys if they are renamed.
+
         :param columns:list of columns that you want to check.
         :param rename: true if you are renaming columns within a single table, rather then deleting or moving them.
         :return:
@@ -2899,6 +2924,7 @@ class DerivaTable(DerivaCore):
     def create_columns(self, columns, positions={}, visible=True):
         """
         Create a new column in the table.
+
         :param columns: A list of DerivaColumn.
         :param positions:  Where the column should be added into the visible columns spec.
         :param visible: Include this column in the visible columns spec.
@@ -3001,6 +3027,7 @@ class DerivaTable(DerivaCore):
         We want to replace the current table with the dest_table. Go through the list of tables that are currently
         pointing to this table and replace the foreign_key to reference dest_table instead.  Some of the columns may
         have been renamed, so use the column_map to get the current table name.
+        
         :param dest_table:
         :param column_map:
         :return:

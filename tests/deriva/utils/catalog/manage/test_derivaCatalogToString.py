@@ -10,7 +10,7 @@ from deriva.utils.catalog.manage.deriva_csv import load_module_from_path
 
 from urllib.parse import urlparse
 
-from .. test_utils import *
+from  test_utils import *
 
 
 class TestDerivaCatalogToString(TestCase):
