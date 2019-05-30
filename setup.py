@@ -37,7 +37,7 @@ setup(
     maintainer=author,
     maintainer_email=author_email,
     version=__version__,
-    packages=find_packages(),
+    packages=find_packages(exclude=["tests"]),
     package_data={},
     python_requires='>=3.5.4',
     test_suite='tests',
@@ -66,7 +66,7 @@ setup(
         'attrdict',
         'tabulate',
         'jsonschema==2.6.0',
-        'deriva>=0.8.3'
+        'deriva>=0.8.4'
     ],
     license='Apache 2.0',
     classifiers=[
