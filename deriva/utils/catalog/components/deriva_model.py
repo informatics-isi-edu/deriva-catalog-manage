@@ -229,11 +229,11 @@ class DerivaModel(DerivaLogging):
     Representation of a deriva model. Is primarily used as a resource manager to group catalog operations so as to
     minimize network round trips.  For example:
 
-    ``
+    ```
     with DerivaModel(catalog)
        table = schema.create_table('MyTable',[])
        table.display = 'My Nice Table'
-    ``
+    ```
 
     """
     contexts = {i for i in DerivaContext if i is not DerivaContext("all")}
@@ -1498,7 +1498,6 @@ class DerivaSourceSpec(DerivaLogging):
         elif len(self.source) == 2 and 'outbound' in self.source[0]:
                 t = self.source[0]['outbound'][1]
                 fk_cols = self.table.foreign_key[t].columns
-                self.logger.debug('fk_cols %s %s', fk_cols, list(fk_cols)[0])
                 return list(fk_cols)[0].name if len(fk_cols) == 1 else None
         else:
             return 'pseudo_column'
@@ -1882,6 +1881,7 @@ class DerivaKey(DerivaCore):
             )
 
         def update_name(self, table):
+            # Key column order may change, so we need to put into standard order before computing key name.
             if not self.name and table:
                 self.name = '{}_'.format(table.name) + \
                             '_'.join([c for c in self.unique_columns] + ['key'])
@@ -1958,18 +1958,12 @@ class DerivaKey(DerivaCore):
 
     @property
     def columns(self):
-        # The column order of key columns is not maintained,
-        # so try to reconstruct it from the key name or table columns.
-        m = DerivaModel(self.catalog)
-        key_columns = []
-        if self.name:
-            key_columns = [i.name for i in self.table.columns if i.name in self.name]
+        columns = [c.name for c in self.table.columns if c.name in self.key.unique_columns]
+        assert len(columns) == len(self.key.unique_columns)
+        # add in any new columns....
+        columns.extend([i for i in self.key.unique_columns if i not in columns])
 
-        return ElementList(
-            self._key_column,
-            key_columns if len(key_columns) == len(self.key.unique_columns)
-            else
-            self.key.unique_columns)
+        return ElementList(self._key_column, columns)
 
     @property
     def comment(self):
@@ -2085,6 +2079,7 @@ class DerivaForeignKey(DerivaCore):
                 raise ValueError('Invalid value for on_update/on_delete {} {}'.format(on_update, on_delete))
 
         def definition(self, fkey):
+
             return em.ForeignKey.define(
                 self.columns,
                 self.referenced_table.schema_name, self.referenced_table.name, self.referenced_columns,
@@ -2098,10 +2093,10 @@ class DerivaForeignKey(DerivaCore):
             )
 
         def update_name(self, table):
-            # Make the columns in the name appear in table column order.
+            # Key column order may change, so we need to put into standard order before computing key name.
             if not self.name and table:
                 self.name = '{}_'.format(table.name) + \
-                            '_'.join([i for i in self.columns] + ['fkey'])
+                            '_'.join([c for c in self.columns] + ['fkey'])
 
     def __init__(self, table, columns=None,
                  dest_table=None, dest_columns=None,
@@ -2222,16 +2217,13 @@ class DerivaForeignKey(DerivaCore):
 
     @property
     def columns(self):
-        # The column order of key columns is not maintained, so try to reconstruct it from the key name or table columns.
-        m =  DerivaModel(self.catalog)
-        if self.name:
-            fkey_columns = [i.name for i in self.table.columns if i.name in self.name]
+        m = DerivaModel(self.catalog)
+        columns = [
+            c.name for c in self.table.columns if c.name in [i['column_name'] for i in self.fkey.foreign_key_columns]
+        ]
+        assert len(columns) == len(self.fkey.foreign_key_columns)
         self.logger.debug('%s %s', m.foreign_key_model(self), m.foreign_key_model(self).foreign_key_columns)
-        return ElementList(
-            self._key_column,
-            fkey_columns if len(fkey_columns) == len(m.foreign_key_model(self).foreign_key_columns)
-            else
-            m.foreign_key_model(self).foreign_key_columns)
+        return ElementList( self._key_column, columns)
 
     @property
     def referenced_table(self):
@@ -2250,8 +2242,14 @@ class DerivaForeignKey(DerivaCore):
 
     @property
     def referenced_columns(self):
+        # Need to order columns so that they are consistant.
         m = DerivaModel(self.catalog)
-        return ElementList(self._referenced_column, m.foreign_key_model(self).referenced_columns)
+        col_map = dict(zip([c['column_name'] for c in self.fkey.foreign_key_columns],
+                           [c['column_name'] for c in self.fkey.referenced_columns]))
+        columns = [
+            col_map[c.name] for c in self.table.columns if c.name in [i['column_name'] for i in self.fkey.foreign_key_columns]
+        ]
+        return ElementList(self._referenced_column, columns)
 
     @property
     def comment(self):
@@ -3027,7 +3025,7 @@ class DerivaTable(DerivaCore):
         We want to replace the current table with the dest_table. Go through the list of tables that are currently
         pointing to this table and replace the foreign_key to reference dest_table instead.  Some of the columns may
         have been renamed, so use the column_map to get the current table name.
-        
+
         :param dest_table:
         :param column_map:
         :return:
