@@ -671,6 +671,9 @@ class DerivaCatalog(DerivaCore):
         self.logger.debug('%s', self.model_instance)
         self.model_instance.apply(self.ermrest_catalog)
 
+    def describe(self):
+        print(self)
+
     def refresh(self):
         """
         Refresh the any cached model values from the server.
@@ -802,6 +805,9 @@ class DerivaSchema(DerivaCore):
         table = self.table(table_def['table_name'])
         table.deleted = False  # Table may have been previously been deleted.
         return table
+
+    def describe(self):
+        print(self)
 
     def table(self, table_name):
         """
@@ -3384,7 +3390,6 @@ class DerivaTable(DerivaCore):
         self.associate_tables(term_table, table_column=table_column, target_column='ID')
         return
 
-
     def disassociate_tables(self, target_table):
         association_table_name = '{}_{}'.format(self.name, target_table.name)
         raise DerivaCatalogError('Not implented')
@@ -3469,3 +3474,6 @@ class DerivaTable(DerivaCore):
         :return: True or False.
         """
         return  ({'ID', 'URI', 'Description', 'Name'} < set(self._column_names()))
+
+    def describe(self):
+        print(self)
