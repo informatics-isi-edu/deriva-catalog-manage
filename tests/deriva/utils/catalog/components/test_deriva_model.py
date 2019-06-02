@@ -798,6 +798,11 @@ class TestDerivaTable(TestCase):
         table2 = catalog[schema_name].create_table('TestTable2', [DerivaColumn.define('Foo1', 'text')])
 
         table1.link_tables(table2)
+        self.assertIn('TestTable2', [i.name for i in table1.columns])
+        print('table1 vc', table1.visible_columns)
+        print('table1 vfk', table1.visible_foreign_keys)
+        print('table2 vc',table2.visible_columns)
+        print('table2 vfk', table2.visible_foreign_keys)
 
     def test_associate_tables(self):
         table1 = catalog[schema_name].create_table('TestTable1', [DerivaColumn.define('Foo1a', 'text')])
