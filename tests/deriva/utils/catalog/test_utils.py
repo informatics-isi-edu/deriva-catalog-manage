@@ -55,7 +55,7 @@ def generate_test_tables(catalog, schema_name):
      ],
     )
 
-
+    table1.visible_columns.insert_context('filter', {'and': ['Col1_Table1', 'Col2_Table1']})
     logging.disable(logging.NOTSET)
     logger.info('Time to create table1 %s', time.time()-t0)
  #   logging.disable(logging.CRITICAL)
@@ -74,7 +74,7 @@ def generate_test_tables(catalog, schema_name):
                    DerivaForeignKey.define(['ID2_Table2', 'ID3_Table2'], table1,
                                            ['ID2_Table1', 'ID3_Table1'])]
     )
-
+    table2.visible_columns.insert_context('filter', {'and': ['Col1_Table2', 'Col2_Table2']})
     table2.datapath().insert(
     [
         {'ID1_Table2':1, 'ID2_Table2':2, 'ID3_Table2':3, 'ID4_Table2':4, 'Col1_Table2':'a', 'Col2_Table2':'b', 'Col3_Table2': 'c'},

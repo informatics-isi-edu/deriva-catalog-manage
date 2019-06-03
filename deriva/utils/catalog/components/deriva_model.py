@@ -111,7 +111,7 @@ logger_config = {
             #    'level': 'DEBUG'
         },
         'deriva_model.DerivaVisibleSources': {
-            #  'level': 'DEBUG',
+              'level': 'DEBUG',
             # 'filters': ['visiblesources_filter']
         },
         'deriva_model.DerivaSourceSpec': {
@@ -1223,11 +1223,15 @@ class DerivaVisibleSources(DerivaLogging):
             return OrderedDict({k: remove_new_columns(positions) for k in DerivaModel.contexts})
 
     def insert_context(self, context, sources=[], replace=False):
-        self.logger.debug('context: %s %s sources: %s', self.tag, context, [i.spec for i in sources])
-        context = DerivaContext(context)
+
         # Map over sources and make sure that they are all ok before we instert...
-        sources = [DerivaSourceSpec(self.table, j).spec for j in sources]
-        sources = {'and': copy.deepcopy(sources)} if context == DerivaContext('filter') else copy.deepcopy(sources)
+        sources = copy.deepcopy({'and': [DerivaSourceSpec(self.table, s).spec for s in sources['and']]}
+                                if context == 'filter'
+                                else [DerivaSourceSpec(self.table, s).spec for s in sources])
+        self.logger.debug('context: %s %s sources: %s', self.tag, context, sources)
+        # check for valid context.
+
+        context = DerivaContext(context)
         if self.tag not in self.table.annotations:
             self.table.annotations[self.tag] = {context.value: sources}
         elif context.value not in self.table.annotations[self.tag] or replace:

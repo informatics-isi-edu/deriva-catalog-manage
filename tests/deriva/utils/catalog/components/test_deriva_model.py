@@ -769,7 +769,7 @@ class TestDerivaTable(TestCase):
         print(table2_copy)
         print('visible keys', pprint.pformat(table2_copy.visible_foreign_keys))
 
-        table1_copy = table1.move_table('TestSchema', 'Table1_Copy')
+        table1_copy = table1.move_table('TestSchema', 'Table1_Copy', delete=False)
         print(table1_copy)
         print(table2_copy)
 
