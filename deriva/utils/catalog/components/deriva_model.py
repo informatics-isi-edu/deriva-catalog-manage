@@ -1184,7 +1184,7 @@ class DerivaVisibleSources(DerivaLogging):
                     print("Removing {} {}".format(c, j))
             new_vs.update({c: {'and': new_context} if c == 'filter' else new_context})
         if not dryrun:
-            with DerivaModel(self.catalog):
+            with DerivaModel(self.table.catalog):
                 self.table.annotations[self.tag] = new_vs
 
     @staticmethod
@@ -2585,6 +2585,9 @@ class DerivaTable(DerivaCore):
         return DerivaColumn(self.catalog[self.schema_name][self.name], column_name)
 
     def validate(self):
+        for k in self.annotations.keys():
+            if k not in chaise_tags.values():
+                logger.info('Unrecognized annotation tag: %s', k)
         self.visible_columns.validate()
         self.visible_foreign_keys.validate()
         self.validate_display()
@@ -2702,25 +2705,36 @@ class DerivaTable(DerivaCore):
         return column_sources, outbound_sources, inbound_sources
 
     @staticmethod
-    def _rename_columns_in_display(dval, column_map):
-        def rename_markdown_pattern(pattern):
-            # Look for column names {{columnname}} in the templace and update.
-            for k, v in column_map.get_names(column_map):
-                pattern = pattern.replace('{{{}}}'.format(k), '{{{}}}'.format(v))
-            return pattern
+    def _rename_markdown_pattern(pattern, column_map):
+        # Look for column names {{columnname}} in the templace and update.
+        for k, v in column_map.get_names().items():
+            print(k, v)
+            pattern = pattern.replace('{{{}}}'.format(k), '{{{}}}'.format(v))
+        return pattern
 
+    @staticmethod
+    def _rename_columns_in_display(dval, column_map):
+        print('rename display', dval)
         return {
-            k: rename_markdown_pattern(v) if k == 'markdown_name' else v
+            k: DerivaTable._rename_markdown_pattern(v, column_map) if (k == 'markdown_name' or k == 'row_markdown_pattern') else v
             for k, v in dval.items()
         }
+
+    @staticmethod
+    def _rename_columns_in_context_display(dval, column_map):
+        return {context: {k: DerivaTable._rename_markdown_pattern(v, column_map) for k, v in cvalue.items()}
+                for context, cvalue in dval.items()
+                }
 
     def _rename_columns_in_annotations(self, column_map, skip_annotations=[], validate=False):
         new_annotations = {}
         for k, v in self.annotations.items():
             if k in skip_annotations:
                 renamed = v
-            elif k == chaise_tags.display or k == chaise_tags.table_display or k == chaise_tags.column_display:
+            elif k == chaise_tags.display:
                 renamed = self._rename_columns_in_display(v, column_map)
+            elif (k == chaise_tags.table_display or k == chaise_tags.column_display):
+                renamed = DerivaTable._rename_columns_in_context_display(v, column_map)
             elif k == chaise_tags.visible_columns:
                 renamed = self.visible_columns.rename_columns(column_map, validate=validate)
             else:
