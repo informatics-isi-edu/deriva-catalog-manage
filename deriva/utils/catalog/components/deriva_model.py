@@ -111,7 +111,7 @@ logger_config = {
             #    'level': 'DEBUG'
         },
         'deriva_model.DerivaVisibleSources': {
-              'level': 'DEBUG',
+            #  'level': 'DEBUG',
             # 'filters': ['visiblesources_filter']
         },
         'deriva_model.DerivaSourceSpec': {
@@ -1224,10 +1224,14 @@ class DerivaVisibleSources(DerivaLogging):
 
     def insert_context(self, context, sources=[], replace=False):
 
-        # Map over sources and make sure that they are all ok before we instert...
-        sources = copy.deepcopy({'and': [DerivaSourceSpec(self.table, s).spec for s in sources['and']]}
-                                if context == 'filter'
-                                else [DerivaSourceSpec(self.table, s).spec for s in sources])
+        # Map over sources and make sure that they are all ok before we insert...
+        if context == 'filter':
+            if sources == []:
+                sources = {'and': []}
+            else:
+                sources = copy.deepcopy({'and': [DerivaSourceSpec(self.table, s).spec for s in sources['and']]})
+        else:
+            sources = copy.deepcopy([DerivaSourceSpec(self.table, s).spec for s in sources])
         self.logger.debug('context: %s %s sources: %s', self.tag, context, sources)
         # check for valid context.
 
@@ -1406,6 +1410,7 @@ class DerivaVisibleSources(DerivaLogging):
 
         # Set up positions to apply to all contexts if you have {key_column: column_list} form.
         positions = self._normalize_positions(positions)
+        self.logger.debug('normized positions %s', positions)
         new_sources = {}
         for context, source_list in sources.items():
             deriva_context = DerivaContext(context)
@@ -1425,11 +1430,10 @@ class DerivaVisibleSources(DerivaLogging):
             # Now build up a map that has the indexes of the reordered columns.  Include the columns in order
             # Unless they are in the column_list, in which case, insert them immediately after the key column.
             reordered_names = source_names[:]
-
             for key_col, column_list in positions[deriva_context].items():
                 if not (set(column_list + [key_col]) <= set(source_names)):
-                    self.logger.debug('bad specification %s %s', column_list, key_col)
-                    raise DerivaCatalogError(self, 'Invalid position specification in reorder columns')
+                    # The column we are looking for is not in this source list.
+                    continue
                 mapped_list = [j for i in reordered_names if i not in column_list
                                for j in [i] + (
                                    column_list
@@ -2712,7 +2716,6 @@ class DerivaTable(DerivaCore):
     def _rename_markdown_pattern(pattern, column_map):
         # Look for column names {{columnname}} in the templace and update.
         for k, v in column_map.get_names().items():
-            print(k, v)
             pattern = pattern.replace('{{{}}}'.format(k), '{{{}}}'.format(v))
         return pattern
 
