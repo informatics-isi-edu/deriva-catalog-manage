@@ -20,9 +20,11 @@ chaise_tags['catalog_config'] = 'tag:isrd.isi.edu,2019:catalog-config'
 
 CATALOG_CONFIG__TAG = 'tag:isrd.isi.edu,2019:catalog-config'
 
-handler = logging.StreamHandler()
 logger = logging.getLogger(__name__)
-logger.addHandler(handler)
+# Make sure we only have one stream handler....
+if len(logger.handlers) == 0:
+    handler = logging.StreamHandler()
+    logger.addHandler(handler)
 logger.setLevel(logging.INFO)
 
 def timeit(method):
@@ -148,6 +150,11 @@ class DerivaCatalogError(Exception):
         self.obj = obj
 
 
+class DerivaModelError(DerivaCatalogError):
+    def __init__(self, obj, msg):
+        super().__init__(obj, msg)
+
+
 class DerivaSourceError(DerivaCatalogError):
     def __init__(self, obj, msg):
         super().__init__(obj, msg)
@@ -223,6 +230,9 @@ class ElementList:
 
         return element_iterator(self.lst)
 
+    def validate(self):
+        return all([self.fvalue(s).validate() for s in self.lst])
+
 
 class DerivaModel(DerivaLogging):
     """
@@ -260,27 +270,27 @@ class DerivaModel(DerivaLogging):
         try:
             m = self.column_model(obj)
             self.logger.debug('column model')
-        except (AttributeError, KeyError):
+        except DerivaModelError:
             try:
                 m = self.key_model(obj)
                 self.logger.debug('key model')
-            except (AttributeError, KeyError):
+            except DerivaModelError:
                 try:
                     m = self.foreign_key_model(obj)
                     self.logger.debug('fkey model')
-                except (AttributeError, KeyError):
+                except DerivaModelError:
                     try:
                         m = self.table_model(obj)
                         self.logger.debug('table model')
-                    except (AttributeError, KeyError):
+                    except DerivaModelError:
                         try:
                             m = self.schema_model(obj)
                             self.logger.debug('schema model')
-                        except (AttributeError, KeyError):
+                        except DerivaModelError:
                             m = self.catalog_model()
                             self.logger.debug('catalog model')
         if not m:
-            raise DerivaCatalogError(self, 'Model not found for object {}'.format(obj))
+            raise DerivaModelError(self, 'Model not found for object {}'.format(obj))
         return m;
 
     def schema_exists(self, schema_name):
@@ -342,19 +352,36 @@ class DerivaModel(DerivaLogging):
         return self.catalog.model_instance
 
     def schema_model(self, schema):
-        return self.catalog_model().schemas[schema.name]
+        try:
+            return self.catalog_model().schemas[schema.name]
+        except (AttributeError, KeyError):
+            raise DerivaModelError(schema, msg="Expected DerivaSchema")
 
     def table_model(self, table):
-        return self.schema_model(table.schema).tables[table.name]
+        try:
+            return self.schema_model(table.schema).tables[table.name]
+        except (AttributeError, KeyError):
+            raise DerivaModelError(table, msg="Expected DerivaTable")
 
     def column_model(self, column):
-        return self.table_model(column.table).column_definitions[column.name]
+        try:
+            return self.table_model(column.table).column_definitions[column.name]
+        except (AttributeError, KeyError):
+            raise DerivaModelError(column, msg="Expected DerivaColumn")
 
     def key_model(self, key):
-        return self.table_model(key.table).keys[(key.table.schema_name, key.name)]
+        try:
+            return self.table_model(key.table).keys[(key.table.schema_name, key.name)]
+        except (AttributeError, KeyError):
+            raise DerivaModelError(key, msg="Expected DerivaKey")
+
 
     def foreign_key_model(self, fkey):
-        return self.table_model(fkey.table).foreign_keys[(fkey.table.schema_name, fkey.name)]
+        try:
+            return self.table_model(fkey.table).foreign_keys[(fkey.table.schema_name, fkey.name)]
+        except (AttributeError, KeyError):
+            raise DerivaModelError(fkey, msg="Expected DerivaForeignKey")
+
 
 class DerivaACL(MutableMapping):
     acl_matrix = {
@@ -400,6 +427,15 @@ class DerivaACL(MutableMapping):
     def value(self):
         return self._acls
 
+    def validate(self, obj):
+        keys = {i for i in self._acls.keys()}
+        fkey_ok = (not isinstance(obj, DerivaForeignKey)) or keys.isdisjoint({'delete', 'select'})
+        if (keys <= {'insert', 'update', 'delete', 'select'}) and fkey_ok:
+            return True
+        else:
+            logger.info('Invalid ACL: %s %s', obj.name, self)
+            return False
+
 
 class DerivaACLBinding(MutableMapping):
     acl_binding_matrix = {
@@ -439,6 +475,14 @@ class DerivaACLBinding(MutableMapping):
     def value(self):
         return self._acl_bindings
 
+    def validate(self, obj):
+        if isinstance(self._acl_bindings, dict):
+            return True
+        else:
+            logger.info('Invalid acl_binding %s %s', obj.name, self)
+            return False
+
+
 class DerivaAnnotations(MutableMapping):
     """
     Class used to represent an annotation.  Main reason for this class is to make sure apply function is called
@@ -476,6 +520,34 @@ class DerivaAnnotations(MutableMapping):
 
     def __str__(self):
         return self.annotations.__str__()
+
+    def validate(self, obj):
+        rval = True
+        for t, a in self.annotations.items():
+            if t not in chaise_tags.values():
+                logger.info('Invalid annotation tag %s', t)
+                rval = False
+            if t == chaise_tags.display:
+                rval = obj.validate_display() and rval
+            if t == chaise_tags.visible_columns:
+                rval = obj.visible_columns.validate() and rval
+            if t == chaise_tags.visible_foreign_keys:
+                rval = obj.visible_foreign_keys.validate() and rval
+            if t == chaise_tags.foreign_key:
+                pass
+            if t == chaise_tags.table_display:
+                rval = obj.validate_table_display() and rval
+            if t == chaise_tags.column_display:
+                pass
+            if t == chaise_tags.asset:
+                pass
+            if t == chaise_tags.bulk_upload:
+                pass
+            if t == chaise_tags.export:
+                pass
+            if t == chaise_tags.chaise_config:
+                pass
+        return rval
 
 
 class DerivaCore(DerivaLogging):
@@ -572,7 +644,7 @@ class DerivaCatalog(DerivaCore):
     """
     model_instance = None
 
-    def __init__(self, host, scheme='https', catalog_id=1, ermrest_catalog=None):
+    def __init__(self, host, scheme='https', catalog_id=1, ermrest_catalog=None, validate=True):
         """
         Initialize a DerivaCatalog.
 
@@ -592,6 +664,8 @@ class DerivaCatalog(DerivaCore):
 
         self.model_instance = self.ermrest_catalog.getCatalogModel()
         self.schema_classes = {}
+        if validate and not self.validate():
+            raise DerivaCatalogError('Validation error in catalog')
 
     def __str__(self):
         return '\n'.join([i.name for i in self.schemas])
@@ -660,6 +734,10 @@ class DerivaCatalog(DerivaCore):
             self.annotations[chaise_tags.chaise_config] = {'navbarMenu': value}
         else:
             self.annotations[chaise_tags.chaise_config]['navbarMenu'] = value
+
+    @property
+    def name(self):
+        return DerivaModel(self).catalog_model().annotations[chaise_tags.catalog_config]['name']
 
     def _apply(self):
         """
@@ -744,9 +822,22 @@ class DerivaCatalog(DerivaCore):
 
         :return:
         """
+
+        rval = self.annotations.validate(self)
+        print('rval is ', rval)
+        rval = self.acls.validate(self) and rval
+        print('rval is ', rval)
         for s in self.schemas:
             logger.info('Validating %s', s.name)
-            s.validate()
+            # TODO Validate schema attributes.
+            rval = s.validate() and rval
+            print('rval is ', rval)
+
+        return rval
+
+    def validate_display(self):
+        # TODO impliment
+        pass
 
 
 class DerivaSchema(DerivaCore):
@@ -968,9 +1059,17 @@ class DerivaSchema(DerivaCore):
 
         :return: True if all values are valid.
         """
+
+        rval = self.validate_display()
+        rval = self.acls.validate(self) and rval
+        rval = self.annotations.validate(self) and rval
         for t in self.tables:
             logger.info('Validating table %s', t.name)
-            t.validate()
+            rval = t.validate() and rval
+        return rval
+
+    def validate_display(self):
+        #TODO Finish....
         return True
 
 
@@ -1150,26 +1249,32 @@ class DerivaVisibleSources(DerivaLogging):
 
     def validate(self):
         if self.tag not in self.table.annotations:
-            return
+            return True
+        rval = True
         try:
             for c, l in self.table.annotations[self.tag].items():
                 try:
                     DerivaContext(c)  # Make sure that we have a valid context value.
                 except ValueError:
+                    rval = False
                     logger.info('Invalid context name %s', c)
                 if c == 'filter':
-                    if type(l) is not dict:
-                        logger.info('Invalid source specification %s', {c: l})
-                        continue
-                    else:
+                    try:
                         l = l['and']
+                    except TypeError:
+                        logger.info('Invalid filter specification %s', l)
+                        rval = False
                 for j in l:
                     try:
                         DerivaSourceSpec(self.table, j)
                     except DerivaCatalogError as e:
-                        logger.info('Invalid source specification %s', e.msg)
+                        logger.info('Invalid source specification %s %s', self.tag, e.msg)
+                        rval = False
         except AttributeError:
-            logger.info('Invalid source specification %s', self.table.annotations[self.tag])
+            logger.info('Invalid source specification %s %s', self.tag, self.table.annotations[self.tag])
+            rval = False
+
+        return rval
 
     def clean(self, dryrun=False):
         new_vs = {}
@@ -1583,7 +1688,7 @@ class DerivaSourceSpec(DerivaLogging):
                 else:
                     raise DerivaSourceError(self, 'Invalid source entry {}'.format(c))
 
-            if source_entry[-1] not in path_table.keys:
+            if source_entry[-1] not in path_table.columns:
                 raise DerivaSourceError(self, 'Invalid source entry {}'.format(source_entry[-1]))
         return spec
 
@@ -1622,7 +1727,7 @@ class DerivaSourceSpec(DerivaLogging):
                 if not (isinstance(spec['source'], str) or
                         all(map(lambda x: len(x.get('inbound', x.get('outbound',[]))) == 2, spec['source'][0:-1]))):
                     raise DerivaSourceError(self, 'Invalid source entry {}'.format(spec))
-            except TypeError:
+            except (TypeError, KeyError):
                 raise DerivaSourceError(self, 'Invalid source entry {}'.format(spec))
         return spec
 
@@ -1910,6 +2015,15 @@ class DerivaColumn(DerivaCore):
         """
         self.table.delete_columns(self)
 
+    def validate(self):
+        rval =  self.annotations.validate(self)
+        rval = self.acls.validate(self) and rval
+        rval = self.acl_bindings.validate(self) and rval
+        return rval
+
+    def validate_display(self):
+        # TODO Need to finish
+        return True
 
 
 class DerivaKey(DerivaCore):
@@ -2102,6 +2216,13 @@ class DerivaKey(DerivaCore):
             return self.key.definition(self)
         except AttributeError:
             return self.key
+
+    def validate(self):
+        return self.annotations.validate(self)
+
+    def validate_display(self):
+        # TODO finish
+        return True
 
 
 class DerivaForeignKey(DerivaCore):
@@ -2394,6 +2515,16 @@ class DerivaForeignKey(DerivaCore):
         except AttributeError:
             return self.fkey
 
+    def validate(self):
+        rval = self.annotations.validate(self)
+        rval = self.acls.validate(self) and rval
+        rval = self.acl_bindings.validate(self) and rval
+        return rval
+
+    def validate_display(self):
+        # TODO need to finish....
+        return True
+
 
 class DerivaTable(DerivaCore):
     def __init__(self, catalog, schema_name, table_name):
@@ -2593,16 +2724,28 @@ class DerivaTable(DerivaCore):
         return DerivaColumn(self.catalog[self.schema_name][self.name], column_name)
 
     def validate(self):
-        for k in self.annotations.keys():
-            if k not in chaise_tags.values():
-                logger.info('Unrecognized annotation tag: %s', k)
-        self.visible_columns.validate()
-        self.visible_foreign_keys.validate()
-        self.validate_display()
+        with DerivaModel(self.catalog):
+            rval = self.annotations.validate(self)
+            print('rval table annotations', rval)
+            rval = self.keys.validate() and rval
+            print('rval table keys', rval)
+            rval = self.foreign_keys.validate() and rval
+            print('rval table fks', rval)
+            rval = self.columns.validate() and rval
+            print('rval table columns', rval)
+            rval = self.acls.validate(self) and rval
+            print('rval table acl', rval)
+            rval = self.acl_bindings.validate(self) and rval
+            print('rval table binding', rval)
+            return rval
 
     def validate_display(self):
-        # TODO Need to go through display annotation and make sure it references proper columns.
-        pass
+        # TODO FInish....
+        return True
+
+    def validate_table_display(self):
+        for k in self.table_display.keys():
+            DerivaContext(k)
 
     def _column_map(self, column_map, dest_table):
         return DerivaColumnMap(self, column_map, dest_table)

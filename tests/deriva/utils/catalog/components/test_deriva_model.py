@@ -771,7 +771,9 @@ class TestDerivaTable(TestCase):
 
         table1_copy = table1.move_table('TestSchema', 'Table1_Copy', delete=False)
         print(table1_copy)
+        print(table1_copy.visible_columns)
         print(table2_copy)
+        print(table2_copy.visible_columns)
 
     def test_move_table_between_schema(self):
         generate_test_tables(catalog, schema_name)

@@ -423,7 +423,7 @@ class DerivaDumpCatalogCLI (BaseCLI):
                                    for k, s in model_root.schemas.items()]))
             try:
                 if args.table:
-                    if ':' not in args.table_model:
+                    if ':' not in args.table:
                         raise DerivaDumpCatalogException('Table name must be in form of schema:table')
                     [schema_name, table_name] = args.table_model.split(":")
                     self._dump_table(schema_name, table_name)
