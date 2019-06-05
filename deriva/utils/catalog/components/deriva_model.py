@@ -665,7 +665,7 @@ class DerivaCatalog(DerivaCore):
         self.model_instance = self.ermrest_catalog.getCatalogModel()
         self.schema_classes = {}
         if validate and not self.validate():
-            raise DerivaCatalogError('Validation error in catalog')
+            raise DerivaCatalogError(self, 'Validation error in catalog')
 
     def __str__(self):
         return '\n'.join([i.name for i in self.schemas])
@@ -824,14 +824,11 @@ class DerivaCatalog(DerivaCore):
         """
 
         rval = self.annotations.validate(self)
-        print('rval is ', rval)
         rval = self.acls.validate(self) and rval
-        print('rval is ', rval)
         for s in self.schemas:
             logger.info('Validating %s', s.name)
             # TODO Validate schema attributes.
             rval = s.validate() and rval
-            print('rval is ', rval)
 
         return rval
 
@@ -2726,17 +2723,11 @@ class DerivaTable(DerivaCore):
     def validate(self):
         with DerivaModel(self.catalog):
             rval = self.annotations.validate(self)
-            print('rval table annotations', rval)
             rval = self.keys.validate() and rval
-            print('rval table keys', rval)
             rval = self.foreign_keys.validate() and rval
-            print('rval table fks', rval)
             rval = self.columns.validate() and rval
-            print('rval table columns', rval)
             rval = self.acls.validate(self) and rval
-            print('rval table acl', rval)
             rval = self.acl_bindings.validate(self) and rval
-            print('rval table binding', rval)
             return rval
 
     def validate_display(self):
@@ -2744,8 +2735,10 @@ class DerivaTable(DerivaCore):
         return True
 
     def validate_table_display(self):
+        rval = True
         for k in self.table_display.keys():
             DerivaContext(k)
+        return rval
 
     def _column_map(self, column_map, dest_table):
         return DerivaColumnMap(self, column_map, dest_table)
@@ -2864,7 +2857,6 @@ class DerivaTable(DerivaCore):
 
     @staticmethod
     def _rename_columns_in_display(dval, column_map):
-        print('rename display', dval)
         return {
             k: DerivaTable._rename_markdown_pattern(v, column_map) if (k == 'markdown_name' or k == 'row_markdown_pattern') else v
             for k, v in dval.items()
