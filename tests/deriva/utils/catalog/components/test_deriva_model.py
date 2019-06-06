@@ -9,7 +9,7 @@ import sys
 from deriva.core import get_credential, DerivaServer
 import deriva.core.ermrest_model as em
 from deriva.utils.catalog.components.deriva_model import *
-from  test_utils import *
+from tests.deriva.utils.catalog.test_utils import *
 
 logging.basicConfig(
     level=logging.INFO,
