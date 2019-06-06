@@ -35,7 +35,7 @@ if __name__ == "__main__":
     host = {host!r}
     catalog_id = {catalog_id}
     mode, replace, host, catalog_id = parse_args(host, catalog_id, is_table=True)
-    catalog = DerivaCatalog(host, catalog_id=catalog_id)
+    catalog = DerivaCatalog(host, catalog_id=catalog_id, validate=False)
     main(catalog, mode, replace)
 """
 
@@ -77,7 +77,7 @@ if __name__ == "__main__":
     host = {host!r}
     catalog_id = {catalog_id}
     mode, replace, host, catalog_id = parse_args(host, catalog_id, is_catalog=True)
-    catalog = DerivaCatalog(host, catalog_id=catalog_id)
+    catalog = DerivaCatalog(host, catalog_id=catalog_id, validate=False)
     main(catalog, mode, replace)
 """
 
@@ -109,6 +109,6 @@ if __name__ == "__main__":
     host = {host!r}
     catalog_id = {catalog_id}
     mode, replace, host, catalog_id = parse_args(host, catalog_id, is_catalog=True)
-    catalog = DerivaCatalog(host, catalog_id=catalog_id)
+    catalog = DerivaCatalog(host, catalog_id=catalog_id, validate=False)
     main(catalog, mode, replace)
 """

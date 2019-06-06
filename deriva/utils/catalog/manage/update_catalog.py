@@ -99,6 +99,7 @@ class CatalogUpdater:
         return schema
 
     def update_table(self, mode, schema_name, table_def, replace=False, really=False):
+        print('updating table', mode)
         with DerivaModel(self._catalog) as m:
             schema = m.schema_model(self._catalog[schema_name])
 
