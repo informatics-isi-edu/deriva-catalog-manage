@@ -1248,29 +1248,24 @@ class DerivaVisibleSources(DerivaLogging):
         if self.tag not in self.table.annotations:
             return True
         rval = True
-        try:
-            for c, l in self.table.annotations[self.tag].items():
+        for c, l in self.table.annotations[self.tag].items():
+            try:
+                DerivaContext(c)  # Make sure that we have a valid context value.
+            except ValueError:
+                rval = False
+                logger.info('Invalid context name %s', c)
+            if c == 'filter':
                 try:
-                    DerivaContext(c)  # Make sure that we have a valid context value.
-                except ValueError:
+                    l = l['and']
+                except TypeError:
+                    logger.info('Invalid filter specification %s', l)
                     rval = False
-                    logger.info('Invalid context name %s', c)
-                if c == 'filter':
-                    try:
-                        l = l['and']
-                    except TypeError:
-                        logger.info('Invalid filter specification %s', l)
-                        rval = False
-                for j in l:
-                    try:
-                        DerivaSourceSpec(self.table, j)
-                    except DerivaCatalogError as e:
-                        logger.info('Invalid source specification %s %s', self.tag, e.msg)
-                        rval = False
-        except AttributeError:
-            logger.info('Invalid source specification %s %s', self.tag, self.table.annotations[self.tag])
-            rval = False
-
+            for j in l:
+                try:
+                    DerivaSourceSpec(self.table, j)
+                except DerivaCatalogError as e:
+                    logger.info('Invalid source specification %s %s', self.tag, e.msg)
+                    rval = False
         return rval
 
     def clean(self, dryrun=False):
@@ -1558,7 +1553,12 @@ class DerivaVisibleSources(DerivaLogging):
         :param contexts: Names of the context to delete the sources from.
         :return:
         """
-        self.logger.debug('tag: %s columns: %s vc before %s', self.tag, columns, self.table.annotations[self.tag])
+
+        if self.tag not in self.table.annotations:
+            return
+
+        self.logger.debug('tag: %s columns: %s vc before %s', self.tag, columns,
+                          self.table.annotations.get(self.tag, None))
         context_names = [i.value for i in (DerivaContext if contexts == [] else contexts)]
         self.logger.debug('context names %s', context_names)
         columns = [columns] if isinstance(columns, str) else columns
@@ -1685,7 +1685,10 @@ class DerivaSourceSpec(DerivaLogging):
                 else:
                     raise DerivaSourceError(self, 'Invalid source entry {}'.format(c))
 
-            if source_entry[-1] not in path_table.columns:
+            try:
+                if source_entry[-1] not in path_table.columns:
+                    raise DerivaSourceError(self, 'Invalid source entry {}'.format(source_entry[-1]))
+            except TypeError:
                 raise DerivaSourceError(self, 'Invalid source entry {}'.format(source_entry[-1]))
         return spec
 
@@ -1716,7 +1719,7 @@ class DerivaSourceSpec(DerivaLogging):
                 return {'source': [{'inbound': tuple(spec)}, 'RID']}
             else:
                 default_direction = 'inbound' if src_tag == chaise_tags.visible_foreign_keys else 'outbound'
-                return {'source': [{default_direction: tuple(spec)} ]}
+                return {'source': [{default_direction: tuple(spec)}, 'RID']}
         else:
             # We have a spec that is already in source form.
             # every element of pseudo column source except the last must be either an inbound or outbound spec.
@@ -1848,7 +1851,7 @@ class DerivaColumn(DerivaCore):
         super().__init__(table.catalog if table else None)
 
         self.logger.debug('table: %s name: %s type: %s define: %s', table.name if table else "None",
-                          name if isinstance(name, (str,int)) else name.name, type, define)
+                          name if isinstance(name, (str,int, dict)) else name.name, type, define)
 
         if isinstance(name, em.Column):  # We are providing a em.Column as the name argument.
             name = name.name
