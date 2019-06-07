@@ -13,7 +13,8 @@ from deriva.utils.catalog.manage.deriva_csv import DerivaCSV, load_module_from_p
 import deriva.utils.catalog.manage.dump_catalog as dump_catalog
 import deriva.core.ermrest_model as em
 
-from  test_utils import *
+from tests.deriva.utils.catalog.test_utils import *
+
 
 
 logging.basicConfig(

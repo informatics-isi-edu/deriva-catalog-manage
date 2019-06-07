@@ -5,7 +5,8 @@ from deriva.utils.catalog.manage.utils import LoopbackCatalog, TempErmrestCatalo
 from deriva.core import get_credential
 import deriva.core.ermrest_model as em
 
-from test_utils import *
+
+from tests.deriva.utils.catalog.test_utils import *
 
 
 logging.basicConfig(
