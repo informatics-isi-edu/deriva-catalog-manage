@@ -159,6 +159,6 @@ def create_catalog(server):
     catalog_id = catalog.catalog_id
     logger.info('Catalog_id is {}'.format(catalog_id))
 
-    catalog = DerivaCatalog(server, catalog_id=catalog_id)
+    catalog = DerivaCatalog(server, catalog_id=catalog_id, validate=False)
     logger.critical('Time to create catalog %s', time.time()-t0)
     return catalog

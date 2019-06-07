@@ -401,7 +401,7 @@ class DerivaDumpCatalogCLI (BaseCLI):
             eprint('Host name must be provided')
             return 1
 
-        self.catalog = DerivaCatalog(self.host, catalog_id=self.catalog_id)
+        self.catalog = DerivaCatalog(self.host, catalog_id=self.catalog_id, validate=False)
 
         with DerivaModel(self.catalog) as m:
             model_root = m.catalog_model()

@@ -530,13 +530,24 @@ class DerivaAnnotations(MutableMapping):
             if t == chaise_tags.display:
                 rval = obj.validate_display() and rval
             if t == chaise_tags.visible_columns:
-                rval = obj.visible_columns.validate() and rval
+                if isinstance(obj, DerivaTable):
+                    rval = obj.visible_columns.validate() and rval
+                else:
+                    logger.info('visible_columns annotation on non-table element %s', obj.name)
+                    rval = False
             if t == chaise_tags.visible_foreign_keys:
-                rval = obj.visible_foreign_keys.validate() and rval
+                if isinstance(obj, DerivaTable):
+                    rval = obj.visible_foreign_keys.validate() and rval
+                else:
+                    logger.info('visible_foreign_keys annotation on non-table element %s', obj.name)
             if t == chaise_tags.foreign_key:
                 pass
             if t == chaise_tags.table_display:
-                rval = obj.validate_table_display() and rval
+                if isinstance(obj, DerivaTable):
+                    rval = obj.validate_table_display() and rval
+                else:
+                    logger.info('table_display annotation on non-table element %s', obj.name)
+                    rval = False
             if t == chaise_tags.column_display:
                 pass
             if t == chaise_tags.asset:
@@ -2495,18 +2506,11 @@ class DerivaForeignKey(DerivaCore):
 
     def get_acls(self):
         with DerivaModel(self.catalog) as m:
-            return (
-                self.fkey.acls if isinstance(self.fkey, DerivaForeignKey._DerivaForeignKeyDef)
-                else m.foreign_key_model(self).acls
-            )
+            return self.fkey.acls
 
     def get_acl_bindings(self):
         with DerivaModel(self.catalog) as m:
-            return (
-                self.fkey.acl_bindings
-                if isinstance(self.fkey, DerivaForeignKey._DerivaForeignKeyDef)
-                else m.foreign_key_model(self).acl_bindings
-            )
+            return self.fkey.acl_bindings
 
     def definition(self):
         # Key will either be a DerivaForeignKey or an ermrest fkey.
