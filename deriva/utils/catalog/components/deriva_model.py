@@ -429,8 +429,7 @@ class DerivaACL(MutableMapping):
 
     def validate(self, obj):
         keys = {i for i in self._acls.keys()}
-        fkey_ok = (not isinstance(obj, DerivaForeignKey)) or keys.isdisjoint({'delete', 'select'})
-        if (keys <= {'insert', 'update', 'delete', 'select'}) and fkey_ok:
+        if keys <= DerivaACL.acl_matrix[self._obj_type]:
             return True
         else:
             logger.info('Invalid ACL: %s %s', obj.name, self)
