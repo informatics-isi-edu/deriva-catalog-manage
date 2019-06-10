@@ -2857,6 +2857,7 @@ class DerivaTable(DerivaCore):
     @staticmethod
     def _rename_markdown_pattern(pattern, column_map):
         # Look for column names {{columnname}} in the templace and update.
+        # TODO handle: 'markdown_pattern': '{{{$fkeys.Beta_Cell.XRay_Tomography_Data_File_Type_FKey.rowName}}}'
         for k, v in column_map.get_names().items():
             pattern = pattern.replace('{{{}}}'.format(k), '{{{}}}'.format(v))
         return pattern
