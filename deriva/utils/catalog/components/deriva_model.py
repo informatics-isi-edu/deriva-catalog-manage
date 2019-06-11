@@ -107,7 +107,7 @@ logger_config = {
             #   'level': 'DEBUG',
         },
         'deriva_model.DerivaColumnMap': {
-            #  'level': 'DEBUG'
+              'level': 'DEBUG'
         },
         'deriva_model.DerivaSchema': {
             #    'level': 'DEBUG'
@@ -296,20 +296,20 @@ class DerivaModel(DerivaLogging):
     def schema_exists(self, schema_name):
         try:
             return self.catalog.model_instance.schemas[schema_name]
-        except KeyError:
+        except (DerivaModelError, KeyError):
             return False
 
     def table_exists(self, schema, table_name):
         try:
             return self.schema_model(schema).tables[table_name]
-        except KeyError:
+        except (DerivaModelError, KeyError):
             return False
 
     def column_exists(self, table, column_name):
         self.logger.debug('column_name %s', column_name)
         try:
             return self.table_model(table).column_definitions[column_name]
-        except KeyError:
+        except (DerivaModelError, KeyError):
             return False
 
     def key_exists(self, table, key_id):
@@ -318,7 +318,7 @@ class DerivaModel(DerivaLogging):
         self.logger.debug('key name %s', key_name)
         try:
             return self.table_model(table).keys[key_name]
-        except (KeyError, TypeError):
+        except (DerivaModelError, KeyError, TypeError):
             m = DerivaModel(self.catalog)
             # See if we can look up the key by its unique columns
             cols = {key_id} if isinstance(key_id, str) else set(key_id)
@@ -333,11 +333,11 @@ class DerivaModel(DerivaLogging):
         self.logger.debug('table: %s fkey_id: %s fkey_name %s', table.name, fkey_id, fkey_name)
         try:
             return self.table_model(table).foreign_keys[fkey_name]
-        except (KeyError, TypeError):
+        except (DerivaModelError, KeyError, TypeError):
             m = DerivaModel(self.catalog)
             try:
                 t = m.table_model(table)
-            except KeyError:
+            except DerivaModelError:
                 # Table doesn't exist, so FK doesn't exist
                 return False
             else:
@@ -354,33 +354,44 @@ class DerivaModel(DerivaLogging):
     def schema_model(self, schema):
         try:
             return self.catalog_model().schemas[schema.name]
-        except (AttributeError, KeyError):
+        except (AttributeError, DerivaModelError):
             raise DerivaModelError(schema, msg="Expected DerivaSchema")
+        except KeyError:
+            raise DerivaModelError(schema, msg="Schema does not exist: {}".format(schema.name))
 
     def table_model(self, table):
         try:
             return self.schema_model(table.schema).tables[table.name]
-        except (AttributeError, KeyError):
-            raise DerivaModelError(table, msg="Expected DerivaTable")
+        except DerivaModelError:
+            raise DerivaModelError(table, msg="Schema model not found: {}".format(table.schema))
+        except KeyError:
+            raise DerivaModelError(table, msg='Table does not exist: {}'.format(table.name))
 
     def column_model(self, column):
         try:
             return self.table_model(column.table).column_definitions[column.name]
-        except (AttributeError, KeyError):
-            raise DerivaModelError(column, msg="Expected DerivaColumn")
+        except AttributeError:
+            raise DerivaModelError(column, msg="Expected DerivaColumn object: {}".format(column))
+        except DerivaModelError:
+            raise
+        except KeyError:
+            raise DerivaModelError(column, msg="Column does not exist: {}".format(column.name))
 
     def key_model(self, key):
         try:
             return self.table_model(key.table).keys[(key.table.schema_name, key.name)]
-        except (AttributeError, KeyError):
+        except (AttributeError, DerivaModelError):
             raise DerivaModelError(key, msg="Expected DerivaKey")
-
+        except KeyError:
+            raise DerivaModelError(key, msg="Key not found: {}".format(key.name))
 
     def foreign_key_model(self, fkey):
         try:
             return self.table_model(fkey.table).foreign_keys[(fkey.table.schema_name, fkey.name)]
-        except (AttributeError, KeyError):
+        except (AttributeError, DerivaModelError):
             raise DerivaModelError(fkey, msg="Expected DerivaForeignKey")
+        except KeyError:
+            raise DerivaModelError(fkey, msg="Foreign key not defined: {}".format(fkey.name))
 
 
 class DerivaACL(MutableMapping):
@@ -747,7 +758,7 @@ class DerivaCatalog(DerivaCore):
 
     @property
     def name(self):
-        return DerivaModel(self).catalog_model().annotations[chaise_tags.catalog_config]['name']
+        return DerivaModel(self).catalog_model().annotations.get(chaise_tags.catalog_config, {'name':'unknown'})['name']
 
     def _apply(self):
         """
@@ -1172,7 +1183,7 @@ class DerivaColumnMap(DerivaLogging, OrderedDict):
         # Collect up all of the column name maps.
         column_name_map = {k: v.name for k, v in column_map.items()}
         self.logger.debug('column_map: %s column_name_map %s', column_map, column_name_map)
-        self.logger.debug('keys: %s \nkey_columns: %s \n maped_keys %s \n%s \nfkeys %s \n mapped fkeys %s',
+        self.logger.debug('keys: %s \nkey_columns: %s \n mapped_keys %s \n%s \nfkeys %s \n mapped fkeys %s',
                           [key.name for key in table.keys],
                           [[c.name for c in key.columns] for key in table.keys],
                           [[column_name_map.get(c.name, c.name) for c in key.columns] for key in table.keys],
@@ -2103,7 +2114,7 @@ class DerivaKey(DerivaCore):
             try:
                 m = DerivaModel(self.catalog)
                 self.key = m.key_exists(table, name if name else columns)
-            except KeyError:
+            except DerivaModelError:
                 # Table hasn't been defined yet....
                 pass
         # If we are defining a Key and it already exists, then we have an error, otherwise, we are done.

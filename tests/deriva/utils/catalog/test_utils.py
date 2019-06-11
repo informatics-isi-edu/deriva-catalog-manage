@@ -6,8 +6,7 @@ import time
 import logging
 import sys
 
-print(sys.path)
-from deriva.core import get_credential, DerivaServer
+from deriva.core import DerivaServer, get_credential
 from deriva.utils.catalog.components.deriva_model import DerivaModel, DerivaCatalog, DerivaColumn, DerivaKey, DerivaForeignKey
 
 logger = logging.getLogger(__name__)
