@@ -46,7 +46,7 @@ class TestDerivaCSV(TestCase):
                 tablewriter.writerow(j)
 
     def tearDown(self):
-        pass
+        delete_catalog(self.catalog.ermrest_catalog)
 
     def _create_test_table(self):
         pyfile = '{}/{}.py'.format(self.test_dir, self.table_name)

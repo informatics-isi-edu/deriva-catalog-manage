@@ -32,37 +32,43 @@ class TestDerivaCatalogToString(TestCase):
 
     def test_schema_to_str(self):
         catalog = create_catalog(self.server)
-        catalog.create_schema('TestSchema')
-        generate_test_tables(catalog, 'TestSchema')
+        try:
+            catalog.create_schema('TestSchema')
+            generate_test_tables(catalog, 'TestSchema')
 
-        stringer = DerivaCatalogToString(catalog)
-        schema_string = stringer.schema_to_str('TestSchema')
-        tdir = tempfile.mkdtemp()
-        modfile = '{}/TestSchema.py'.format(tdir)
-        with open(modfile, mode='w') as f:
-            print(schema_string, file=f)
-        m = load_module_from_path(modfile)
+            stringer = DerivaCatalogToString(catalog)
+            schema_string = stringer.schema_to_str('TestSchema')
+            tdir = tempfile.mkdtemp()
+            modfile = '{}/TestSchema.py'.format(tdir)
+            with open(modfile, mode='w') as f:
+                print(schema_string, file=f)
+            m = load_module_from_path(modfile)
 
-        test_catalog = create_catalog(self.server)
-        m.main(test_catalog, 'schema')
-        m.main(test_catalog, 'annotations')
-        m.main(test_catalog, 'acls')
-        m.main(test_catalog, 'comment')
+            test_catalog = create_catalog(self.server)
+            m.main(test_catalog, 'schema')
+            m.main(test_catalog, 'annotations')
+            m.main(test_catalog, 'acls')
+            m.main(test_catalog, 'comment')
+        finally:
+            delete_catalog(catalog.ermrest_catalog)
 
     def test_catalog_to_str(self):
         catalog = create_catalog(self.server)
-        catalog.create_schema('TestSchema')
+        try:
+            catalog.create_schema('TestSchema')
 
-        stringer = DerivaCatalogToString(catalog)
-        catalog_string = stringer.catalog_to_str()
-        tdir = tempfile.mkdtemp()
-        modfile = '{}/TestCatalog.py'.format(tdir)
-        with open(modfile, mode='w') as f:
-            print(catalog_string, file=f)
-        m = load_module_from_path(modfile)
+            stringer = DerivaCatalogToString(catalog)
+            catalog_string = stringer.catalog_to_str()
+            tdir = tempfile.mkdtemp()
+            modfile = '{}/TestCatalog.py'.format(tdir)
+            with open(modfile, mode='w') as f:
+                print(catalog_string, file=f)
+            m = load_module_from_path(modfile)
 
-        test_catalog = create_catalog(self.server)
-        m.main(test_catalog, 'annotations')
+            test_catalog = create_catalog(self.server)
+            m.main(test_catalog, 'annotations')
+        finally:
+            delete_catalog(catalog.ermrest_catalog)
 
     def test_table_annotations_to_str(self):
         pass
@@ -84,23 +90,26 @@ class TestDerivaCatalogToString(TestCase):
 
     def test_table_to_str(self):
         catalog = create_catalog(self.server)
-        catalog.create_schema('TestSchema')
-        generate_test_tables(catalog, 'TestSchema')
+        try:
+            catalog.create_schema('TestSchema')
+            generate_test_tables(catalog, 'TestSchema')
 
-        stringer = DerivaCatalogToString(catalog)
-        table_string = stringer.table_to_str('TestSchema','Table1')
-        tdir = tempfile.mkdtemp()
-        modfile = '{}/TestTable.py'.format(tdir)
-        with open(modfile, mode='w') as f:
-            print(table_string, file=f)
-        m = load_module_from_path(modfile)
+            stringer = DerivaCatalogToString(catalog)
+            table_string = stringer.table_to_str('TestSchema','Table1')
+            tdir = tempfile.mkdtemp()
+            modfile = '{}/TestTable.py'.format(tdir)
+            with open(modfile, mode='w') as f:
+                print(table_string, file=f)
+            m = load_module_from_path(modfile)
 
-        test_catalog = create_catalog(self.server)
-        test_catalog.create_schema('TestSchema')
-        m.main(test_catalog, 'table')
-        m.main(test_catalog, 'annotations')
-        m.main(test_catalog, 'acls')
-        m.main(test_catalog, 'comment')
-        m.main(test_catalog, 'keys')
-        m.main(test_catalog, 'fkeys')
-#        m.main(test_catalog, 'columns', replace=True, really=True)
+            test_catalog = create_catalog(self.server)
+            test_catalog.create_schema('TestSchema')
+            m.main(test_catalog, 'table')
+            m.main(test_catalog, 'annotations')
+            m.main(test_catalog, 'acls')
+            m.main(test_catalog, 'comment')
+            m.main(test_catalog, 'keys')
+            m.main(test_catalog, 'fkeys')
+    #        m.main(test_catalog, 'columns', replace=True, really=True)
+        finally:
+            delete_catalog(catalog.ermrest_catalog)

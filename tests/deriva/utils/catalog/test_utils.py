@@ -161,3 +161,14 @@ def create_catalog(server):
     catalog = DerivaCatalog(server, catalog_id=catalog_id, validate=False)
     logger.info('Time to create catalog %s', time.time()-t0)
     return catalog
+
+
+def delete_catalog(ermrest_catalog):
+    if os.environ.get("DCM_PRESERVE_TEST_CATALOGS", False):
+        return
+    try:
+        logger.info("Deleting catalog ID: %s" % ermrest_catalog.catalog_id)
+        ermrest_catalog.delete_ermrest_catalog(really=True)
+    except Exception as e:
+        logger.warning("Unable to delete catalog: %s" % e)
+        raise
