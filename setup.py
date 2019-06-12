@@ -45,7 +45,7 @@ setup(
         'console_scripts': [
             'deriva-catalog-dump = deriva.utils.catalog.manage.dump_catalog:main',
             'deriva-catalog-config = deriva.utils.catalog.components.deriva_catalog:main',
-            'deriva-csv = deriva.utils.catalog.manage.deriva_csv:main [full]'
+            'deriva-csv = deriva.utils.catalog.manage.deriva_csv:main [csv]'
         ],
     },
     requires=[
@@ -65,9 +65,9 @@ setup(
         'deriva>=0.8.4'
     ],
     extras_require={
-        'full': ['goodtables',
-                 'python-dateutil',
-                 'jsonschema==2.6.0']
+        'csv': ['goodtables',
+                'python-dateutil',
+                'jsonschema==2.6.0']
     },
     license='Apache 2.0',
     classifiers=[
