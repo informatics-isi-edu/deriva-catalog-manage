@@ -1947,7 +1947,7 @@ class DerivaColumn(DerivaCore):
         if isinstance(self.column, DerivaColumn._DerivaColumnDef):
             self.column.nullok = nullok
         else:
-            raise DerivaCatalogError(self, 'Cannot alter defined column type')
+            raise DerivaCatalogError(self, 'Cannot alter nullok in defined column')
 
     @property
     def default(self):
@@ -1963,10 +1963,7 @@ class DerivaColumn(DerivaCore):
 
     @comment.setter
     def comment(self, comment):
-        if isinstance(self.column, DerivaColumn._DerivaColumnDef):
-            self.column.comment = comment
-        else:
-            raise DerivaCatalogError(self, 'Cannot alter defined column type')
+        self.column.comment = comment
 
     @property
     def display(self):
