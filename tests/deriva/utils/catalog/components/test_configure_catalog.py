@@ -6,6 +6,7 @@ from deriva.core import get_credential, DerivaServer
 import deriva.core.ermrest_model as em
 from deriva.utils.catalog.components.configure_catalog import *
 from deriva.utils.catalog.components.deriva_model import DerivaModel
+from tests.deriva.utils.catalog.test_utils import *
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -36,6 +37,10 @@ def setUpModule():
     with DerivaModel(catalog) as m:
         model = m.catalog_model()
         model.create_schema(catalog.ermrest_catalog, em.Schema.define(schema_name))
+
+
+def tearDownModule():
+    delete_catalog(ermrest_catalog)
 
 
 class TestConfigureCatalog(TestCase):
@@ -71,7 +76,6 @@ class TestConfigureCatalog(TestCase):
         catalog.configure_baseline_catalog(catalog_name='test', admin='isrd-systems')
 
     def test_table_defaults(self):
-        catalog.ermrest_catalog.get_authn_session()
         catalog.configure_baseline_catalog(catalog_name='test',
                                            admin='isrd-systems',
                                            curator='isrd-systems',

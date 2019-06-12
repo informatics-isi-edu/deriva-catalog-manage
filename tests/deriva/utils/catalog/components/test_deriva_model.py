@@ -40,8 +40,7 @@ def setUpModule():
     logging.info('Schema created %s', time.time() - t0)
 
 def tearDownModule():
-    # catalog.ermrest_catalog.delete_ermrest_catalog(really=True)
-    pass
+    delete_catalog(catalog.ermrest_catalog)
 
 
 class TestVisibleSources(TestCase):

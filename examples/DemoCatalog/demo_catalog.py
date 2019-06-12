@@ -3,21 +3,18 @@ import os
 import os.path
 
 
-from deriva.core import get_credential, DerivaServer
+from deriva.core import get_credential, init_logging, DerivaServer
 from deriva.utils.catalog.components.deriva_model import DerivaColumn, DerivaModel
 from deriva.utils.catalog.components.configure_catalog import DerivaCatalogConfigure
 from deriva.utils.catalog.manage.deriva_csv import DerivaCSV
 
-logging.basicConfig(
-    level=logging.INFO,
-)
 
 # These need to be changed depending on the host and groups available.
-host = 'dev.isrd.isi.edu'
+host = 'demo.derivacloud.org'
 catalog_name='test'
 schema_name='Demo'
 
-
+init_logging()
 logger = logging.getLogger(__name__)
 
 
@@ -41,7 +38,10 @@ catalog_id = create_catalog(host)
 
 logger.info('Configuring catalog....')
 catalog = DerivaCatalogConfigure(host, catalog_id=catalog_id)
-catalog.configure_baseline_catalog(catalog_name='test', admin='isrd-systems')
+catalog.configure_baseline_catalog(catalog_name='test',
+                                   admin='DERIVA Demo Admin',
+                                   curator='DERIVA Demo Curator',
+                                   writer='DERIVA Demo Writer', reader='*')
 
 with open('about.md') as f:
     about_content = f.read()
