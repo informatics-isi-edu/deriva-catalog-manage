@@ -51,7 +51,6 @@ setup(
     requires=[
         'deriva',
         'requests',
-        'attrdict',
         'graphviz',
         'tabulate',
         'yapf'

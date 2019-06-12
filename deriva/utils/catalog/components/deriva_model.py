@@ -1178,10 +1178,10 @@ class DerivaColumnMap(DerivaLogging, OrderedDict):
         # Go through the columns in order and add map entries, converting any map entries that are just column names
         # or dictionaries to DerivaColumnDefs
 
-        column_map = {k: normalize_column(k, v) for k, v in column_map.items()}
+        column_map = OrderedDict((k, normalize_column(k, v)) for k, v in column_map.items())
 
         # Collect up all of the column name maps.
-        column_name_map = {k: v.name for k, v in column_map.items()}
+        column_name_map = OrderedDict((k, v.name) for k, v in column_map.items())
         self.logger.debug('column_map: %s column_name_map %s', column_map, column_name_map)
         self.logger.debug('keys: %s \nkey_columns: %s \n mapped_keys %s \n%s \nfkeys %s \n mapped fkeys %s',
                           [key.name for key in table.keys],
@@ -1226,17 +1226,17 @@ class DerivaColumnMap(DerivaLogging, OrderedDict):
         return column_map
 
     def get_columns(self):
-        return {k: v for k, v in self.items() if isinstance(v, DerivaColumn)}
+        return OrderedDict((k, v) for k, v in self.items() if isinstance(v, DerivaColumn))
 
     def get_keys(self):
-        return {k: v for k, v in self.items() if isinstance(v, DerivaKey)}
+        return OrderedDict((k, v) for k, v in self.items() if isinstance(v, DerivaKey))
 
     def get_foreign_keys(self):
-        return {k: v for k, v in self.items() if isinstance(v, DerivaForeignKey)}
+        return OrderedDict((k, v) for k, v in self.items() if isinstance(v, DerivaForeignKey))
 
     def get_names(self):
         field = 'name'
-        return {k: getattr(v, field) for k, v in self.items() if getattr(v, field)}
+        return OrderedDict((k, getattr(v, field)) for k, v in self.items() if getattr(v, field))
 
 
 class DerivaVisibleSources(DerivaLogging):
@@ -1320,25 +1320,25 @@ class DerivaVisibleSources(DerivaLogging):
         """
 
         def remove_new_columns(plist):
-            return {k: v for k, v in plist.items() if k != v[0]}
+            return OrderedDict((k, v) for k, v in plist.items() if k != v[0])
 
         # If just a set of contexts, convert to normal form.
         if isinstance(positions, set) or positions == {}:
-            return OrderedDict({DerivaContext(j): {}
+            return OrderedDict((DerivaContext(j), {})
                                 for i in positions
                                 for j in (DerivaModel.contexts
-                                          if DerivaContext(i) is DerivaContext("all") else [i])})
+                                          if DerivaContext(i) is DerivaContext("all") else [i]))
 
         try:
             # Map all contexts to enum values...
-            return OrderedDict({DerivaContext(j): remove_new_columns(v)
+            return OrderedDict((DerivaContext(j), remove_new_columns(v))
                                 for k, v in positions.items()
                                 for j in (DerivaModel.contexts
-                                          if DerivaContext(k) is DerivaContext("all") else [k])})
+                                          if DerivaContext(k) is DerivaContext("all") else [k]))
 
         except ValueError:
             # Keys are not valid context name, so we must have keylist dictionary.
-            return OrderedDict({k: remove_new_columns(positions) for k in DerivaModel.contexts})
+            return OrderedDict((k, remove_new_columns(positions)) for k in DerivaModel.contexts)
 
     def insert_context(self, context, sources=[], replace=False):
 

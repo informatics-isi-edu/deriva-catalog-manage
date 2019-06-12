@@ -16,8 +16,7 @@ from deriva.core.base_cli import BaseCLI
 
 from yapf.yapflib.yapf_api import FormatCode
 
-from attrdict import AttrDict
-from deriva.core import ErmrestCatalog, get_credential
+from deriva.core import get_credential, AttrDict
 
 from deriva.core.ermrest_config import tag as chaise_tags
 from deriva.utils.catalog.manage.deriva_file_templates import table_file_template, schema_file_template, \
