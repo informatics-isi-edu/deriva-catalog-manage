@@ -170,6 +170,11 @@ class TestVisibleSources(TestCase):
             {"source": 'f1_fkey'}
         )
 
+        # Now test to see if renaming a constraint in a path works.
+#        catalog['TestSchema']['Main_F3'].rename_column('F3', 'F3a')
+        catalog['TestSchema']['Main_F3'].rename_columns({'main_fkey': 'main_fkeya'})
+        print(main.visible_columns)
+
     def test_normalize_positions(self):
         DerivaVisibleSources._normalize_positions({'all'})
 
