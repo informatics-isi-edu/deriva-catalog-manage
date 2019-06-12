@@ -70,9 +70,13 @@ class DerivaCatalogToString:
         # Get the currently known groups for this catalog.
         self._groups = groups
         if groups is None:
-            self._groups = AttrDict(
-                {e['Display_Name']: e['ID'] for e in catalog.getPathBuilder().public.ERMrest_Group.entities()}
-            )
+            try:
+                self._groups = AttrDict(
+                    {e['Display_Name']: e['ID'] for e in catalog.getPathBuilder().public.ERMrest_Group.entities()}
+                )
+            except AttributeError:
+                logger.warning('Cannot access ERMrest_Group table. Check ACLs')
+                self._groups = AttrDict()
 
         self._referenced_groups = {}
         self._variables = self._groups.copy()
@@ -332,7 +336,7 @@ class DerivaDumpCatalogCLI (BaseCLI):
 
         # parent arg parser
         parser = self.parser
-        parser.add_argument('--catalog', default=1, help='ID number of desired catalog')
+        parser.add_argument('--catalog', '--catalog-id', metavar='CATALOG-NUMBER', default=1, help='ID number of desired catalog')
         parser.add_argument('--dir', default="catalog-configs", help='output directory name')
         parser.add_argument('--table', default=None, help='Only dump out the spec for the specified table.  Format is '
                                                           'schema_name:table_name')
