@@ -544,7 +544,7 @@ class TestDerivaTable(TestCase):
         table2 = catalog['TestSchema']['Table2']
 
         table1.copy_columns(
-            {'Col1_Table1': 'FooBar', 'RCB': 'RCB1', 'Bozo': 'int4', 'Bozo1': {'type': 'text', 'default': 23}})
+            OrderedDict([('Col1_Table1', 'FooBar'), ('RCB', 'RCB1'), ('Bozo', 'int4'), ('Bozo1', {'type': 'text', 'default': 23})]))
         self.assertEqual(table1['FooBar'].name, 'FooBar')
 
         self.assertEqual([i.name for i in table1.columns],
