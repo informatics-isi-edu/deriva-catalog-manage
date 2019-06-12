@@ -107,7 +107,7 @@ logger_config = {
             #   'level': 'DEBUG',
         },
         'deriva_model.DerivaColumnMap': {
-              'level': 'DEBUG'
+          #    'level': 'DEBUG'
         },
         'deriva_model.DerivaSchema': {
             #    'level': 'DEBUG'
@@ -1276,11 +1276,17 @@ class DerivaVisibleSources(DerivaLogging):
                 rval = False
                 logger.info('Invalid context name %s', c)
             if c == 'filter':
-                try:
-                    l = l['and']
-                except TypeError:
-                    logger.info('Invalid filter specification %s', l)
+                if self.tag == chaise_tags.visible_foreign_keys:
                     rval = False
+                    logger.info('Filter context not allowed in visible_foreign_key annotation.')
+                    continue
+                else:
+                    try:
+                        l = l['and']
+                    except TypeError:
+                        logger.info('Invalid filter specification %s', l)
+                        rval = False
+                        continue
             for j in l:
                 try:
                     DerivaSourceSpec(self.table, j)
@@ -1785,12 +1791,15 @@ class DerivaSourceSpec(DerivaLogging):
                 return self.spec
         else:
             # We have a list of  inbound/outbound specs.  Go through the list and replace any names that are in the map.
+            self.logger.debug('Looking for rename in source path: %s',
+                              [s in self.source[:-1]])
             return {
                 **self.spec,
                 **{'source': [
                                  {next(iter(s)): column_map[next(iter(s.values()))].name} if next(iter(s)) in column_map
                                  else s
-                                 for s in self.source[:-1]] + self.source[-1:]
+                                 for s in self.source[:-1]
+                             ] + self.source[-1:]
                    }
             }
 
