@@ -1,11 +1,10 @@
 import argparse
 import logging
 from requests.exceptions import HTTPError
-
-from deriva.core import ErmrestCatalog, get_credential
-from deriva.utils.catalog.components.deriva_model import DerivaCatalog, DerivaModel
+from deriva.utils.catalog.components.deriva_model import DerivaModel
 
 logger = logging.getLogger(__name__)
+
 
 def parse_args(server, catalog_id, is_table=False, is_catalog=False):
     parser = argparse.ArgumentParser(description='Update catalog configuration')
@@ -42,35 +41,35 @@ class CatalogUpdater:
         self._catalog = catalog
 
     @staticmethod
-    def update_annotations(o, annotations, replace=False):
-        logger.debug('%s %s %s', o, annotations, replace)
-        if replace:
+    def update_annotations(o, annotations, merge=False):
+        logger.debug('%s %s %s', o, annotations, merge)
+        if not merge:
             o.annotations.clear()
         o.annotations.update(annotations)
 
     @staticmethod
-    def update_acls(o, acls, replace=False):
-        if replace:
+    def update_acls(o, acls, merge=False):
+        if not merge:
             o.acls.clear()
         o.acls.update(acls)
 
     @staticmethod
-    def update_acl_bindings(o, acl_bindings, replace=False):
-        if replace:
+    def update_acl_bindings(o, acl_bindings, merge=False):
+        if not merge:
             o.acls_binding.clear()
         o.acl_bindings.update(acl_bindings)
 
-    def update_catalog(self, mode, annotations, acls, replace=False):
+    def update_catalog(self, mode, annotations, acls, replace=False, merge=False):
         if mode not in ['annotations', 'acls']:
             raise CatalogUpdaterException(msg="Unknown mode {}".format(mode))
 
         with DerivaModel(self._catalog) as m:
             if mode == 'annotations':
-                self.update_annotations(m.catalog_model(), annotations, replace=replace)
+                self.update_annotations(m.catalog_model(), annotations, merge=merge)
             elif mode == 'acls':
-                self.update_acls(m.catalog_model(), acls, replace=replace)
+                self.update_acls(m.catalog_model(), acls, merge=merge)
 
-    def update_schema(self, mode, schema_def, replace=False, really=False):
+    def update_schema(self, mode, schema_def, replace=False, merge=False, really=False):
         schema_name = schema_def['schema_name']
         annotations = schema_def['annotations']
         acls = schema_def['acls']
@@ -90,15 +89,15 @@ class CatalogUpdater:
             else:
                 schema = m.schema_model(self._catalog[schema_name])
                 if mode == 'annotations':
-                    self.update_annotations(schema, annotations, replace=replace)
+                    self.update_annotations(schema, annotations, merge=merge)
                 elif mode == 'acls':
-                    self.update_acls(schema, acls, replace=replace)
+                    self.update_acls(schema, acls, merge=merge)
                 elif mode == 'comment':
                     schema.comment = comment
 
         return schema
 
-    def update_table(self, mode, schema_name, table_def, replace=False, really=False):
+    def update_table(self, mode, schema_name, table_def, replace=False, merge=False, really=False):
         print('updating table', mode)
         with DerivaModel(self._catalog) as m:
             schema = m.schema_model(self._catalog[schema_name])
@@ -184,12 +183,12 @@ class CatalogUpdater:
                         else:
                             print(err.response.text)
             if mode == 'annotations':
-                self.update_annotations(table, table_annotations, replace=replace)
+                self.update_annotations(table, table_annotations, merge=merge)
 
                 column_annotations = {i['name']: i['annotations'] for i in column_defs}
                 for c in table.column_definitions:
                     if c.name in [column_annotations]:
-                        self.update_annotations(c, column_annotations[c.name], replace=replace)
+                        self.update_annotations(c, column_annotations[c.name], merge=merge)
 
             if mode == 'comment':
                 table.comment = table_comment
@@ -200,12 +199,12 @@ class CatalogUpdater:
 
             if mode == 'acls':
                 self.update_acls(table, table_acls)
-                self.update_acl_bindings(table, table_acl_bindings, replace=replace)
+                self.update_acl_bindings(table, table_acl_bindings, merge=merge)
 
                 column_acls = {i['name']: i['acls'] for i in column_defs if 'acls' in i}
                 column_acl_bindings = {i['name']: i['acl_bindings'] for i in column_defs if 'acl_bindings in i'}
                 for c in table.column_definitions:
                     if c.name in column_acls:
-                        self.update_acls(c, column_acls[c.name], replace=replace)
+                        self.update_acls(c, column_acls[c.name], merge=merge)
                     if c.name in column_acl_bindings:
-                        self.update_acl_bindings(c, column_acl_bindings[c.name], replace=replace)
+                        self.update_acl_bindings(c, column_acl_bindings[c.name], merge=merge)
