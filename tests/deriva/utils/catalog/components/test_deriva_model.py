@@ -240,7 +240,6 @@ class TestAttributes(TestCase):
         self.assertEqual(table.display, 'Foobar')
 
 
-
 class TestDerivaTable(TestCase):
 
     def setUp(self):
@@ -614,6 +613,8 @@ class TestDerivaTable(TestCase):
         table1 = catalog['TestSchema']['Table1']
         table2 = catalog['TestSchema']['Table2']
 
+        table2.table_display ={'*': {'row_markdown_pattern': '{{{$fkeys.TestSchema.Table2_ID1_Table2_fkey.rowName}}}'}}
+
         # Plain old column....
         table1.rename_columns({'Col1_Table1': 'NewFoo1'})
         # Check column and visible columns.
@@ -624,7 +625,10 @@ class TestDerivaTable(TestCase):
 
         # Column that is a FK.
         table2.rename_columns({'ID1_Table2': 'ID1a_Table2'})
+        table2.describe()
         # FK should be renamed as should incoming visible columns in table1
+        self.assertEqual(table2.table_display,
+                         {'*': {'row_markdown_pattern': '{{{$fkeys.TestSchema.Table2_ID1a_Table2_fkey.rowName}}}'}})
 
         # One column of a compound FK.  This should rename the FK and incoming.
         table2.rename_columns({'ID2_Table2': 'ID2a_Table2'})
