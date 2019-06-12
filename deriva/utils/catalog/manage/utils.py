@@ -1,10 +1,45 @@
+import os
+import sys
 import random
 import datetime
 import string
+import importlib
 
 from deriva.core.ermrest_catalog import ErmrestCatalog
 import deriva.core.ermrest_model as em
 from deriva.core.deriva_server import DerivaServer
+
+
+def load_module_from_path(file):
+    """
+    Load configuration file from a path.
+    :param file:
+    :return:
+    """
+
+    class AddPath:
+        def __init__(self, path):
+            self.path = path
+
+        def __enter__(self):
+            sys.path.insert(0, self.path)
+
+        def __exit__(self, exc_type, exc_value, traceback):
+            try:
+                sys.path.remove(self.path)
+            except ValueError:
+                pass
+
+    moddir, file = os.path.split(os.path.abspath(file))
+    modname = os.path.splitext(file)[0]
+    importlib.invalidate_caches()
+    # If we have already loaded this module reload it otherwise import.
+    with AddPath(moddir):
+        try:
+            mod = importlib.reload(sys.modules[modname])
+        except KeyError:
+            mod = importlib.import_module(modname)
+    return mod
 
 
 class LoopbackModel(em.Model):

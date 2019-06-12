@@ -37,7 +37,7 @@ setup(
     maintainer=author,
     maintainer_email=author_email,
     version=__version__,
-    packages=find_packages(exclude=["tests"]),
+    packages=find_packages(exclude=["tests", "extra_tests", "examples"]),
     package_data={},
     python_requires='>=3.5.4',
     test_suite='tests',
@@ -45,29 +45,30 @@ setup(
         'console_scripts': [
             'deriva-catalog-dump = deriva.utils.catalog.manage.dump_catalog:main',
             'deriva-catalog-config = deriva.utils.catalog.components.deriva_catalog:main',
-            'deriva-csv = deriva.utils.catalog.manage.deriva_csv:main'
-        ]
+            'deriva-csv = deriva.utils.catalog.manage.deriva_csv:main [full]'
+        ],
     },
     requires=[
         'deriva',
         'requests',
-        'tableschema',
-        'goodtables',
+        'attrdict',
         'graphviz',
-        'tabulator',
         'tabulate',
         'yapf'
     ],
     install_requires=[
         'requests',
         'yapf',
-        'goodtables',
         'graphviz',
         'attrdict',
         'tabulate',
-        'jsonschema==2.6.0',
         'deriva>=0.8.4'
     ],
+    extras_require={
+        'full': ['goodtables',
+                 'python-dateutil',
+                 'jsonschema==2.6.0']
+    },
     license='Apache 2.0',
     classifiers=[
         'Intended Audience :: Science/Research',

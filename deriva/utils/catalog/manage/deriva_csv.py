@@ -3,36 +3,39 @@ from __future__ import absolute_import
 import os
 import tempfile
 import re
-import argparse
-import importlib
 import sys
 import time
 import json
 import ast
-import dateutil
 import datetime
 import logging
 
 from requests import HTTPError
-from tableschema import Table, Schema, exceptions
-import goodtables
-import tabulator
-
-from deriva.core import ErmrestCatalog, get_credential
+from deriva.core import ErmrestCatalog, get_credential, init_logging
 from deriva.core import urlparse
 from deriva.core.ermrest_config import tag as chaise_tags
 import deriva.core.ermrest_model as em
 from deriva.utils.catalog.manage.dump_catalog import DerivaCatalogToString
 from deriva.utils.catalog.manage.utils import LoopbackCatalog, LoopbackModel
 from deriva.utils.catalog.components.deriva_model import DerivaModel, DerivaCatalog
-from deriva.core.utils import eprint
 from deriva.core.base_cli import BaseCLI
 from deriva.utils.catalog.version import __version__ as VERSION
 
 IS_PY2 = (sys.version_info[0] == 2)
 IS_PY3 = (sys.version_info[0] == 3)
 
+init_logging()
 logger = logging.getLogger(__name__)
+
+try:
+    from tableschema import Table, Schema, exceptions
+    import goodtables
+    import tabulator
+    import dateutil
+except Exception as e:
+    logger.critical("Unable to import a required package dependency. %s. "
+                    "Are you sure that this software package was installed with the [full] qualifier?" % e)
+    raise
 
 # We should get range info in there....
 table_schema_type_map = {
@@ -88,38 +91,6 @@ table_schema_ermrest_type_map = {
     'year:default': 'date',
     'yearmonth:default': 'date'
 }
-
-
-def load_module_from_path(file):
-    """
-    Load configuration file from a path.
-    :param file:
-    :return:
-    """
-
-    class AddPath:
-        def __init__(self, path):
-            self.path = path
-
-        def __enter__(self):
-            sys.path.insert(0, self.path)
-
-        def __exit__(self, exc_type, exc_value, traceback):
-            try:
-                sys.path.remove(self.path)
-            except ValueError:
-                pass
-
-    moddir, file = os.path.split(os.path.abspath(file))
-    modname = os.path.splitext(file)[0]
-    importlib.invalidate_caches()
-    # If we have already loaded this module reload it otherwise import.
-    with AddPath(moddir):
-        try:
-            mod = importlib.reload(sys.modules[modname])
-        except KeyError:
-            mod = importlib.import_module(modname)
-    return mod
 
 
 class DerivaUploadError(HTTPError):
