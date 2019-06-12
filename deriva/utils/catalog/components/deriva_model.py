@@ -2868,6 +2868,8 @@ class DerivaTable(DerivaCore):
         # TODO handle: 'markdown_pattern': '{{{$fkeys.Beta_Cell.XRay_Tomography_Data_File_Type_FKey.rowName}}}'
         for k, v in column_map.get_names().items():
             pattern = pattern.replace('{{{}}}'.format(k), '{{{}}}'.format(v))
+            pattern = pattern.replace('fkeys.{}.{}'.format(column_map.table.schema_name, k),
+                                      'fkeys.{}.{}'.format(column_map.dest_table.schema_name, v))
         return pattern
 
     @staticmethod
