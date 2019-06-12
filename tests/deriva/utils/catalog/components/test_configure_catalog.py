@@ -71,7 +71,11 @@ class TestConfigureCatalog(TestCase):
         catalog.configure_baseline_catalog(catalog_name='test', admin='isrd-systems')
 
     def test_table_defaults(self):
-        catalog.configure_baseline_catalog(catalog_name='test', admin='isrd-systems')
+        catalog.configure_baseline_catalog(catalog_name='test',
+                                           admin='isrd-systems',
+                                           curator='isrd-systems',
+                                           writer='isrd-systems',
+                                           reader="*")
         catalog[schema_name]['TestTable1'].configure_table_defaults()
         print(catalog)
         self.assertEqual({s.name for s in catalog['public']},

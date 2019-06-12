@@ -57,10 +57,9 @@ setup(
     ],
     install_requires=[
         'requests',
-        'yapf',
         'graphviz',
-        'attrdict',
         'tabulate',
+        'yapf',
         'deriva>=0.8.4'
     ],
     extras_require={
