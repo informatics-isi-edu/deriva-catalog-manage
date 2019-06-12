@@ -71,6 +71,7 @@ class TestConfigureCatalog(TestCase):
         catalog.configure_baseline_catalog(catalog_name='test', admin='isrd-systems')
 
     def test_table_defaults(self):
+        catalog.ermrest_catalog.get_authn_session()
         catalog.configure_baseline_catalog(catalog_name='test',
                                            admin='isrd-systems',
                                            curator='isrd-systems',
