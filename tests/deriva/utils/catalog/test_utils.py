@@ -31,7 +31,7 @@ def clean_schema(catalog, schemas):
 
 def generate_test_tables(catalog, schema_name):
     logging.info('generating test tables')
-  #  logging.disable(logging.CRITICAL)
+    logging.disable(logging.CRITICAL)
     t0 = time.time()
     table1 = catalog[schema_name].create_table(
         'Table1',
@@ -55,7 +55,6 @@ def generate_test_tables(catalog, schema_name):
     )
 
     table1.visible_columns.insert_context('filter', {'and': ['Col1_Table1', 'Col2_Table1']})
-    logging.disable(logging.NOTSET)
     logger.info('Time to create table1 %s', time.time()-t0)
  #   logging.disable(logging.CRITICAL)
     t0 = time.time()
@@ -81,8 +80,9 @@ def generate_test_tables(catalog, schema_name):
      ],
     )
 
-    logging.disable(logging.NOTSET)
     logger.info('Time to create table2 %s', time.time()-t0)
+    logging.disable(logging.NOTSET)
+
 
 
 def generate_test_csv(columncnt):
