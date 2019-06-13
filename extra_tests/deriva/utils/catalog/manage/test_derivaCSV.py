@@ -12,12 +12,9 @@ from tableschema import exceptions
 from deriva.utils.catalog.manage.utils import load_module_from_path
 from deriva.utils.catalog.manage.deriva_csv import DerivaCSV
 import deriva.utils.catalog.manage.dump_catalog as dump_catalog
-from deriva.core import init_logging
 import deriva.core.ermrest_model as em
-
 from tests.deriva.utils.catalog.test_utils import *
 
-init_logging()
 logger = logging.getLogger(__name__)
 
 

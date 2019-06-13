@@ -24,7 +24,6 @@ from deriva.utils.catalog.version import __version__ as VERSION
 IS_PY2 = (sys.version_info[0] == 2)
 IS_PY3 = (sys.version_info[0] == 3)
 
-init_logging()
 logger = logging.getLogger(__name__)
 
 try:
