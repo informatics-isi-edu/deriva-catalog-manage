@@ -76,6 +76,10 @@ logger_config = {
         'visiblesources_filter': {
             '()': DerivaMethodFilter,
             'include': ['insert_sources']
+        },
+        'sourcespec_filter': {
+            '()': DerivaMethodFilter,
+            'include': ['rename_column']
         }
 
     },
@@ -107,7 +111,7 @@ logger_config = {
             #   'level': 'DEBUG',
         },
         'deriva_model.DerivaColumnMap': {
-          #    'level': 'DEBUG'
+            #    'level': 'DEBUG'
         },
         'deriva_model.DerivaSchema': {
             #    'level': 'DEBUG'
@@ -117,7 +121,8 @@ logger_config = {
             # 'filters': ['visiblesources_filter']
         },
         'deriva_model.DerivaSourceSpec': {
-            #       'level': 'DEBUG'
+            #       'level': 'DEBUG',
+            #   'filters': ['sourcespec_filter']
         },
         'deriva_model.DerivaTable': {
             #       'level': 'DEBUG',
@@ -857,6 +862,13 @@ class DerivaCatalog(DerivaCore):
         # TODO impliment
         pass
 
+    def rename_visible_columns(self, column_map, validate=False):
+        for s in self:
+            for t in s:
+                try:
+                    t.visible_columns = t.visible_columns.rename_columns(column_map, validate=validate)
+                except DerivaSourceError:
+                    pass
 
 class DerivaSchema(DerivaCore):
     def __init__(self, catalog, schema_name):
@@ -1250,7 +1262,7 @@ class DerivaVisibleSources(DerivaLogging):
         return pprint.pformat(self.table.annotations[self.tag])
 
     def __repr__(self):
-        return pprint.pformat(self.table.annotations[self.tag])
+        return self.table.annotations[self.tag].__repr__()
 
     def __getitem__(self, item):
         return self.table.annotations[self.tag][item]
@@ -1437,6 +1449,8 @@ class DerivaVisibleSources(DerivaLogging):
         :param column_map:
         :return:
         """
+        if self.tag not in self.table.annotations:
+            raise DerivaSourceError(self, msg='tag {} does not exist'.format(self.tag))
         self.logger.debug('column_map %s %s', column_map, pprint.pformat(self.table.annotations[self.tag]))
         # For each context, go through the source specs and rename columns
         new_vc = {}
@@ -1791,17 +1805,19 @@ class DerivaSourceSpec(DerivaLogging):
                 return self.spec
         else:
             # We have a list of  inbound/outbound specs.  Go through the list and replace any names that are in the map.
-            self.logger.debug('Looking for rename in source path: %s',
-                              [s in self.source[:-1]])
-            return {
-                **self.spec,
-                **{'source': [
-                                 {next(iter(s)): column_map[next(iter(s.values()))].name} if next(iter(s)) in column_map
-                                 else s
-                                 for s in self.source[:-1]
-                             ] + self.source[-1:]
-                   }
-            }
+            self.logger.debug('Looking for rename in source path: %s', self.source[:-1])
+            source = []
+            for s in self.source[:-1]:
+                direction = next(iter(s))   # inbound or outbound
+                key_schema, key_name = next(iter(s.values()))
+                if key_schema == column_map.table.schema_name and key_name in column_map:
+                    source.append({direction: (key_schema, column_map[key_name].name)})
+                else:
+                    source.append(s)
+            source.append(self.source[-1:])
+
+            return {**self.spec, **{'source': source}}
+
 
     def make_outbound(self, validate=True):
         if self.source_type() is 'column':
@@ -2633,7 +2649,10 @@ class DerivaTable(DerivaCore):
 
     @property
     def visible_columns(self):
-        return DerivaVisibleSources(self, chaise_tags.visible_columns)
+        try:
+            return DerivaVisibleSources(self, chaise_tags.visible_columns)
+        except KeyError:
+            raise DerivaSourceError(self, msg='Visible columns not defined')
 
     @visible_columns.setter
     def visible_columns(self, vcs):
@@ -2896,6 +2915,7 @@ class DerivaTable(DerivaCore):
 
     def _rename_columns_in_annotations(self, column_map, skip_annotations=[], validate=False):
         new_annotations = {}
+        self.catalog.rename_visible_columns(column_map, validate=validate)
         for k, v in self.annotations.items():
             if k in skip_annotations:
                 renamed = v
@@ -2903,8 +2923,6 @@ class DerivaTable(DerivaCore):
                 renamed = self._rename_columns_in_display(v, column_map)
             elif (k == chaise_tags.table_display or k == chaise_tags.column_display):
                 renamed = DerivaTable._rename_columns_in_context_display(v, column_map)
-            elif k == chaise_tags.visible_columns:
-                renamed = self.visible_columns.rename_columns(column_map, validate=validate)
             else:
                 renamed = v
             new_annotations[k] = renamed
@@ -3293,6 +3311,7 @@ class DerivaTable(DerivaCore):
                     annotations=annotations
                 )
         self.catalog.update_referenced_by()
+        self.catalog.rename_visible_columns(column_map)
 
     def copy_table(self, schema_name, table_name, column_map={}, clone=False,
                    key_defs=[],
