@@ -56,7 +56,7 @@ class CatalogUpdater:
     @staticmethod
     def update_acl_bindings(o, acl_bindings, merge=False):
         if not merge:
-            o.acls_binding.clear()
+            o.acl_bindings.clear()
         o.acl_bindings.update(acl_bindings)
 
     def update_catalog(self, mode, annotations, acls, replace=False, merge=False):
