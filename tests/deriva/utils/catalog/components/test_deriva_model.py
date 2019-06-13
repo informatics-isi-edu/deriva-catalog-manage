@@ -169,6 +169,9 @@ class TestVisibleSources(TestCase):
             {"source": 'f1_fkey'}
         )
 
+        main.visible_columns = {'*' : [{
+            "source": [{"inbound": ("TestSchema", "fk3_cons")},
+                       {"outbound": ("TestSchema", "main_f3_cons")}, "RID"]}]}
         # Now test to see if renaming a constraint in a path works.
 #        catalog['TestSchema']['Main_F3'].rename_column('F3', 'F3a')
         catalog['TestSchema']['Main_F3'].rename_columns({'main_fkey': 'main_fkeya'})
