@@ -32,7 +32,7 @@ class TestCatalogUpdater(TestCase):
             updated_annotations = {'tag:misd.isi.edu,2015:display': {'name': 'foo'}}
             updated_acls = {'insert': ['bill']}
             logger.info('Checking update annotations.')
-            updater.update_catalog('acls', updated_annotations, updated_acls)
+            updater.update_catalog('acls', updated_annotations, updated_acls, merge=True)
             self.assertEqual(catalog.acls['insert'], updated_acls['insert'])
 
             updater.update_catalog('annotations', updated_annotations, updated_acls)
@@ -44,7 +44,7 @@ class TestCatalogUpdater(TestCase):
             updated_acls = {'insert': ['carl']}
 
             # Check updates...
-            updater.update_catalog('acls', updated_annotations, updated_acls)
+            updater.update_catalog('acls', updated_annotations, updated_acls, merge=True)
             self.assertEqual(catalog.acls['insert'], updated_acls['insert'])
 
             updater.update_catalog('annotations', updated_annotations, updated_acls)

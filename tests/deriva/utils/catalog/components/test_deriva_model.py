@@ -170,12 +170,16 @@ class TestVisibleSources(TestCase):
         )
 
         main.visible_columns = {'*' : [{
-            "source": [{"inbound": ("TestSchema", "fk3_cons")},
-                       {"outbound": ("TestSchema", "main_f3_cons")}, "RID"]}]}
+            "source": [{'inbound': ('TestSchema', 'fk3_cons')},
+                       {'outbound': ('TestSchema', 'main_f3_cons')}, 'RID']}]}
         # Now test to see if renaming a constraint in a path works.
-#        catalog['TestSchema']['Main_F3'].rename_column('F3', 'F3a')
         catalog['TestSchema']['Main_F3'].rename_columns({'main_fkey': 'main_fkeya'})
-        print(main.visible_columns)
+        self.assertDictEqual(main.annotations[chaise_tags.visible_columns],
+                         {'*': [{'source': [{'inbound': ('TestSchema', 'Main_F3_main_fkeya_fkey')},
+                                            {'outbound': ('TestSchema', 'main_f3_cons')},
+                                            ['RID']]}]}
+
+                         )
 
     def test_normalize_positions(self):
         DerivaVisibleSources._normalize_positions({'all'})

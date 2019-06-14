@@ -11,8 +11,7 @@ import datetime
 import logging
 
 from requests import HTTPError
-from deriva.core import ErmrestCatalog, get_credential, init_logging
-from deriva.core import urlparse
+from deriva.core import ErmrestCatalog, get_credential, init_logging, urlparse
 from deriva.core.ermrest_config import tag as chaise_tags
 import deriva.core.ermrest_model as em
 from deriva.utils.catalog.manage.dump_catalog import DerivaCatalogToString
@@ -24,7 +23,6 @@ from deriva.utils.catalog.version import __version__ as VERSION
 IS_PY2 = (sys.version_info[0] == 2)
 IS_PY3 = (sys.version_info[0] == 3)
 
-init_logging()
 logger = logging.getLogger(__name__)
 
 try:
@@ -34,7 +32,7 @@ try:
     import dateutil
 except Exception as e:
     logger.critical("Unable to import a required package dependency. %s. "
-                    "Are you sure that this software package was installed with the [full] qualifier?" % e)
+                    "Are you sure that this software package was installed with the [csv] qualifier?" % e)
     raise
 
 # We should get range info in there....
