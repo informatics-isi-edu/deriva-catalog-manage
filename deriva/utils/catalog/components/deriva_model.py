@@ -705,6 +705,14 @@ class DerivaCatalog(DerivaCore):
     def __contains__(self, item):
         return self.schemas.__contains__(item)
 
+    def _repr_html_(self):
+        return (
+                '<b>Catalog: {}</b><br>'.format(self.name) +
+                tabulate.tabulate(
+                    [[i.name, i.comment] for i in self.schemas],
+                    headers=['Schema Name', 'Comment'],
+                    tablefmt="html", showindex=True, stralign='left')
+        )
     @property
     def host(self):
         """
@@ -888,6 +896,15 @@ class DerivaSchema(DerivaCore):
 
     def __contains__(self, table_name):
         self.tables.__contains__(table_name)
+
+    def _repr_html_(self):
+        return (
+                '<b>Schema: {}</b><br>'.format(self.name) +
+                tabulate.tabulate(
+                    [[i.name, i.comment] for i in self.tables],
+                    headers=['Table Name', 'Comment'],
+                    tablefmt="html", showindex=True, stralign='left')
+        )
 
     @property
     def name(self):
@@ -2578,25 +2595,26 @@ class DerivaTable(DerivaCore):
         return self.columns.__iter__()
 
     def _repr_html_(self):
-        tablefmt='html'
+        tablefmt = 'html'
         return '\n'.join([
-            'Table {}'.format(self.name),
+            '<b>Table: {}</b><br>'.format(self.name),
+            'Columns<br>',
             tabulate.tabulate(
                 [[i.name, i.type.typename, i.nullok, i.default] for i in self.columns],
                 headers=['Name', 'Type', 'NullOK', 'Default'],
-            tablefmt=tablefmt),
-            '\n',
+                tablefmt=tablefmt),
+            '<br>',
             'Keys:',
             tabulate.tabulate([[i.name, [c.name for c in i.columns]] for i in self.keys],
                               headers=['Name', 'Columns'], tablefmt=tablefmt),
-            '\n',
+            '<br>',
             'Foreign Keys:',
             tabulate.tabulate(
                 [[i.name, [c.name for c in i.columns], '->',
                   i.referenced_table.name, [c.name for c in i.referenced_columns]]
                  for i in self.foreign_keys],
                 headers=['Name', 'Columns', '', 'Referenced Table', 'Referenced Columns'], tablefmt=tablefmt),
-            '\n\n',
+            '<br>',
             'Referenced By:',
             tabulate.tabulate(
                 [

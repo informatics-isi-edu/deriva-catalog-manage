@@ -90,7 +90,7 @@ def create_navbar(catalog, schema_name):
 
 def create_demo_model(catalog, schema_name='Demo'):
     logger.info('Creating schema')
-    schema = catalog.create_schema(schema_name)
+    schema = catalog.create_schema(schema_name, comment='Schema for demonstation catalog')
 
     # Create Basic Tables.
     with DerivaModel(catalog):
