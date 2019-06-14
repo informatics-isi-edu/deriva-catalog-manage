@@ -2561,6 +2561,41 @@ class DerivaTable(DerivaCore):
     def __iter__(self):
         return self.columns.__iter__()
 
+    def _repr_html_(self):
+        tablefmt='html'
+        return '\n'.join([
+            'Table {}'.format(self.name),
+            tabulate.tabulate(
+                [[i.name, i.type.typename, i.nullok, i.default] for i in self.columns],
+                headers=['Name', 'Type', 'NullOK', 'Default'],
+            tablefmt=tablefmt),
+            '\n',
+            'Keys:',
+            tabulate.tabulate([[i.name, [c.name for c in i.columns]] for i in self.keys],
+                              headers=['Name', 'Columns'], tablefmt=tablefmt),
+            '\n',
+            'Foreign Keys:',
+            tabulate.tabulate(
+                [[i.name, [c.name for c in i.columns], '->',
+                  i.referenced_table.name, [c.name for c in i.referenced_columns]]
+                 for i in self.foreign_keys],
+                headers=['Name', 'Columns', '', 'Referenced Table', 'Referenced Columns'], tablefmt=tablefmt),
+            '\n\n',
+            'Referenced By:',
+            tabulate.tabulate(
+                [
+                    [i.name,
+                     [c.name for c in i.referenced_columns],
+                     '<-',
+                     '{}:{}:'.format(i.table.schema_name,
+                                     i.table.name),
+                     [c.name for c in i.columns]
+                     ]
+                    for i in self.referenced_by],
+                headers=['Name', 'Columns', '', '', 'Referenced Columns'], tablefmt=tablefmt)
+        ]
+        )
+
     def __str__(self):
         return '\n'.join([
             'Table {}'.format(self.name),
