@@ -428,7 +428,7 @@ class DerivaDumpCatalogCLI (BaseCLI):
                 if args.table:
                     if ':' not in args.table:
                         raise DerivaDumpCatalogException('Table name must be in form of schema:table')
-                    [schema_name, table_name] = args.table_model.split(":")
+                    [schema_name, table_name] = args.table.split(":")
                     self._dump_table(schema_name, table_name)
                 elif args.graph:
                     self._graph_catalog()
