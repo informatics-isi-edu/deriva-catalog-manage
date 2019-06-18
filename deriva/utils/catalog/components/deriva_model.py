@@ -2595,35 +2595,28 @@ class DerivaTable(DerivaCore):
         return self.columns.__iter__()
 
     def _repr_html_(self):
-        print('here we are',   tabulate.tabulate(
-                [[i.name, i.type.typename, i.nullok, i.default] for i in self.columns],
-                headers=['Column Name', 'Type', 'NullOK', 'Default'],
-                colalign=('left', 'left', 'left', 'left'),
-                tablefmt='html'))
-        tablefmt = 'html'
-        return '\n'.join([
-        '<style type = "text/css">td, th {text-align: left} </style >',
+        rep = '\n'.join([
         '<b>Table: <a href={}, target="_blank"> {}</b></a><br><br>'.format(self.chaise_uri, self.name),
             tabulate.tabulate(
                 [[i.name, i.type.typename, i.nullok, i.default] for i in self.columns],
                 headers=['Column Name', 'Type', 'NullOK', 'Default'],
-                colalign=('left', 'left', 'left', 'left'),
-                tablefmt=tablefmt),
+                colalign=('center', 'center', 'center', 'center'),
+                tablefmt='html'),
             '<br>',
             'Keys:',
             tabulate.tabulate([[i.name, [c.name for c in i.columns]] for i in self.keys],
                               headers=['Key Name', 'Key Columns'],
-                              colalign=('left','left'),
-                              tablefmt=tablefmt),
+                              colalign=('center','center'),
+                              tablefmt='html'),
             '<br>',
             'Foreign Keys:',
             tabulate.tabulate(
                 [[i.name, [c.name for c in i.columns], '->',
-                  i.referenced_table.name, [c.name for c in i.referenced_columns]]
+                  '{} {}'.format(i.referenced_table.name, [c.name for c in i.referenced_columns])]
                  for i in self.foreign_keys],
                 headers=['Key Name', 'Key Columns', '', 'Referenced Table', 'Referenced Columns'],
-                colalign=('left', 'left', 'left' 'left', 'left'),
-                tablefmt=tablefmt),
+                colalign=('center', 'center', 'center' 'center', 'center'),
+                tablefmt='html'),
             '<br>',
             'Referenced By:',
             tabulate.tabulate(
@@ -2637,9 +2630,10 @@ class DerivaTable(DerivaCore):
                      ]
                     for i in self.referenced_by],
                 headers=['Key Name', 'Key Columns', '', '', 'Referenced Columns'],
-                colalign=('left','left', 'left', 'left' 'left'), tablefmt=tablefmt)
+                colalign=('center','center', 'center', 'center', 'center'), tablefmt='html')
         ]
         )
+        return rep.replace('center','left')
 
     def __str__(self):
         return '\n'.join([
