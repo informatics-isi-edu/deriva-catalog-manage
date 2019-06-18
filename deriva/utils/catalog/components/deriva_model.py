@@ -2595,25 +2595,35 @@ class DerivaTable(DerivaCore):
         return self.columns.__iter__()
 
     def _repr_html_(self):
+        print('here we are',   tabulate.tabulate(
+                [[i.name, i.type.typename, i.nullok, i.default] for i in self.columns],
+                headers=['Column Name', 'Type', 'NullOK', 'Default'],
+                colalign=('left', 'left', 'left', 'left'),
+                tablefmt='html'))
         tablefmt = 'html'
         return '\n'.join([
-            '<b>Table: {}</b><br>'.format(self.name),
-            'Columns<br>',
+        '<style type = "text/css">td, th {text-align: left} </style >',
+        '<b>Table: <a href={}, target="_blank"> {}</b></a><br><br>'.format(self.chaise_uri, self.name),
             tabulate.tabulate(
                 [[i.name, i.type.typename, i.nullok, i.default] for i in self.columns],
-                headers=['Name', 'Type', 'NullOK', 'Default'],
+                headers=['Column Name', 'Type', 'NullOK', 'Default'],
+                colalign=('left', 'left', 'left', 'left'),
                 tablefmt=tablefmt),
             '<br>',
             'Keys:',
             tabulate.tabulate([[i.name, [c.name for c in i.columns]] for i in self.keys],
-                              headers=['Name', 'Columns'], tablefmt=tablefmt),
+                              headers=['Key Name', 'Key Columns'],
+                              colalign=('left','left'),
+                              tablefmt=tablefmt),
             '<br>',
             'Foreign Keys:',
             tabulate.tabulate(
                 [[i.name, [c.name for c in i.columns], '->',
                   i.referenced_table.name, [c.name for c in i.referenced_columns]]
                  for i in self.foreign_keys],
-                headers=['Name', 'Columns', '', 'Referenced Table', 'Referenced Columns'], tablefmt=tablefmt),
+                headers=['Key Name', 'Key Columns', '', 'Referenced Table', 'Referenced Columns'],
+                colalign=('left', 'left', 'left' 'left', 'left'),
+                tablefmt=tablefmt),
             '<br>',
             'Referenced By:',
             tabulate.tabulate(
@@ -2626,7 +2636,8 @@ class DerivaTable(DerivaCore):
                      [c.name for c in i.columns]
                      ]
                     for i in self.referenced_by],
-                headers=['Name', 'Columns', '', '', 'Referenced Columns'], tablefmt=tablefmt)
+                headers=['Key Name', 'Key Columns', '', '', 'Referenced Columns'],
+                colalign=('left','left', 'left', 'left' 'left'), tablefmt=tablefmt)
         ]
         )
 

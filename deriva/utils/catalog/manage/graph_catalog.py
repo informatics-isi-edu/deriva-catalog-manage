@@ -4,6 +4,7 @@ import os
 from graphviz import Digraph
 from deriva.utils.catalog.components.deriva_model import DerivaCatalog
 
+
 class DerivaCatalogToGraph:
     def __init__(self, catalog):
         self.graph = Digraph(
@@ -25,7 +26,7 @@ class DerivaCatalogToGraph:
         :return:
         """
 
-        schemas = [s for s in self.catalog.schemas if s not in ['_acl_admin', 'Public', 'WWW']] \
+        schemas = [s.name for s in self.catalog.schemas if s.name not in ['_acl_admin', 'public', 'WWW']] \
             if schemas is None else schemas
 
         for schema in schemas:
@@ -41,6 +42,7 @@ class DerivaCatalogToGraph:
         :param skip_assocation_tables:
         :return:
         """
+
         schema = self.catalog.schemas[schema_name]
 
         # Put nodes for each schema in a seperate subgraph.
@@ -54,7 +56,9 @@ class DerivaCatalogToGraph:
                 else:
                     # Skip over current table if it is a association table and option is set.
                     if not (table.is_pure_binary() and skip_assocation_tables):
-                        schema_graph.node(node_name, label='{}:{}'.format(schema_name, table.name), shape='box')
+                        schema_graph.node(node_name, label='{}:{}'.format(schema_name, table.name),
+                                          shape='box',
+                                          URL=table.chaise_uri)
                     else:
                         print('Skipping node', node_name)
 
@@ -105,6 +109,9 @@ class DerivaCatalogToGraph:
         else:
             print('dumping graph in file', file, format)
             self.graph.render(filename=file, directory=dir, view=view, cleanup=True, format=format)
+
+    def _repr_svg_(self):
+        return self.graph._repr_svg_()
 
     def view(self):
         self.graph.view()
