@@ -126,7 +126,7 @@ logger_config = {
             #   'filters': ['sourcespec_filter']
         },
         'deriva_model.DerivaTable': {
-                   'level': 'DEBUG',
+         #          'level': 'DEBUG',
     #           'filters': ['table_filter']
         },
         'deriva_model.DerivaColumn': {
