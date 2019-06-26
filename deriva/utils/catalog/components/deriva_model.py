@@ -71,7 +71,8 @@ logger_config = {
         },
         'table_filter': {
             '()': DerivaMethodFilter,
-            'exclude': ['_foreign_key', '_referenced', '_key_in_columns']
+            'exclude': ['_foreign_key', '_referenced', '_key_in_columns'],
+            'include': ['copy_columns']
         },
         'visiblesources_filter': {
             '()': DerivaMethodFilter,
@@ -125,8 +126,8 @@ logger_config = {
             #   'filters': ['sourcespec_filter']
         },
         'deriva_model.DerivaTable': {
-            #       'level': 'DEBUG',
-            #   'filters': ['table_filter']
+                   'level': 'DEBUG',
+    #           'filters': ['table_filter']
         },
         'deriva_model.DerivaColumn': {
             #   'level': 'DEBUG'
@@ -1161,7 +1162,7 @@ class DerivaColumnMap(DerivaLogging, OrderedDict):
         :return:
         """
 
-        def normalize_column(k, v):
+        def _normalize_column(k, v):
             """
             The form of a column can be one of:
                 column_name: DerivaColumnDef|em.Column
@@ -1175,8 +1176,11 @@ class DerivaColumnMap(DerivaLogging, OrderedDict):
             :return:
             """
             self.logger.debug('column: %s', k)
+
+            if not type(k) is str:
+                k = k.name
             if isinstance(v, (DerivaColumn, DerivaKey, DerivaForeignKey)):
-                return v
+                return k, v
 
             try:
                 # Get the existing column definition if it exists.
@@ -1202,12 +1206,12 @@ class DerivaColumnMap(DerivaLogging, OrderedDict):
                     'comment': col.comment,
                     'acls': col.acls,
                     'acl_bindings': col.acl_bindings}
-            return DerivaColumn(**args)
+            return k, DerivaColumn(**args)
 
         # Go through the columns in order and add map entries, converting any map entries that are just column names
         # or dictionaries to DerivaColumnDefs
 
-        column_map = OrderedDict((k, normalize_column(k, v)) for k, v in column_map.items())
+        column_map = OrderedDict(_normalize_column(k, v) for k, v in column_map.items())
 
         # Collect up all of the column name maps.
         column_name_map = OrderedDict((k, v.name) for k, v in column_map.items())
@@ -3193,6 +3197,7 @@ class DerivaTable(DerivaCore):
         :param column_map: A dictionary that specifies column name mapping
         :return:
         """
+        self.logger.debug('%s %s',column_map , dest_table.name if dest_table else "None")
         with DerivaModel(self.catalog):
             dest_table = dest_table if dest_table else self
             column_map = self._column_map(column_map, dest_table)
@@ -3219,6 +3224,7 @@ class DerivaTable(DerivaCore):
 
             # Get the values of the columns, and remap the old column names to the new names.  Skip over new columns that
             # don't exist in the source table.
+            self.logger.debug('copying columns %s %s',[c.name for c in self.columns], [val.name for col, val in column_map.get_columns().items()])
             rows = from_path.entities(
                 **{
                     **{val.name: getattr(from_path, col) for col, val in column_map.get_columns().items()
@@ -3257,11 +3263,12 @@ class DerivaTable(DerivaCore):
 
     def rename_column(self, from_column, to_column, default=None, nullok=None):
         """
-        Rename a column by copying it and then deleting the origional column.
-        :param from_column:
-        :param to_column:
-        :param default:
-        :param nullok:
+        Rename a column by copying it and then deleting the origional column. THe type of the new column is the same
+        as the old column. It is possible to alter the settings of nullok and default.
+        :param from_column: Name of the column being copied.
+        :param to_column: Name of the new column
+        :param default: Set default value on new column, otherwise, copy existing
+        :param nullok: Set NullOK to provided value on new column, otherwise copy existing
         :return:
         """
         column_map = {from_column: DerivaColumn(table=self, name=to_column, type=from_column.type, nullok=nullok,
@@ -3277,9 +3284,11 @@ class DerivaTable(DerivaCore):
         :param delete:
         :return:
         """
+
         with DerivaModel(self.catalog):
             dest_table = dest_table if dest_table else self
             column_map = self._column_map(column_map, dest_table)
+            self.logger.debug('%s', column_map)
 
             for fk in self.referenced_by:
                 self.logger.debug('referenced_columns %s %s %s %s',
