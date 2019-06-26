@@ -2847,8 +2847,11 @@ class DerivaTable(DerivaCore):
     def _column_map(self, column_map, dest_table):
         return DerivaColumnMap(self, column_map, dest_table)
 
-    def entities(self, *attributes, **renamed_attributes):
-        return self.datapath().entities(*attributes, **renamed_attributes)
+    def entities(self):
+        return self.datapath().entities()
+
+    def attributes(self, *attributes, **renamed_attributes):
+        return self.datapath().attributes(*attributes, **renamed_attributes)
 
     def create_foreign_key(self,
                            columns, referenced_table, referenced_columns,
@@ -3225,7 +3228,7 @@ class DerivaTable(DerivaCore):
             # Get the values of the columns, and remap the old column names to the new names.  Skip over new columns that
             # don't exist in the source table.
             self.logger.debug('copying columns %s %s',[c.name for c in self.columns], [val.name for col, val in column_map.get_columns().items()])
-            rows = from_path.entities(
+            rows = from_path.attributes(
                 **{
                     **{val.name: getattr(from_path, col) for col, val in column_map.get_columns().items()
                        if col in self.columns},
