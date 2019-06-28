@@ -362,27 +362,28 @@ class DerivaDumpCatalogCLI (BaseCLI):
         table_string = stringer.table_to_str(schema_name, table_name)
         filename= dumpdir + '/' + table_name + '.py'
         os.makedirs(os.path.dirname(filename), exist_ok=True)
-        with open(filename, 'w') as f:
-            print(table_string, file=f)
+        with open(filename, 'wb') as f:
+            f.write(table_string.encode("utf-8"))
 
     def _dump_catalog(self, model):
         stringer = DerivaCatalogToString(self.catalog)
         catalog_string = stringer.catalog_to_str()
 
-        with open('{}/{}_{}.py'.format(self.dumpdir, self.host, self.catalog_id), 'w') as f:
-            print(catalog_string, file=f)
+        with open('{}/{}_{}.py'.format(self.dumpdir, self.host, self.catalog_id), 'wb') as f:
+            f.write(catalog_string.encode("utf-8"))
 
         for schema_name in self.schemas:
             logger.info("Dumping schema def for {}....".format(schema_name))
             schema_string = stringer.schema_to_str(schema_name)
 
-            with open('{}/{}.schema.py'.format(self.dumpdir, schema_name), 'w') as f:
-                print(schema_string, file=f)
+            with open('{}/{}.schema.py'.format(self.dumpdir, schema_name), 'wb') as f:
+                f.write(schema_string.encode("utf-8"))
 
         for schema_name, schema in model.schemas.items():
-            for table_name in schema.tables:
-                self._dump_table(schema_name, table_name, stringer=stringer,
-                                 dumpdir='{}/{}'.format(self.dumpdir, schema_name))
+            if schema_name in self.schemas:
+                for table_name in schema.tables:
+                    self._dump_table(schema_name, table_name, stringer=stringer,
+                                     dumpdir='{}/{}'.format(self.dumpdir, schema_name))
 
     def _graph_catalog(self):
         graph = DerivaCatalogToGraph(self.catalog)

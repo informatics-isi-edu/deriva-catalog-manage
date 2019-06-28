@@ -1,7 +1,6 @@
-table_file_template="""
+table_file_template = """
 import argparse
-from attrdict import AttrDict
-from deriva.core import ErmrestCatalog, get_credential, DerivaPathError
+from deriva.core import ErmrestCatalog, AttrDict, get_credential, DerivaPathError
 from deriva.utils.catalog.components.deriva_model import DerivaCatalog
 import deriva.core.ermrest_model as em
 from deriva.core.ermrest_config import tag as chaise_tags
@@ -42,8 +41,7 @@ if __name__ == "__main__":
 
 schema_file_template = """
 import argparse
-from attrdict import AttrDict
-from deriva.core import ErmrestCatalog, get_credential, DerivaPathError
+from deriva.core import ErmrestCatalog, AttrDict, get_credential, DerivaPathError
 from deriva.utils.catalog.components.deriva_model import DerivaCatalog
 import deriva.core.ermrest_model as em
 from deriva.core.ermrest_config import tag as chaise_tags
@@ -83,8 +81,7 @@ if __name__ == "__main__":
 
 catalog_file_template = """
 import argparse
-from attrdict import AttrDict
-from deriva.core import ErmrestCatalog, get_credential, DerivaPathError
+from deriva.core import ErmrestCatalog, AttrDict, get_credential, DerivaPathError
 from deriva.utils.catalog.components.deriva_model import DerivaCatalog
 from deriva.utils.catalog.manage.update_catalog import CatalogUpdater, parse_args
 from deriva.core.ermrest_config import tag as chaise_tags
