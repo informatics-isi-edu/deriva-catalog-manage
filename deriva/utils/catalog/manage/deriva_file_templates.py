@@ -27,6 +27,8 @@ schema_name = '{schema_name}'
 
 def main(catalog, mode, replace=False, really=False):
     updater = CatalogUpdater(catalog)
+    table_def['column_annotations'] = column_annotations
+    table_def['column_comment'] = column_comment
     updater.update_table(mode, schema_name, table_def,replace=replace, really=really)
 
 

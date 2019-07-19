@@ -189,9 +189,8 @@ class DerivaCatalogConfigure(DerivaCatalog):
         # Set compound key so that we can link up with Visible_Group table.
         try:
             ermrest_group.create_key(['ID', 'URL', 'Display_Name', 'Description'], comment='Group ID is unique.')
-        except exceptions.HTTPError as e:
-            if 'already exists' not in e.args[0]:
-                raise
+        except DerivaCatalogError:
+            pass
 
         # Create a catalog groups table
         column_defs = [

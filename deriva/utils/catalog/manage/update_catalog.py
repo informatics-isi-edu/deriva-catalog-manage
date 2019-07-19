@@ -106,7 +106,9 @@ class CatalogUpdater:
             table_acls = table_def['acls']
             table_acl_bindings = table_def['acl_bindings']
             table_annotations = table_def['annotations']
+            column_annotations = table_def['column_annotations']
             table_comment = table_def.get('comment', None)
+            column_comment = table_def.get('column_comment', None)
             key_defs = table_def['keys']
             fkey_defs = table_def['foreign_keys']
 
@@ -184,14 +186,14 @@ class CatalogUpdater:
             if mode == 'annotations':
                 self.update_annotations(table, table_annotations, merge=merge)
 
-                column_annotations = {i['name']: i['annotations'] for i in column_defs}
                 for c in table.column_definitions:
-                    if c.name in [column_annotations]:
+                    if c.name in column_annotations:
+        
                         self.update_annotations(c, column_annotations[c.name], merge=merge)
 
             if mode == 'comment':
                 table.comment = table_comment
-                column_comment = {i['name']: i['annotations'] for i in column_defs}
+
                 for c in table.column_definitions:
                     if c.name in column_comment:
                         c.comment = column_comment[c.name]

@@ -403,8 +403,10 @@ class DerivaModel(DerivaLogging):
 class DerivaACL(MutableMapping):
     acl_matrix = {
         'DerivaCatalog': {'owner', 'create', 'select', 'insert', 'update', 'write', 'delete', 'enumerate'},
+        'DerivaCatalogConfigure': {'owner', 'create', 'select', 'insert', 'update', 'write', 'delete', 'enumerate'},
         'DerivaSchema': {'owner', 'create', 'select', 'insert', 'update', 'write', 'delete', 'enumerate'},
         'DerivaTable': {'owner', 'create', 'select', 'insert', 'update', 'write', 'delete', 'enumerate'},
+        'DerivaTableConfigure': {'owner', 'create', 'select', 'insert', 'update', 'write', 'delete', 'enumerate'},
         'DerivaColumn': {'owner', 'create', 'select', 'insert', 'update', 'write', 'delete', 'enumerate'},
         'DerivaForeignKey': {'owner', 'create', 'select', 'insert', 'update', 'write', 'delete', 'enumerate'}
     }
@@ -415,6 +417,7 @@ class DerivaACL(MutableMapping):
         self._obj_type = obj.object_type()
 
     def __setitem__(self, key, value):
+        # TODO This needs to properly work with subclassing
         if key not in DerivaACL.acl_matrix[self._obj_type]:
             raise DerivaCatalogError(self, msg='Invalid ACL: {}'.format(key))
 
@@ -593,8 +596,8 @@ class DerivaCore(DerivaLogging):
     @annotations.setter
     def annotations(self, value):
         with DerivaModel(self.catalog) as m:
-            m.schema_model(self).annotations.clear()
-            m.schema_model(self).annotations.update(value)
+            m.model_element(self).annotations.clear()
+            m.model_element(self).annotations.update(value)
 
     @property
     def acls(self):
@@ -850,14 +853,17 @@ class DerivaCatalog(DerivaCore):
         :return: A DerivaSchema object
         """
         self.logger.debug('name: %s', schema_name)
-        self.model_instance.create_schema(self.ermrest_catalog,
-                                          em.Schema.define(
-                                              schema_name,
-                                              comment=comment,
-                                              acls=acls,
-                                              annotations=annotations
-                                          )
-                                          )
+        try:
+            self.model_instance.create_schema(self.ermrest_catalog,
+                                              em.Schema.define(
+                                                  schema_name,
+                                                  comment=comment,
+                                                  acls=acls,
+                                                  annotations=annotations
+                                              )
+                                              )
+        except ValueError:
+            raise DerivaCatalogError(self, 'Schema %s already exists'.format(schema_name))
         return self.schema(schema_name)
 
     def get_groups(self):
