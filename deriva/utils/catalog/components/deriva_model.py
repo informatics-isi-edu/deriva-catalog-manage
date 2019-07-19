@@ -771,6 +771,21 @@ class DerivaCatalog(DerivaCore):
             self.annotations[chaise_tags.chaise_config]['navbarMenu'] = value
 
     @property
+    def bulk_upload(self):
+        """
+        Get/Set the navigation bar menu.
+
+        :return:
+        """
+        return self.annotations[chaise_tags.bulk_upload]
+
+    @bulk_upload.setter
+    def navbar_menu(self, value):
+        if not isinstance(value, dict):
+            raise ValueError('Menu must be a dictionary')
+        self.annotations[chaise_tags.bulk_upload] = value
+
+    @property
     def name(self):
         return DerivaModel(self).catalog_model().annotations.get(chaise_tags.catalog_config, {'name':'unknown'})['name']
 
@@ -1291,6 +1306,9 @@ class DerivaVisibleSources(DerivaLogging):
     def __setitem__(self, instance, value):
         with DerivaModel(self.table.catalog):
             self.table.annotations[self.tag].update({instance: value})
+
+    def __delitem__(self, item):
+        del self.table.annotations[self.tag][item]
 
     def __iter__(self):
         return self.table.annotations[self.tag].__iter__()

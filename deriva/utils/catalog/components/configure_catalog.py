@@ -28,8 +28,8 @@ class DerivaCatalogConfigure(DerivaCatalog):
     The only method of interest in this class is configure_baseline_catalog.
 
     """
-    def __init__(self, host, scheme='https', catalog_id=1):
-        super().__init__(host, scheme=scheme, catalog_id=catalog_id)
+    def __init__(self, host, scheme='https', catalog_id=1, validate=True):
+        super().__init__(host, scheme=scheme, catalog_id=catalog_id, validate=validate)
 
     def _make_schema_instance(self, schema_name):
         return DerivaSchemaConfigure(self, schema_name)
