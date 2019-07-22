@@ -2834,8 +2834,14 @@ class DerivaTable(DerivaCore):
     def key(self):
         return self.keys
 
+
+    @property
     def datapath(self):
         return self.catalog.getPathBuilder().schemas[self.schema_name].tables[self.name]
+
+    @property
+    def path(self):
+        return self.datapath.path
 
     def _column_names(self):
         return [i.name for i in self.columns]
@@ -2872,10 +2878,10 @@ class DerivaTable(DerivaCore):
         return DerivaColumnMap(self, column_map, dest_table)
 
     def entities(self):
-        return self.datapath().entities()
+        return self.datapath.entities()
 
     def attributes(self, *attributes, **renamed_attributes):
-        return self.datapath().attributes(*attributes, **renamed_attributes)
+        return self.datapath.attributes(*attributes, **renamed_attributes)
 
     def create_foreign_key(self,
                            columns, referenced_table, referenced_columns,
@@ -3246,8 +3252,8 @@ class DerivaTable(DerivaCore):
             dest_table.create_columns([i for i in columns.values()], positions)
 
             # Copy over the old values
-            from_path = self.datapath()
-            to_path = dest_table.datapath()
+            from_path = self.datapath
+            to_path = dest_table.datapath
 
             # Get the values of the columns, and remap the old column names to the new names.  Skip over new columns that
             # don't exist in the source table.
