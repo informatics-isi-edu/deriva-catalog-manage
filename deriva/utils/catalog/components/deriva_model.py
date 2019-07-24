@@ -12,7 +12,7 @@ from requests.exceptions import HTTPError
 # test
 import deriva.core.ermrest_model as em
 import tabulate
-from deriva.core import ErmrestCatalog, get_credential
+from deriva.core import ErmrestCatalog, get_credential, urlquote
 from deriva.core.ermrest_config import MultiKeyedList
 from deriva.core.ermrest_config import tag as chaise_tags
 
@@ -2102,6 +2102,22 @@ class DerivaColumn(DerivaCore):
         :return:
         """
         self.table.delete_columns(self)
+
+    def alter(self, v):
+        """
+
+        :param v: attributes to be altered.  A dictionary with keys: name, type, default, nullok, comment,
+        acls, acl_bindings, annotations.
+        :return:
+        """
+        url = '/schema/%s/table/%s/column/%s' % (
+            urlquote(self.table.schema_name),
+            urlquote(self.table.name),
+            urlquote(self.name)
+        )
+        print(url)
+        self.catalog.ermrest_catalog.put(url, json=v)
+        self.catalog.refresh()
 
     def validate(self):
         rval =  self.annotations.validate(self)
