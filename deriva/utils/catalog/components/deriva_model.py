@@ -1774,7 +1774,7 @@ class DerivaSourceSpec(DerivaLogging):
             try:
                 if source_entry[-1] not in path_table.columns:
                     raise DerivaSourceError(self, 'Invalid source entry {}'.format(source_entry[-1]))
-            except TypeError:
+            except (TypeError, AttributeError):
                 raise DerivaSourceError(self, 'Invalid source entry {}'.format(source_entry[-1]))
         return spec
 
