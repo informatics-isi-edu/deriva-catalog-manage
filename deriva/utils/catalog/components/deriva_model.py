@@ -1206,7 +1206,8 @@ class DerivaColumnMap(DerivaLogging, OrderedDict):
             try:
                 # Get the existing column definition if it exists.
                 col = table[k]  # Get current definition for the column
-                name = v if type(v) is str else v.get('name', k)  # Name may be provided in v, if not use k.
+                name = v if type(v) is str else v.get('name',
+                                                      k)  # Name may be provided in v, if not use k.
             except DerivaCatalogError:
                 # Column is new, so create a default definition for it. If value is a string, then its the type.
                 col = DerivaColumn(**{'define': True,
@@ -1220,13 +1221,14 @@ class DerivaColumnMap(DerivaLogging, OrderedDict):
             args = {'define': True,
                     'name': name,
                     'table': dest_table,
-                    'type': col.type,
-                    'nullok': col.nullok,
-                    'default': col.default,
-                    'fill': col.fill,
-                    'comment': col.comment,
-                    'acls': col.acls,
-                    'acl_bindings': col.acl_bindings}
+                    'type': v['type'] if 'type' in v else col.type,
+                    'nullok': v['nullok'] if 'nullok' in v else col.nullok,
+                    'default': v['type'] if 'type' in v else col.default,
+                    'fill': v['file'] if 'file' in v else col.fill,
+                    'comment': v['comment'] if 'type' in v else col.comment,
+                    'acls': v['acls'] if 'acls' in v else col.acls,
+                    'acl_bindings': v['acl_bindings'] if 'acl_bindings' in v else col.acl_bindings
+            }
             return k, DerivaColumn(**args)
 
         # Go through the columns in order and add map entries, converting any map entries that are just column names
