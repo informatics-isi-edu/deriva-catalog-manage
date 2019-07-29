@@ -47,7 +47,7 @@ def generate_test_tables(catalog, schema_name):
                   DerivaKey.define(['ID2_Table1', 'ID3_Table1'])]
     )
 
-    table1.datapath().insert(
+    table1.datapath.insert(
     [
         {'ID1_Table1':1, 'ID2_Table1':2, 'ID3_Table1':3, 'ID4_Table1':4, 'Col1_Table1':'a', 'Col2_Table1':'b', 'Col3_Table1': 'c'},
         {'ID1_Table1': 5, 'ID2_Table1': 6, 'ID3_Table1': 7, 'ID4_Table1': 8, 'Col1_Table1': 'd', 'Col2_Table1': 'e', 'Col3_Table1': 'f'}
@@ -73,7 +73,7 @@ def generate_test_tables(catalog, schema_name):
                                            ['ID2_Table1', 'ID3_Table1'])]
     )
     table2.visible_columns.insert_context('filter', {'and': ['Col1_Table2', 'Col2_Table2']})
-    table2.datapath().insert(
+    table2.datapath.insert(
     [
         {'ID1_Table2':1, 'ID2_Table2':2, 'ID3_Table2':3, 'ID4_Table2':4, 'Col1_Table2':'a', 'Col2_Table2':'b', 'Col3_Table2': 'c'},
         {'ID1_Table2': 5, 'ID2_Table2': 6, 'ID3_Table2': 7, 'ID4_Table2': 8, 'Col1_Table2': 'd', 'Col2_Table2': 'e', 'Col3_Table2': 'f'}

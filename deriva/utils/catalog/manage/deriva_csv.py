@@ -490,7 +490,7 @@ class DerivaCSV(Table):
         :return:
         """
 
-        target_table = catalog[self.schema_name][self.table_name].datapath()
+        target_table = catalog[self.schema_name][self.table_name].datapath
         catalog_schema = self.table_schema_from_catalog(catalog)
 
         # Sanity check columns.

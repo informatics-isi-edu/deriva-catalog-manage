@@ -695,21 +695,21 @@ class TestDerivaTable(TestCase):
         table1 = catalog['TestSchema']['Table1']
         table2 = catalog['TestSchema']['Table2']
 
-        t1 = table1.datapath()
-        print(list(table1.datapath().attributes(
+        t1 = table1.datapath
+        print(list(table1.datapath.attributes(
             t1.ID1_Table1, t1.ID2_Table1, t1.ID3_Table1, t1.ID4_Table1, t1.Col1_Table1, t1.Col2_Table1, t1.Col3_Table1
         )))
 
-        t2 = table2.datapath()
-        print(list(table2.datapath().attributes(
+        t2 = table2.datapath
+        print(list(table2.datapath.attributes(
             t2.ID1_Table2, t2.ID2_Table2, t2.ID3_Table2, t2.Col1_Table2, t2.Col2_Table2, t2.Col3_Table2
         )))
 
         t0 = time.time()
         table1_copy = table1.copy_table('TestSchema', 'Table1_Copy')
 
-        t1 = table1.datapath()
-        print(list(table1.datapath().attributes(
+        t1 = table1.datapath
+        print(list(table1.datapath.attributes(
             t1.ID1_Table1, t1.ID2_Table1, t1.ID3_Table1, t1.ID4_Table1, t1.Col1_Table1, t1.Col2_Table1, t1.Col3_Table1
         )))
 
