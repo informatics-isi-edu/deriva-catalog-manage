@@ -22,10 +22,10 @@ def clean_schema(catalog, schemas):
         for s in schemas:
             for k, t in model.schemas[s].tables.copy().items():
                 for fk in t.foreign_keys.copy():
-                    fk.delete(catalog.ermrest_catalog, t)
+                    fk.drop()
         for s in schemas:
             for k, t in model.schemas[s].tables.copy().items():
-                t.delete(catalog.ermrest_catalog, model.schemas[s])
+                t.drop()
 
     logger.info('Time to clear schema %s', time.time()-t0)
 

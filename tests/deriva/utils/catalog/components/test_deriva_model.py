@@ -35,8 +35,8 @@ def setUpModule():
     logging.info('Creating schema')
     with DerivaModel(catalog) as m:
         model = m.catalog_model()
-        model.create_schema(catalog.ermrest_catalog, em.Schema.define(schema_name))
-        model.create_schema(catalog.ermrest_catalog, em.Schema.define('TestSchema1'))
+        model.create_schema(em.Schema.define(schema_name))
+        model.create_schema(em.Schema.define('TestSchema1'))
     logging.info('Schema created %s', time.time() - t0)
 
 def tearDownModule():
@@ -55,8 +55,8 @@ class TestVisibleSources(TestCase):
         ermrest_catalog = catalog.ermrest_catalog
         with DerivaModel(catalog) as m:
             model = m.catalog_model()
-            t1 = model.schemas[schema_name].create_table(catalog.ermrest_catalog, em.Table.define('TestTable1', []))
-            t2 = model.schemas[schema_name].create_table(catalog.ermrest_catalog, em.Table.define('TestTable2', []))
+            t1 = model.schemas[schema_name].create_table(em.Table.define('TestTable1', []))
+            t2 = model.schemas[schema_name].create_table(em.Table.define('TestTable2', []))
 
             for i in ['Foo', 'Foo1', 'Foo2']:
                 t1.create_column(ermrest_catalog, em.Column.define(i, em.builtin_types['text']))
@@ -88,19 +88,17 @@ class TestVisibleSources(TestCase):
                 em.Table.define('F2', [em.Column.define('main_fkey', em.builtin_types['text'])]))
 
             main_f3 = model.schemas[schema_name].create_table(
-                catalog.ermrest_catalog,
                 em.Table.define('Main_F3',
                                 [em.Column.define('main_fkey', em.builtin_types['text']),
                                  em.Column.define('f3_fkey', em.builtin_types['text'])]))
 
             f3 = model.schemas[schema_name].create_table(
-                catalog.ermrest_catalog,
                 em.Table.define('F3',
                                 [em.Column.define('f3_text', em.builtin_types['text'])]
                                 )
             )
 
-            main.create_fkey(ermrest_catalog,
+            main.create_fkey(
                              em.ForeignKey.define(['f1_fkey'], 'TestSchema', 'F1', ['RID'],
                                                   constraint_names=[('TestSchema', 'fk1_cons')]
                                                   ))
@@ -260,7 +258,7 @@ class TestDerivaTable(TestCase):
     def test_lookup_table(self):
         with DerivaModel(catalog) as m:
             model = m.catalog_model()
-            t1 = model.schemas[schema_name].create_table(catalog.ermrest_catalog, em.Table.define('TestTable', []))
+            t1 = model.schemas[schema_name].create_table(em.Table.define('TestTable', []))
             table = catalog[schema_name].tables['TestTable']
             print(table, catalog[schema_name])
             self.assertEqual(table.name, 'TestTable')

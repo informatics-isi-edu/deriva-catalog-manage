@@ -13,7 +13,6 @@ from requests.exceptions import HTTPError
 import deriva.core.ermrest_model as em
 import tabulate
 from deriva.core import ErmrestCatalog, get_credential
-from deriva.core.ermrest_config import MultiKeyedList
 from deriva.core.ermrest_config import tag as chaise_tags
 
 chaise_tags['catalog_config'] = 'tag:isrd.isi.edu,2019:catalog-config'
@@ -350,7 +349,7 @@ class DerivaModel(DerivaLogging):
                 # See if we can look up the key by its unique columns
                 cols = {fkey_id} if isinstance(fkey_id, str) else set(fkey_id)
                 for k in t.foreign_keys:
-                    if {c['column_name'] for c in k.foreign_key_columns} == cols:
+                    if {c.name for c in k.foreign_key_columns} == cols:
                         return k
                 return False
 
@@ -392,8 +391,9 @@ class DerivaModel(DerivaLogging):
             raise DerivaModelError(key, msg="Key not found: {}".format(key.name))
 
     def foreign_key_model(self, fkey):
+        table_model = self.table_model(fkey.table)
         try:
-            return self.table_model(fkey.table).foreign_keys[(fkey.table.schema_name, fkey.name)]
+            return table_model.foreign_keys[(table_model.schema, fkey.name)]
         except (AttributeError, DerivaModelError):
             raise DerivaModelError(fkey, msg="Expected DerivaForeignKey")
         except KeyError:
@@ -800,7 +800,7 @@ class DerivaCatalog(DerivaCore):
         :return:
         """
         self.logger.debug('%s', self.model_instance)
-        self.model_instance.apply(self.ermrest_catalog)
+        self.model_instance.apply()
 
     def describe(self):
         print(self)
@@ -819,15 +819,6 @@ class DerivaCatalog(DerivaCore):
                                               catalog_id,
                                               credentials=get_credential(server_url.hostname))
         self.model_instance = self.ermrest_catalog.getCatalogModel()
-
-    def update_referenced_by(self):
-        """Introspects the 'foreign_keys' and updates the 'referenced_by' properties on the 'Table' objects.
-        """
-        with DerivaModel(self) as m:
-            for schema in self:
-                for table in schema:
-                    m.table_model(table).referenced_by = MultiKeyedList([])
-            self.model_instance.update_referenced_by()
 
     def getPathBuilder(self):
         return self.ermrest_catalog.getPathBuilder()
@@ -961,7 +952,7 @@ class DerivaSchema(DerivaCore):
     def _create_table(self, table_def):
         with DerivaModel(self.catalog) as m:
             schema = m.schema_model(self)
-            schema.create_table(self.catalog.ermrest_catalog, table_def)
+            schema.create_table(table_def)
         table = self.table(table_def['table_name'])
         table.deleted = False  # Table may have been previously been deleted.
         return table
@@ -1022,8 +1013,6 @@ class DerivaSchema(DerivaCore):
                 acls=acls, acl_bindings=acl_bindings,
                 annotations=annotations))
             for fkey in fkey_defs:
-                # Add foreign key to appropriate referenced_by list
-                m.table_model(fkey.referenced_table).referenced_by.append((m.foreign_key_model(fkey)))
                 _, _, inbound_sources = fkey.referenced_table.sources()
                 fkey.referenced_table.visible_foreign_keys.insert_sources(inbound_sources)
 
@@ -2093,15 +2082,14 @@ class DerivaColumn(DerivaCore):
     def create(self):
         self.logger.debug('%s %s', self.table.name, self.column.definition())
         with DerivaModel(self.table.catalog) as m:
-            self.column = m.table_model(self.table).create_column(self.catalog.ermrest_catalog,
-                                                                  self.column.definition())
+            self.column = m.table_model(self.table).create_column(self.column.definition())
 
-    def delete(self):
+    def drop(self):
         """
         Delete a single column.
         :return:
         """
-        self.table.delete_columns(self)
+        self.table.drop_columns(self)
 
     def validate(self):
         rval =  self.annotations.validate(self)
@@ -2219,7 +2207,9 @@ class DerivaKey(DerivaCore):
 
     @property
     def columns(self):
-        columns = [c.name for c in self.table.columns if c.name in self.key.unique_columns]
+        columns = [c.name for c in self.table.columns if c.name in [k.name for k in self.key.unique_columns]]
+        print('columns', [c.name for c in self.table.columns])
+        print('key columns', [c.name for c in self.key.unique_columns])
         assert len(columns) == len(self.key.unique_columns)
         # add in any new columns....
         columns.extend([i for i in self.key.unique_columns if i not in columns])
@@ -2280,12 +2270,12 @@ class DerivaKey(DerivaCore):
     def create(self):
         self.logger.debug('%s', self.definition())
         with DerivaModel(self.table.catalog) as m:
-            self.key = m.table_model(self.table).create_key(self.catalog.ermrest_catalog, self.definition())
+            self.key = m.table_model(self.table).create_key(self.definition())
 
-    def delete(self):
+    def drop(self):
         try:
             with DerivaModel(self.table.catalog) as m:
-                m.key_model(self).delete(self.catalog.ermrest_catalog, m.table_model(self.table))
+                m.key_model(self).drop()
         except HTTPError as e:
             raise DerivaKeyError(self, msg=str(e))
         self.table = None
@@ -2400,7 +2390,7 @@ class DerivaForeignKey(DerivaCore):
             name = columns.names[0]
 
         # Get just the name part of the potential (schema,name) pair
-        if isinstance(name, (tuple, list)) and len(name) == 2 and name[0] == table.schema_name:
+        if isinstance(name, (tuple, list)) and len(name) == 2 and name[0] == table.schema:
             name = name[1]
 
         self.fkey = None
@@ -2561,10 +2551,10 @@ class DerivaForeignKey(DerivaCore):
     def create(self):
         with DerivaModel(self.table.catalog) as m:
             self.logger.debug('%s', self.definition())
-            self.fkey = m.table_model(self.table).create_fkey(self.catalog.ermrest_catalog, self.definition())
+            self.fkey = m.table_model(self.table).create_fkey(self.definition())
             m.table_model(self.referenced_table).referenced_by.append(self.fkey)
 
-    def delete(self):
+    def drop(self):
         referenced_table = self.referenced_table
         column = next(iter(self.columns)) if len(self.columns) == 1 else False
         self.logger.debug('demoting visible column %s', column)
@@ -2576,7 +2566,7 @@ class DerivaForeignKey(DerivaCore):
             self.table.visible_columns.make_column(column.name, validate=False)
 
         with DerivaModel(self.table.catalog) as m:
-            m.foreign_key_exists(self.table, self.name).delete(self.catalog.ermrest_catalog, m.table_model(self.table))
+            m.foreign_key_exists(self.table, self.name).drop()
 
         self.table = None
         self.fkey = None
@@ -2825,8 +2815,8 @@ class DerivaTable(DerivaCore):
             raise DerivaCatalogError(self, 'referenced by requires name or key type: {}'.format(fkey_id))
 
         # Now find the schema and table of the referring table
-        src_schema = fkey.foreign_key_columns[0]['schema_name']
-        src_table = fkey.foreign_key_columns[0]['table_name']
+        src_schema = fkey.foreign_key_columns[0].table.schema.name
+        src_table = fkey.foreign_key_columns[0].table.name
         self.logger.debug('creating fkey... %s', fkey.names[0])
         return DerivaForeignKey(self.table.catalog[src_schema][src_table], fkey)
 
@@ -3206,15 +3196,15 @@ class DerivaTable(DerivaCore):
             # Remove keys...
             for k in self.keys:
                 if self._key_in_columns(columns, k.columns):
-                    k.delete()
+                    k.drop()
 
             for fk in self.foreign_keys:
                 if self._key_in_columns(columns, fk.columns):
-                    fk.delete()
+                    fk.drop()
 
             # Now delete the actual columns
             for c in columns:
-                m.column_model(self.column(c)).delete(self.catalog.ermrest_catalog, m.table_model(self.table))
+                m.column_model(self.column(c)).drop()
 
             # Now clean up all the annotations.
             self._delete_columns_from_annotations(columns, column_specs)
@@ -3345,17 +3335,17 @@ class DerivaTable(DerivaCore):
                 for i in self.keys:
                     if self._key_in_columns(columns, i.columns, rename=(self == dest_table)):
                         self.logger.debug('delete key %s', [k.name for k in i.columns])
-                        i.delete()
+                        i.drop()
 
                 for fk in self.foreign_keys:
                     if self._key_in_columns(columns, fk.columns, rename=(self == dest_table)):
                         self.logger.debug('delete key %s', [k.name for k in fk.columns])
-                        fk.delete()
+                        fk.drop()
 
                 self.delete_columns(columns)
         return
 
-    def delete(self):
+    def drop(self):
         """
         Delete a table
         :return:
@@ -3371,9 +3361,8 @@ class DerivaTable(DerivaCore):
             model = m.catalog_model()
             table = m.table_model(self)
             # Now we can delete the table.
-            table.delete(self.catalog.ermrest_catalog, schema=model.schemas[self.schema_name])
+            table.drop()
             self.deleted = True
-        self.catalog.update_referenced_by()
 
     def _relink_columns(self, dest_table, column_map):
         """
@@ -3399,7 +3388,7 @@ class DerivaTable(DerivaCore):
                 annotations = fkey.annotations
 
                 self.logger.debug('before delete table: %s fkey: %s referenced_by: %s', child_table.name, fkey.name, [i.name for i in self.referenced_by])
-                fkey.delete()
+                fkey.drop()
                 self.logger.debug('after delete referenced_by: %s', [i.name for i in self.referenced_by])
                 child_table.create_foreign_key(
                     fk_columns,
@@ -3410,7 +3399,6 @@ class DerivaTable(DerivaCore):
                     acl_bindings=acl_bindings,
                     annotations=annotations
                 )
-        self.catalog.update_referenced_by()
         self.catalog.rename_visible_columns(column_map)
 
     def copy_table(self, schema_name, table_name, column_map={}, clone=False,
@@ -3539,7 +3527,7 @@ class DerivaTable(DerivaCore):
 
             self._relink_columns(new_table, column_map)
             if delete:
-                self.delete()
+                self.drop()
         return new_table
 
     def create_asset_table(self, key_column,

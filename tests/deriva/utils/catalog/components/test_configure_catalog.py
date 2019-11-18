@@ -19,9 +19,9 @@ def clean_schema(schema_name):
         model = m.catalog_model()
         for t in model.schemas[schema_name].tables.values():
             for k in t.foreign_keys:
-                k.delete(catalog.ermrest_catalog, t)
+                k.drop()
         for t in [i for i in model.schemas[schema_name].tables.values()]:
-            t.delete(catalog.ermrest_catalog, model.schemas[schema_name])
+            t.drop()
 
 
 def setUpModule():
@@ -36,7 +36,7 @@ def setUpModule():
     ermrest_catalog = catalog.ermrest_catalog
     with DerivaModel(catalog) as m:
         model = m.catalog_model()
-        model.create_schema(catalog.ermrest_catalog, em.Schema.define(schema_name))
+        model.create_schema(em.Schema.define(schema_name))
 
 
 def tearDownModule():
@@ -53,20 +53,18 @@ class TestConfigureCatalog(TestCase):
         clean_schema(schema_name)
         with DerivaModel(catalog) as m:
             model = m.catalog_model()
-            t1 = model.schemas[schema_name].create_table(catalog.ermrest_catalog, em.Table.define('TestTable1', []))
-            t2 = model.schemas[schema_name].create_table(catalog.ermrest_catalog, em.Table.define('TestTable2', []))
+            t1 = model.schemas[schema_name].create_table(em.Table.define('TestTable1', []))
+            t2 = model.schemas[schema_name].create_table(em.Table.define('TestTable2', []))
 
             for i in ['Foo', 'Foo1', 'Foo2']:
-                t1.create_column(ermrest_catalog, em.Column.define(i, em.builtin_types['text']))
-                t2.create_column(ermrest_catalog, em.Column.define(i, em.builtin_types['text']))
+                t1.create_column(em.Column.define(i, em.builtin_types['text']))
+                t2.create_column(em.Column.define(i, em.builtin_types['text']))
 
             t2.create_key(
-                ermrest_catalog,
                 em.Key.define(['Foo2'], constraint_names=[(schema_name, 'TestTable1_Foo2_key')])
             )
 
             t1.create_fkey(
-                ermrest_catalog,
                 em.ForeignKey.define(['Foo2'], schema_name, 'TestTable2', ['Foo2'],
                                      constraint_names=[[schema_name, 'TestTable1_Foo2_fkey']])
             )
