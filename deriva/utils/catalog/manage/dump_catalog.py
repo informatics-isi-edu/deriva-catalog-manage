@@ -1,5 +1,7 @@
 from __future__ import print_function
 
+from urllib.parse import urlparse
+
 import argparse
 import ast
 import logging
@@ -8,6 +10,7 @@ import re
 import sys
 import traceback
 import requests
+
 from requests.exceptions import HTTPError, ConnectionError
 
 from deriva.core import format_exception
@@ -16,7 +19,7 @@ from deriva.core.base_cli import BaseCLI
 
 from yapf.yapflib.yapf_api import FormatCode
 
-from deriva.core import get_credential, AttrDict
+from deriva.core import get_credential, AttrDict, ErmrestCatalog
 
 from deriva.core.ermrest_config import tag as chaise_tags
 from deriva.utils.catalog.manage.deriva_file_templates import table_file_template, schema_file_template, \
@@ -64,15 +67,18 @@ class UsageException (DerivaDumpCatalogException):
 
 
 class DerivaCatalogToString:
-    def __init__(self, catalog, provide_system_columns=True, groups=None):
-        self._catalog = catalog
+    def __init__(self, model, provide_system_columns=True, groups=None):
+        self._model = model
+        self.host = urlparse(self._model.catalog.get_server_uri()).hostname
+        self.catalog_id = self._model.catalog.catalog_id
+
         self._provide_system_columns = provide_system_columns
         # Get the currently known groups for this catalog.
         self._groups = groups
         if groups is None:
             try:
                 self._groups = AttrDict(
-                    {e['Display_Name']: e['ID'] for e in catalog.getPathBuilder().public.ERMrest_Group.entities()}
+                    {e['Display_Name']: e['ID'] for e in model.catalog.getPathBuilder().public.ERMrest_Group.entities()}
                 )
             except AttributeError:
                 logger.warning('Cannot access ERMrest_Group table. Check ACLs')
@@ -154,32 +160,28 @@ class DerivaCatalogToString:
         return s
 
     def schema_to_str(self, schema_name):
-        schema = self._catalog[schema_name]
-        host = self._catalog.host
-        catalog_id = self._catalog.catalog_id
+        schema = self._model.schemas[schema_name]
 
         annotations = self.variable_to_str('annotations', schema.annotations)
-        acls = self.variable_to_str('acls', schema.acls.value)
+        acls = self.variable_to_str('acls', schema.acls)
         comments = self.variable_to_str('comment', schema.comment)
         groups = self.variable_to_str('groups', self._referenced_groups, substitute=False)
 
-        s = schema_file_template.format(host=host, catalog_id=catalog_id, schema_name=schema_name,
+        s = schema_file_template.format(host=self.host, catalog_id=self.catalog_id, schema_name=schema_name,
                                         annotations=annotations, acls=acls, comments=comments, groups=groups,
                                         table_names='table_names = [\n{}]\n'.format(
-                                            str.join('', ['{!r},\n'.format(i.name) for i in schema.tables])))
+                                            str.join('', ['{!r},\n'.format(i) for i in schema.tables])))
         s = FormatCode(s, style_config=yapf_style)[0]
         return s
 
     def catalog_to_str(self):
-        host = self._catalog.host
-        catalog_id = self._catalog.catalog_id
 
-        tag_variables = self.tag_variables_to_str(self._catalog.annotations)
-        annotations = self.annotations_to_str(self._catalog.annotations)
-        acls = self.variable_to_str('acls', self._catalog.acls.value)
+        tag_variables = self.tag_variables_to_str(self._model.annotations)
+        annotations = self.annotations_to_str(self._model.annotations)
+        acls = self.variable_to_str('acls', self._model.acls)
         groups = self.variable_to_str('groups', self._referenced_groups, substitute=False)
 
-        s = catalog_file_template.format(host=host, catalog_id=catalog_id, groups=groups,
+        s = catalog_file_template.format(host=self.host, catalog_id=self.catalog_id, groups=groups,
                                          tag_variables=tag_variables,
                                          annotations=annotations,
                                          acls=acls)
@@ -190,8 +192,8 @@ class DerivaCatalogToString:
         s = ''.join([self.tag_variables_to_str(table.annotations), '\n',
                      self.annotations_to_str(table.annotations, var_name='table_annotations'), '\n',
                      self.variable_to_str('table_comment', table.comment), '\n',
-                     self.variable_to_str('table_acls', table.acls.value), '\n',
-                     self.variable_to_str('table_acl_bindings', table.acl_bindings.value)])
+                     self.variable_to_str('table_acls', table.acls), '\n',
+                     self.variable_to_str('table_acl_bindings', table.acl_bindings)])
         return s
 
     def column_annotations_to_str(self, table):
@@ -200,7 +202,7 @@ class DerivaCatalogToString:
         column_acl_bindings = {}
         column_comment = {}
 
-        for i in table.columns:
+        for i in table.column_definitions:
             if not (i.annotations == '' or not i.comment):
                 column_annotations[i.name] = i.annotations
             if not (i.comment == '' or not i.comment):
@@ -222,11 +224,11 @@ class DerivaCatalogToString:
         for fkey in table.foreign_keys:
             s += """    em.ForeignKey.define({},
                 '{}', '{}', {},
-                constraint_names={},\n""".format([c.name for c in fkey.columns],
-                                                 fkey.referenced_table.schema_name,
-                                                 fkey.referenced_table.name,
+                constraint_names={},\n""".format([c.name for c in fkey.foreign_key_columns],
+                                                 fkey.pk_table.schema.name,
+                                                 fkey.pk_table.name,
                                                  [c.name for c in fkey.referenced_columns],
-                                                 [fkey.full_name])
+                                                 fkey.names)
 
             for i in ['annotations', 'acls', 'acl_bindings', 'on_update', 'on_delete', 'comment']:
                 a = getattr(fkey, i)
@@ -243,8 +245,8 @@ class DerivaCatalogToString:
         s = 'key_defs = [\n'
         for key in table.keys:
             s += """    em.Key.define({},
-                       constraint_names={},\n""".format([c.name for c in key.columns],
-                                                        [key.full_name] if key.name else [])
+                       constraint_names={},\n""".format([c.name for c in key.unique_columns],
+                                                        key.names if key.name else [])
             for i in ['annotations', 'comment']:
                 a = getattr(key, i)
                 if not (a == {} or a is None or a == ''):
@@ -259,7 +261,7 @@ class DerivaCatalogToString:
         system_columns = ['RID', 'RCB', 'RMB', 'RCT', 'RMT']
 
         s = ['column_defs = [']
-        for col in table.columns:
+        for col in table.column_definitions:
             if col.name in system_columns and self._provide_system_columns:
                 continue
             s.append('''    em.Column.define('{}', em.builtin_types['{}'],'''.
@@ -290,11 +292,8 @@ class DerivaCatalogToString:
         return s
 
     def table_to_str(self, schema_name, table_name):
-        logger.debug('%s %s %s', schema_name, table_name, [i.name for i in self._catalog.schemas])
-        table = self._catalog[schema_name][table_name]
-
-        host = self._catalog.host
-        catalog_id = self._catalog.catalog_id
+        logger.debug('%s %s %s', schema_name, table_name, [i for i in self._model.schemas])
+        table = self._model.schemas[schema_name].tables[table_name]
 
         column_annotations = self.column_annotations_to_str(table)
         column_defs = self.column_defs_to_str(table)
@@ -304,7 +303,7 @@ class DerivaCatalogToString:
         table_def = self.table_def_to_str()
         groups = self.variable_to_str('groups', self._referenced_groups, substitute=False)
 
-        s = table_file_template.format(host=host, catalog_id=catalog_id,
+        s = table_file_template.format(host=self.host, catalog_id=self.catalog_id,
                                        table_name=table_name, schema_name=schema_name, groups=groups,
                                        column_annotations=column_annotations,
                                        column_defs=column_defs,
@@ -365,8 +364,8 @@ class DerivaDumpCatalogCLI (BaseCLI):
         with open(filename, 'wb') as f:
             f.write(table_string.encode("utf-8"))
 
-    def _dump_catalog(self, model):
-        stringer = DerivaCatalogToString(self.catalog)
+    def _dump_catalog(self):
+        stringer = DerivaCatalogToString(self.model)
         catalog_string = stringer.catalog_to_str()
 
         with open('{}/{}_{}.py'.format(self.dumpdir, self.host, self.catalog_id), 'wb') as f:
@@ -379,7 +378,7 @@ class DerivaDumpCatalogCLI (BaseCLI):
             with open('{}/{}.schema.py'.format(self.dumpdir, schema_name), 'wb') as f:
                 f.write(schema_string.encode("utf-8"))
 
-        for schema_name, schema in model.schemas.items():
+        for schema_name, schema in self.model.schemas.items():
             if schema_name in self.schemas:
                 for table_name in schema.tables:
                     self._dump_table(schema_name, table_name, stringer=stringer,
@@ -405,55 +404,53 @@ class DerivaDumpCatalogCLI (BaseCLI):
             eprint('Host name must be provided')
             return 1
 
-        self.catalog = DerivaCatalog(self.host, catalog_id=self.catalog_id, validate=False)
+        self.catalog = ErmrestCatalog('https', self.host, self.catalog_id, credentials=self._get_credential(self.host))
+        self.model = self.catalog.getCatalogModel()
 
-        with DerivaModel(self.catalog) as m:
-            model_root = m.catalog_model()
+        self.schemas = [s for s in (args.schemas if args.schemas else self.model.schemas)
+                        if s not in args.skip_schemas
+                        ]
 
-            self.schemas = [s for s in (args.schemas if args.schemas else model_root.schemas)
-                            if s not in args.skip_schemas
-                            ]
+        try:
+            os.makedirs(self.dumpdir, exist_ok=True)
+        except OSError as e:
+            sys.stderr.write(str(e))
+            return 1
 
-            try:
-                os.makedirs(self.dumpdir, exist_ok=True)
-            except OSError as e:
-                sys.stderr.write(str(e))
-                return 1
-
-            logger.info('Catalog has {} schema and {} tables'.format(len(model_root.schemas),
-                                                                     sum([len(v.tables) for k, v in
-                                                                          model_root.schemas.items()])))
-            logger.info('\n'.join(['    {} has {} tables'.format(k, len(s.tables))
-                                   for k, s in model_root.schemas.items()]))
-            try:
-                if args.table:
-                    if ':' not in args.table:
-                        raise DerivaDumpCatalogException('Table name must be in form of schema:table')
-                    [schema_name, table_name] = args.table.split(":")
-                    self._dump_table(schema_name, table_name)
-                elif args.graph:
-                    self._graph_catalog()
-                else:
-                    self._dump_catalog(model_root)
-            except DerivaDumpCatalogException as e:
-                print(e.msg)
-            except HTTPError as e:
-                if e.response.status_code == requests.codes.unauthorized:
-                    msg = 'Authentication required for {}'.format(args.server)
-                elif e.response.status_code == requests.codes.forbidden:
-                    msg = 'Permission denied'
-                else:
-                    msg = e
-                logging.debug(format_exception(e))
-                eprint(msg)
-            except RuntimeError as e:
-                sys.stderr.write(str(e))
-                return 1
-            except:
-                traceback.print_exc()
-                return 1
-            finally:
-                sys.stderr.write("\n\n")
+        logger.info('Catalog has {} schema and {} tables'.format(len(self.model.schemas),
+                                                                 sum([len(v.tables) for k, v in
+                                                                      self.model.schemas.items()])))
+        logger.info('\n'.join(['    {} has {} tables'.format(k, len(s.tables))
+                               for k, s in self.model.schemas.items()]))
+        try:
+            if args.table:
+                if ':' not in args.table:
+                    raise DerivaDumpCatalogException('Table name must be in form of schema:table')
+                [schema_name, table_name] = args.table.split(":")
+                self._dump_table(schema_name, table_name)
+            elif args.graph:
+                self._graph_catalog()
+            else:
+                self._dump_catalog()
+        except DerivaDumpCatalogException as e:
+            print(e.msg)
+        except HTTPError as e:
+            if e.response.status_code == requests.codes.unauthorized:
+                msg = 'Authentication required for {}'.format(args.server)
+            elif e.response.status_code == requests.codes.forbidden:
+                msg = 'Permission denied'
+            else:
+                msg = e
+            logging.debug(format_exception(e))
+            eprint(msg)
+        except RuntimeError as e:
+            sys.stderr.write(str(e))
+            return 1
+        except:
+            traceback.print_exc()
+            return 1
+        finally:
+            sys.stderr.write("\n\n")
         return
 
 

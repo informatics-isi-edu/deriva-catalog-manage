@@ -68,8 +68,8 @@ def generate_test_tables(catalog, schema_name):
          DerivaColumn.define('Col3_Table2', 'text')],
         key_defs=[DerivaKey.define(['ID1_Table2']),
                   DerivaKey.define(['ID2_Table2', 'ID3_Table2'])],
-        fkey_defs=[DerivaForeignKey.define(['ID1_Table2'], table1, ['ID1_Table1']),
-                   DerivaForeignKey.define(['ID2_Table2', 'ID3_Table2'], table1,
+        fkey_defs=[DerivaForeignKey.define(['ID1_Table2'], schema_name, 'Table1', ['ID1_Table1']),
+                   DerivaForeignKey.define(['ID2_Table2', 'ID3_Table2'], schema_name, 'Table1',
                                            ['ID2_Table1', 'ID3_Table1'])]
     )
     table2.visible_columns.insert_context('filter', {'and': ['Col1_Table2', 'Col2_Table2']})
@@ -158,7 +158,7 @@ def create_catalog(server):
     catalog_id = catalog.catalog_id
     logger.info('Catalog_id is {}'.format(catalog_id))
 
-    catalog = DerivaCatalog(server, catalog_id=catalog_id, validate=False)
+    catalog = DerivaCatalog(server, catalog_id=catalog_id)
     logger.info('Time to create catalog %s', time.time()-t0)
     return catalog
 
