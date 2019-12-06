@@ -364,6 +364,7 @@ class DerivaAnnotations(MutableMapping):
     annotation_tags = {v for v in chaise_tags.values()}
 
     def __init__(self, obj):
+        print('Annotation', type(obj), type(obj.catalog))
         self.catalog = obj.catalog
         m = DerivaModel(self.catalog)
         self.annotations = m.model_element(obj).annotations
@@ -372,7 +373,7 @@ class DerivaAnnotations(MutableMapping):
         if key not in DerivaAnnotations.annotation_tags:
             raise DerivaCatalogError(self, msg='Unknow annotation tag: {}'.format(key))
 
-        with DerivaModel(self.catalog) as m:
+        with DerivaModel(self.catalog):
             self.annotations[key] = value
 
     def __delitem__(self, key):
@@ -870,6 +871,7 @@ class DerivaSchema(DerivaCore):
                 fkey.referenced_table.visible_foreign_keys.insert_sources(inbound_sources)
 
             column_sources, outbound_sources, inbound_sources = table.sources(merge_outbound=True)
+
             table.visible_columns.insert_context(DerivaContext('*'), column_sources)
             table.visible_columns.insert_context(DerivaContext('entry'), column_sources)
 

@@ -2,7 +2,6 @@ from __future__ import print_function
 
 from urllib.parse import urlparse
 
-import argparse
 import ast
 import logging
 import os
@@ -11,7 +10,7 @@ import sys
 import traceback
 import requests
 
-from requests.exceptions import HTTPError, ConnectionError
+from requests.exceptions import HTTPError
 
 from deriva.core import format_exception
 from deriva.core.utils import eprint
@@ -24,7 +23,6 @@ from deriva.core import get_credential, AttrDict, ErmrestCatalog
 from deriva.core.ermrest_config import tag as chaise_tags
 from deriva.utils.catalog.manage.deriva_file_templates import table_file_template, schema_file_template, \
     catalog_file_template
-from deriva.utils.catalog.components.deriva_model import DerivaCatalog, DerivaModel
 
 from deriva.utils.catalog.version import __version__ as VERSION
 from deriva.utils.catalog.manage.graph_catalog import DerivaCatalogToGraph
@@ -67,9 +65,9 @@ class UsageException (DerivaDumpCatalogException):
 
 
 class DerivaCatalogToString:
-    def __init__(self, model, provide_system_columns=True, groups=None):
-        self._model = model
-        self.host = urlparse(self._model.catalog.get_server_uri()).hostname
+    def __init__(self, catalog, provide_system_columns=True, groups=None):
+        self._model = catalog.getCatalogModel()
+        self.host = urlparse(catalog.get_server_uri()).hostname
         self.catalog_id = self._model.catalog.catalog_id
 
         self._provide_system_columns = provide_system_columns
@@ -78,7 +76,7 @@ class DerivaCatalogToString:
         if groups is None:
             try:
                 self._groups = AttrDict(
-                    {e['Display_Name']: e['ID'] for e in model.catalog.getPathBuilder().public.ERMrest_Group.entities()}
+                    {e['Display_Name']: e['ID'] for e in self._model.catalog.getPathBuilder().public.ERMrest_Group.entities()}
                 )
             except AttributeError:
                 logger.warning('Cannot access ERMrest_Group table. Check ACLs')
@@ -365,7 +363,7 @@ class DerivaDumpCatalogCLI (BaseCLI):
             f.write(table_string.encode("utf-8"))
 
     def _dump_catalog(self):
-        stringer = DerivaCatalogToString(self.model)
+        stringer = DerivaCatalogToString(self.catalog)
         catalog_string = stringer.catalog_to_str()
 
         with open('{}/{}_{}.py'.format(self.dumpdir, self.host, self.catalog_id), 'wb') as f:

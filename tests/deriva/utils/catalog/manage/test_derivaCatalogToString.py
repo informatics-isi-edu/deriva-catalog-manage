@@ -57,7 +57,7 @@ class TestDerivaCatalogToString(TestCase):
         try:
             catalog.create_schema('TestSchema')
 
-            stringer = DerivaCatalogToString(catalog)
+            stringer = DerivaCatalogToString(catalog.ermrest_catalog)
             catalog_string = stringer.catalog_to_str()
             tdir = tempfile.mkdtemp()
             modfile = '{}/TestCatalog.py'.format(tdir)
@@ -66,7 +66,7 @@ class TestDerivaCatalogToString(TestCase):
             m = load_module_from_path(modfile)
 
             test_catalog = create_catalog(self.server)
-            m.main(test_catalog, 'annotations')
+            m.main(test_catalog.ermrest_catalog, 'annotations')
         finally:
             delete_catalog(catalog.ermrest_catalog)
 
