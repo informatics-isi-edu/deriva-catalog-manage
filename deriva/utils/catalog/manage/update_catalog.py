@@ -42,7 +42,6 @@ class CatalogUpdater:
         self._catalog = catalog
         self._model = self._catalog.getCatalogModel()
 
-
     @staticmethod
     def update_annotations(o, annotations, merge=False):
         logger.debug('%s %s %s', o, annotations, merge)
@@ -70,6 +69,7 @@ class CatalogUpdater:
             self.update_annotations(self._model, annotations, merge=merge)
         elif mode == 'acls':
             self.update_acls(self._model, acls, merge=merge)
+        self._model.apply()
 
     def update_schema(self, mode, schema_def, replace=False, merge=False, really=False):
         schema_name = schema_def['schema_name']
@@ -86,21 +86,21 @@ class CatalogUpdater:
                 logger.info('Deleting schema %s', schema.name)
                 ok = 'YES' if really else input('Type YES to confirm:')
                 if ok == 'YES':
-                    schema.delete(self._catalog.catalog_model, self._catalog.model)
-            schema = self._model.create_schema(self._catalog.ermrest_catalog, schema_def)
+                    schema.drop()
+            schema = self._model.create_schema(schema_def)
         else:
-            schema = self._model.schema_model(self._catalog[schema_name])
+            schema = self._model.schemas[schema_name]
             if mode == 'annotations':
                 self.update_annotations(schema, annotations, merge=merge)
             elif mode == 'acls':
                 self.update_acls(schema, acls, merge=merge)
             elif mode == 'comment':
                 schema.comment = comment
-
+        self._model.apply()
         return schema
 
     def update_table(self, mode, schema_name, table_def, replace=False, merge=False, really=False):
-        schema = m.schema_model(self._catalog[schema_name])
+        schema = self._model.schemas[schema_name]
 
         table_name = table_def['table_name']
         column_defs = table_def['column_definitions']
@@ -126,15 +126,15 @@ class CatalogUpdater:
                 logger.info('Deleting table %s', table.name)
                 ok = 'YES' if really else input('Type YES to confirm:')
                 if ok == 'YES':
-                    table.delete(self._catalog.ermrest_catalog, schema)
+                    table.drop()
                 schema = self._model.schemas[schema_name]
             if skip_fkeys:
                 table_def.fkey_defs = []
             logger.info('Creating table...%s', table_name)
-            table = schema.create_table(self._catalog.ermrest_catalog, table_def)
+            table = schema.create_table(table_def)
             return table
 
-        table = m.table_model(self._catalog[schema_name][table_name])
+        table = self._model.schemas[schema_name].tables[table_name]
 
         if mode == 'columns':
             if replace:
@@ -145,12 +145,12 @@ class CatalogUpdater:
                     for k in table.column_definitions:
                         if k.name in ['RID', 'RMB', 'RCB', 'RCT', 'RMT']:
                             continue
-                        k.delete(self._catalog.ermrest_catalog, table)
+                        k.drop()
             # Go through the column definitions and add a new column if it doesn't already exist.
             for i in column_defs:
                 try:
                     logger.info('Creating column {}'.format(i['name']))
-                    table.create_column(self._catalog.ermrest_catalog, i)
+                    table.create_column(i)
                 except HTTPError as e:
                     if 'already exists' in e.args:
                         print("Skipping existing column {}".format(i['names']))
@@ -160,10 +160,10 @@ class CatalogUpdater:
             if replace:
                 logger.info('deleting foreign_keys')
                 for k in table.foreign_keys:
-                    k.delete(self._catalog, table)
+                    k.drop()
             for i in fkey_defs:
                 try:
-                    table.create_fkey(self._catalog.ermrest_catalog, i)
+                    table.create_fkey(i)
                     print('Created foreign key {} {}'.format(i['names'], i))
                 except HTTPError as e:
                     if 'already exists' in e.args:
@@ -175,10 +175,10 @@ class CatalogUpdater:
             if replace:
                 logger.info('Deleting keys')
                 for k in table.keys:
-                    k.delete(self._catalog, table)
+                    k.drop()
             for i in key_defs:
                 try:
-                    table.create_key(self._catalog.ermrest_catalog, i)
+                    table.create_key(i)
                     print('Created key {}'.format(i['names']))
                 except HTTPError as err:
                     if 'already exists' in err.response.text:
@@ -211,3 +211,4 @@ class CatalogUpdater:
                     self.update_acls(c, column_acls[c.name], merge=merge)
                 if c.name in column_acl_bindings:
                     self.update_acl_bindings(c, column_acl_bindings[c.name], merge=merge)
+        self._model.apply()

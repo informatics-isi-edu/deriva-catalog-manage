@@ -1,6 +1,6 @@
 table_file_template = """
 import argparse
-from deriva.core import ErmrestCatalog, AttrDict, get_credential, DerivaPathError
+from deriva.core import ErmrestCatalog, AttrDict, get_credential
 import deriva.core.ermrest_model as em
 from deriva.core.ermrest_config import tag as chaise_tags
 from deriva.utils.catalog.manage.update_catalog import CatalogUpdater, parse_args
@@ -35,15 +35,14 @@ if __name__ == "__main__":
     host = {host!r}
     catalog_id = {catalog_id}
     mode, replace, host, catalog_id = parse_args(host, catalog_id, is_table=True)
-    catalog = DerivaCatalog(host, catalog_id=catalog_id, validate=False)
+    catalog = ErmrestCatalog('https', host, catalog_id=catalog_id, credentials=get_credential(host))
     main(catalog, mode, replace)
 """
 
 
 schema_file_template = """
 import argparse
-from deriva.core import ErmrestCatalog, AttrDict, get_credential, DerivaPathError
-from deriva.utils.catalog.components.deriva_model import DerivaCatalog
+from deriva.core import ErmrestCatalog, AttrDict, get_credential
 import deriva.core.ermrest_model as em
 from deriva.core.ermrest_config import tag as chaise_tags
 from deriva.utils.catalog.manage.update_catalog import CatalogUpdater, parse_args
@@ -82,8 +81,7 @@ if __name__ == "__main__":
 
 catalog_file_template = """
 import argparse
-from deriva.core import ErmrestCatalog, AttrDict, get_credential, DerivaPathError
-from deriva.utils.catalog.components.deriva_model import DerivaCatalog
+from deriva.core import ErmrestCatalog, AttrDict, get_credential
 from deriva.utils.catalog.manage.update_catalog import CatalogUpdater, parse_args
 from deriva.core.ermrest_config import tag as chaise_tags
 import deriva.core.ermrest_model as em

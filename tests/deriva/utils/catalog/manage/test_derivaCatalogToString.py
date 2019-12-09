@@ -9,7 +9,6 @@ from deriva.utils.catalog.manage.dump_catalog import DerivaCatalogToString
 
 from urllib.parse import urlparse
 
-
 from tests.deriva.utils.catalog.test_utils import *
 
 
@@ -36,7 +35,7 @@ class TestDerivaCatalogToString(TestCase):
             catalog.create_schema('TestSchema')
             generate_test_tables(catalog, 'TestSchema')
 
-            stringer = DerivaCatalogToString(catalog)
+            stringer = DerivaCatalogToString(catalog.ermrest_catalog)
             schema_string = stringer.schema_to_str('TestSchema')
             tdir = tempfile.mkdtemp()
             modfile = '{}/TestSchema.py'.format(tdir)
@@ -45,10 +44,10 @@ class TestDerivaCatalogToString(TestCase):
             m = load_module_from_path(modfile)
 
             test_catalog = create_catalog(self.server)
-            m.main(test_catalog, 'schema')
-            m.main(test_catalog, 'annotations')
-            m.main(test_catalog, 'acls')
-            m.main(test_catalog, 'comment')
+            m.main(test_catalog.ermrest_catalog, 'schema')
+            m.main(test_catalog.ermrest_catalog, 'annotations')
+            m.main(test_catalog.ermrest_catalog, 'acls')
+            m.main(test_catalog.ermrest_catalog, 'comment')
         finally:
             delete_catalog(catalog.ermrest_catalog)
 
@@ -94,7 +93,7 @@ class TestDerivaCatalogToString(TestCase):
             catalog.create_schema('TestSchema')
             generate_test_tables(catalog, 'TestSchema')
 
-            stringer = DerivaCatalogToString(catalog)
+            stringer = DerivaCatalogToString(catalog.ermrest_catalog)
             table_string = stringer.table_to_str('TestSchema','Table1')
             tdir = tempfile.mkdtemp()
             modfile = '{}/TestTable.py'.format(tdir)
@@ -104,12 +103,12 @@ class TestDerivaCatalogToString(TestCase):
 
             test_catalog = create_catalog(self.server)
             test_catalog.create_schema('TestSchema')
-            m.main(test_catalog, 'table')
-            m.main(test_catalog, 'annotations')
-            m.main(test_catalog, 'acls')
-            m.main(test_catalog, 'comment')
-            m.main(test_catalog, 'keys')
-            m.main(test_catalog, 'fkeys')
+            m.main(test_catalog.ermrest_catalog, 'table')
+            m.main(test_catalog.ermrest_catalog, 'annotations')
+            m.main(test_catalog.ermrest_catalog, 'acls')
+            m.main(test_catalog.ermrest_catalog, 'comment')
+            m.main(test_catalog.ermrest_catalog, 'keys')
+            m.main(test_catalog.ermrest_catalog, 'fkeys')
     #        m.main(test_catalog, 'columns', replace=True, really=True)
         finally:
             delete_catalog(catalog.ermrest_catalog)
