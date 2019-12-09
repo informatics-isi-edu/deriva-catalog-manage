@@ -74,7 +74,7 @@ def main(catalog, mode, replace=False):
 if __name__ == "__main__":
     host = {host!r}
     catalog_id = {catalog_id}
-    mode, replace, host, catalog_id = parse_args(host, catalog_id, is_catalog=True)
+    mode, replace, host, catalog_id = parse_args(host, catalog_id)
     catalog = ErmrestCatalog('https', host, catalog_id=catalog_id, credentials=get_credential(host))
     main(catalog, mode, replace)
 """

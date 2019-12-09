@@ -782,7 +782,8 @@ class DerivaSchema(DerivaCore):
 
     @comment.setter
     def comment(self, value):
-        self.schema.comment = value
+        with DerivaModel(self.catalog):
+            self.schema.comment = value
 
     @property
     def tables(self):
@@ -2223,12 +2224,11 @@ class DerivaTable(DerivaCore):
 
     @property
     def comment(self):
-        with DerivaModel(self.catalog) as m:
-            return self.table(self).comment
+            return self.table.comment
 
     @comment.setter
     def comment(self, value):
-        with DerivaModel(self.catalog) as m:
+        with DerivaModel(self.catalog):
             self.table.comment = value
 
     @property

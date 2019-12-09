@@ -15,13 +15,13 @@ def parse_args(server, catalog_id, is_table=False, is_catalog=False):
                         help='Replace existing values with new ones.  Otherwise, attempt to merge in values provided.')
 
     if is_table:
-        modes = ['table', 'annotations', 'acls', 'comments', 'keys', 'fkeys', 'columns']
+        modes = ['table', 'annotations', 'acls', 'comment', 'keys', 'fkeys', 'columns']
     elif is_catalog:
         modes = ['annotations', 'acls']
         parser.add_argument('--recurse', action='store_true',
                             help='Update all schema and tables in the catalog.')
     else:
-        modes = ['schema', 'annotations', 'acls', 'comments']
+        modes = ['schema', 'annotations', 'acls', 'comment']
         parser.add_argument('--recurse', action='store_true',
                             help='Update all tables in the schema.')
 
@@ -142,7 +142,7 @@ class CatalogUpdater:
                 logger.info('Deleting columns ', table.name)
                 ok = 'YES' if really else input('Type YES to confirm:')
                 if ok == 'YES':
-                    for k in table.column_definitions:
+                    for k in [c for c in table.column_definitions]:
                         if k.name in ['RID', 'RMB', 'RCB', 'RCT', 'RMT']:
                             continue
                         k.drop()
@@ -159,7 +159,8 @@ class CatalogUpdater:
         if mode == 'fkeys':
             if replace:
                 logger.info('deleting foreign_keys')
-                for k in table.foreign_keys:
+                for k in [fk for fk in table.foreign_keys]:
+                    print('dropping', k.name)
                     k.drop()
             for i in fkey_defs:
                 try:
