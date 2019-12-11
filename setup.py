@@ -65,6 +65,7 @@ setup(
     extras_require={
         'csv': ['goodtables',
                 'python-dateutil',
+                'simpleeval==0.9.6',
                 'jsonschema==2.6.0']
     },
     license='Apache 2.0',
