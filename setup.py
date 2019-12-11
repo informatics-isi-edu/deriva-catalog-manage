@@ -40,7 +40,7 @@ setup(
     packages=find_packages(exclude=["tests", "extra_tests", "examples"]),
     package_data={},
     python_requires='>=3.5.4',
-    test_suite='tests',
+    test_suite='tests.deriva.utils.catalog.manage',
     entry_points={
         'console_scripts': [
             'deriva-catalog-dump = deriva.utils.catalog.manage.dump_catalog:main',
@@ -60,7 +60,7 @@ setup(
         'graphviz',
         'tabulate',
         'yapf',
-        'deriva>=0.8.4'
+        'deriva>=1.0.0'
     ],
     extras_require={
         'csv': ['goodtables',
