@@ -342,8 +342,8 @@ class DerivaTableConfigure(DerivaTable):
     """
     This class is used to create a default configuration for a Deriva Table.
     """
-    def __init__(self, catalog, schema_name, table_name):
-        super(DerivaTableConfigure, self).__init__(catalog, schema_name, table_name)
+    def __init__(self, catalog, table):
+        super(DerivaTableConfigure, self).__init__(catalog, table)
         return
 
     def configure_self_serve_policy(self, groups):
