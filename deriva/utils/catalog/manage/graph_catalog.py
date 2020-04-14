@@ -1,9 +1,9 @@
 from __future__ import print_function
 
 import os
-from graphviz import Digraph
-from deriva.utils.catalog.components.deriva_model import DerivaCatalog
+from urllib.parse import urlparse
 
+from graphviz import Digraph
 
 class DerivaCatalogToGraph:
     def __init__(self, catalog):
@@ -14,6 +14,10 @@ class DerivaCatalogToGraph:
             strict=True)
 
         self.catalog = catalog
+        self._model = catalog.getCatalogModel()
+        self._chaise_base = "https://{}/chaise/recordset/#{}/".format(
+            urlparse(catalog.get_server_uri()).netloc, self.catalog.catalog_id)
+
         self.graph.attr('graph', rankdir='LR')
         self.graph.attr('graph', overlap='false', splines='true')
 
@@ -43,27 +47,27 @@ class DerivaCatalogToGraph:
         :return:
         """
 
-        schema = self.catalog.schemas[schema_name]
+        schema = self._model.schemas[schema_name]
 
         # Put nodes for each schema in a seperate subgraph.
         with self.graph.subgraph(name=schema_name, node_attr={'shape': 'box'}) as schema_graph:
-            for table in schema.tables:
+            for table in schema.tables.values():
                 node_name = '{}_{}'.format(schema_name, table.name)
 
-                if table.is_vocabulary_table():
+                if DerivaCatalogToGraph._is_vocabulary_table(table):
                     if not skip_terms:
                         schema_graph.node(node_name, label='{}:{}'.format(schema_name, table.name), shape='ellipse')
                 else:
                     # Skip over current table if it is a association table and option is set.
-                    if not (table.is_pure_binary() and skip_assocation_tables):
+                    if not (table.is_association() and skip_assocation_tables):
                         schema_graph.node(node_name, label='{}:{}'.format(schema_name, table.name),
                                           shape='box',
-                                          URL=table.chaise_uri)
+                                          URL=self._chaise_uri(table))
                     else:
                         print('Skipping node', node_name)
 
         # We have all the nodes out now, so run over and add edges.
-        for table in schema.tables:
+        for table in schema.tables.values():
             self.foreign_key_defs_to_graph(table,
                                            skip_terms=skip_terms,
                                            schemas=schemas,
@@ -81,25 +85,25 @@ class DerivaCatalogToGraph:
         """
 
         # If table is an association table, put in a edge between the two endpoints in the relation.
-        if table.is_pure_binary() and skip_association_tables:
+        if table.is_association() and skip_association_tables:
             [t1, t2] = table.associated_tables()
             t1_name = '{}_{}'.format(t1.schema_name, t1.name)
             t2_name = '{}_{}'.format(t2.schema_name, t2.name)
             self.graph.edge(t1_name, t2_name, dir='both', color='gray')
         else:
             for fkey in table.foreign_keys:
-                table_name = '{}_{}'.format(fkey.referenced_table.schema_name,
-                                            fkey.referenced_table.name)
+                referenced_table = list(fkey.column_map.values())[0].table
+                table_name = '{}_{}'.format(referenced_table.schema.name, referenced_table.name)
 
                 # If the target is a schema we are skipping, do not add an edge.
-                if (fkey.referenced_table.schema_name not in schemas or table.schema_name not in schemas):
+                if (referenced_table.schema.name not in schemas or table.schema.name not in schemas):
                     continue
                 # If the target is a term table, and we are not including terms, do not add an edge.
-                if fkey.referenced_table.is_vocabulary_table() and skip_terms:
+                if DerivaCatalogToGraph._is_vocabulary_table(referenced_table) and skip_terms:
                     continue
-
                 # Add an edge from the current node to the target table.
-                self.graph.edge('{}_{}'.format(table.schema_name, table.name), table_name)
+                print('adding ', table.name, table_name)
+                self.graph.edge('{}_{}'.format(table.schema.name, table.name), table_name)
         return
 
     def save(self, filename=None, format='pdf', view=False):
@@ -115,3 +119,13 @@ class DerivaCatalogToGraph:
 
     def view(self):
         self.graph.view()
+
+    @staticmethod
+    def _is_vocabulary_table(t):
+        try:
+            return t.columns['ID'] and t.columns['Name'] and t.columns['URI'] and t.columns['Synonyms']
+        except KeyError:
+            return False
+
+    def _chaise_uri(self, table):
+        return self._chaise_base + "{}:{}".format(table.schema.name, table.name)
