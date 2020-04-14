@@ -53,10 +53,11 @@ class DerivaCatalogToGraph:
         with self.graph.subgraph(name=schema_name, node_attr={'shape': 'box'}) as schema_graph:
             for table in schema.tables.values():
                 node_name = '{}_{}'.format(schema_name, table.name)
-
                 if DerivaCatalogToGraph._is_vocabulary_table(table):
                     if not skip_terms:
-                        schema_graph.node(node_name, label='{}:{}'.format(schema_name, table.name), shape='ellipse')
+                        schema_graph.node(node_name, label='{}:{}'.format(schema_name, table.name),
+                                          shape='ellipse',
+                                          URL=self._chaise_uri(table))
                 else:
                     # Skip over current table if it is a association table and option is set.
                     if not (table.is_association() and skip_assocation_tables):
@@ -102,7 +103,6 @@ class DerivaCatalogToGraph:
                 if DerivaCatalogToGraph._is_vocabulary_table(referenced_table) and skip_terms:
                     continue
                 # Add an edge from the current node to the target table.
-                print('adding ', table.name, table_name)
                 self.graph.edge('{}_{}'.format(table.schema.name, table.name), table_name)
         return
 
