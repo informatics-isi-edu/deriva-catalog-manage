@@ -6,12 +6,13 @@ from urllib.parse import urlparse
 from graphviz import Digraph
 
 class DerivaCatalogToGraph:
-    def __init__(self, catalog):
+    def __init__(self, catalog, engine='dot'):
         self.graph = Digraph(
-            engine='neato',
+            engine=engine,
             format='pdf',
             edge_attr=None,
-            strict=True)
+            strict=True,
+        )
 
         self.catalog = catalog
         self._model = catalog.getCatalogModel()
@@ -20,6 +21,13 @@ class DerivaCatalogToGraph:
 
         self.graph.attr('graph', rankdir='LR')
         self.graph.attr('graph', overlap='false', splines='true')
+        #self.graph.attr('graph', concentrate=True)
+
+    def clear(self):
+        self.graph.clear()
+
+    def view(self):
+        self.graph.view()
 
     def catalog_to_graph(self, schemas=None, skip_terms=False, skip_assocation_tables=False):
         """
@@ -48,9 +56,11 @@ class DerivaCatalogToGraph:
         """
 
         schema = self._model.schemas[schema_name]
+        print('schema', schema_name)
 
         # Put nodes for each schema in a seperate subgraph.
-        with self.graph.subgraph(name=schema_name, node_attr={'shape': 'box'}) as schema_graph:
+        with self.graph.subgraph(name='cluster_' + schema_name, node_attr={'shape': 'box'}) as schema_graph:
+            schema_graph.attr(style='invis')
             for table in schema.tables.values():
                 node_name = '{}_{}'.format(schema_name, table.name)
                 if DerivaCatalogToGraph._is_vocabulary_table(table):
@@ -102,8 +112,10 @@ class DerivaCatalogToGraph:
                 # If the target is a term table, and we are not including terms, do not add an edge.
                 if DerivaCatalogToGraph._is_vocabulary_table(referenced_table) and skip_terms:
                     continue
+
                 # Add an edge from the current node to the target table.
                 self.graph.edge('{}_{}'.format(table.schema.name, table.name), table_name)
+
         return
 
     def save(self, filename=None, format='pdf', view=False):
@@ -122,6 +134,8 @@ class DerivaCatalogToGraph:
 
     @staticmethod
     def _is_vocabulary_table(t):
+        if t.schema.name.lower() in 'vocabulary':
+            return True
         try:
             return t.columns['ID'] and t.columns['Name'] and t.columns['URI'] and t.columns['Synonyms']
         except KeyError:
