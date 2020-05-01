@@ -29,12 +29,12 @@ class DerivaCatalogToGraph:
     def view(self):
         self.graph.view()
 
-    def catalog_to_graph(self, schemas=None, skip_terms=False, skip_assocation_tables=False):
+    def catalog_to_graph(self, schemas=None, skip_terms=False, skip_association_tables=False):
         """
         Convert a catalog to a DOT based graph.
         :param schemas:  List of schemas that should be included.  Use whole catalog if None.
         :param skip_terms: Do not include term tables in the graph
-        :param skip_assocation_tables: Collapse association tables so that only edges between endpoints are used
+        :param skip_association_tables: Collapse association tables so that only edges between endpoints are used
         :return:
         """
 
@@ -43,20 +43,19 @@ class DerivaCatalogToGraph:
 
         for schema in schemas:
             self.schema_to_graph(schema, skip_terms=skip_terms, schemas=schemas,
-                                 skip_assocation_tables=skip_assocation_tables)
+                                 skip_association_tables=skip_association_tables)
 
-    def schema_to_graph(self, schema_name, schemas=[], skip_terms=False, skip_assocation_tables=False):
+    def schema_to_graph(self, schema_name, schemas=[], skip_terms=False, skip_association_tables=False):
         """
         Create a graph for the specified schema.
         :param schema_name: Name of the schema in the model to be used.
         :param schemas: List of additional schemas to include in the graph.
         :param skip_terms:
-        :param skip_assocation_tables:
+        :param skip_association_tables:
         :return:
         """
 
         schema = self._model.schemas[schema_name]
-        print('schema', schema_name)
 
         # Put nodes for each schema in a seperate subgraph.
         with self.graph.subgraph(name='cluster_' + schema_name, node_attr={'shape': 'box'}) as schema_graph:
@@ -70,7 +69,7 @@ class DerivaCatalogToGraph:
                                           URL=self._chaise_uri(table))
                 else:
                     # Skip over current table if it is a association table and option is set.
-                    if not (table.is_association() and skip_assocation_tables):
+                    if not (table.is_association() and skip_association_tables):
                         schema_graph.node(node_name, label='{}:{}'.format(schema_name, table.name),
                                           shape='box',
                                           URL=self._chaise_uri(table))
@@ -82,7 +81,7 @@ class DerivaCatalogToGraph:
             self.foreign_key_defs_to_graph(table,
                                            skip_terms=skip_terms,
                                            schemas=schemas,
-                                           skip_association_tables=skip_assocation_tables)
+                                           skip_association_tables=skip_association_tables)
         return
 
     def foreign_key_defs_to_graph(self, table, skip_terms=False, skip_association_tables=False, schemas=[]):
@@ -96,10 +95,11 @@ class DerivaCatalogToGraph:
         """
 
         # If table is an association table, put in a edge between the two endpoints in the relation.
-        if table.is_association() and skip_association_tables:
-            [t1, t2] = table.associated_tables()
-            t1_name = '{}_{}'.format(t1.schema_name, t1.name)
-            t2_name = '{}_{}'.format(t2.schema_name, t2.name)
+        if table.is_association() == 2 and skip_association_tables:
+            t1 = table.foreign_keys[0].referenced_columns[0].table
+            t2 = table.foreign_keys[1].referenced_columns[0].table
+            t1_name = '{}_{}'.format(t1.schema.name, t1.name)
+            t2_name = '{}_{}'.format(t2.schema.name, t2.name)
             self.graph.edge(t1_name, t2_name, dir='both', color='gray')
         else:
             for fkey in table.foreign_keys:
