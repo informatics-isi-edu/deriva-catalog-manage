@@ -387,7 +387,7 @@ class DerivaDumpCatalogCLI (BaseCLI):
         graphfile = '{}_{}'.format(self.host, self.catalog_id)
         graph.catalog_to_graph(schemas=[s for s in self.schemas if s not in ['_acl_admin', 'public', 'WWW']],
                                skip_terms=True,
-                               skip_assocation_tables=True)
+                               skip_association_tables=True)
         graph.save(filename=graphfile, format=self.graph_format)
 
     def main(self):
