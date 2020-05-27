@@ -60,7 +60,7 @@ setup(
         'graphviz',
         'tabulate',
         'yapf',
-        'deriva>=1.0.0'
+        'deriva>=1.1.0'
     ],
     extras_require={
         'csv': ['goodtables',
