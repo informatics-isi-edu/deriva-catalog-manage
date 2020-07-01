@@ -4,7 +4,7 @@ import sys
 import deriva.core.ermrest_model as em
 from deriva.utils.catalog.manage.utils import TempErmrestCatalog, load_module_from_path
 from deriva.core import get_credential
-from deriva.core.ermrest_config import tag as chaise_tags
+from deriva.core import tag as chaise_tags
 from deriva.utils.catalog.manage.dump_catalog import DerivaCatalogToString
 
 from urllib.parse import urlparse

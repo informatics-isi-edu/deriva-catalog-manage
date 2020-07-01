@@ -20,7 +20,7 @@ from yapf.yapflib.yapf_api import FormatCode
 
 from deriva.core import get_credential, AttrDict, ErmrestCatalog
 
-from deriva.core.ermrest_config import tag as chaise_tags
+from deriva.core import tag as chaise_tags
 from deriva.utils.catalog.manage.deriva_file_templates import table_file_template, schema_file_template, \
     catalog_file_template
 

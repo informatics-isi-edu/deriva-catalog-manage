@@ -13,7 +13,8 @@ from requests.exceptions import HTTPError
 import deriva.core.ermrest_model as em
 import tabulate
 from deriva.core import ErmrestCatalog, get_credential
-from deriva.core.ermrest_config import tag as chaise_tags, KeyedList
+from deriva.core import tag as chaise_tags
+from deriva.core.ermrest_model import KeyedList
 
 chaise_tags['catalog_config'] = 'tag:isrd.isi.edu,2019:catalog-config'
 

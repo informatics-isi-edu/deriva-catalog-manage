@@ -12,7 +12,7 @@ import logging
 
 from requests import HTTPError
 from deriva.core import ErmrestCatalog, get_credential, init_logging, urlparse
-from deriva.core.ermrest_config import tag as chaise_tags
+from deriva.core import tag as chaise_tags
 import deriva.core.ermrest_model as em
 from deriva.utils.catalog.manage.dump_catalog import DerivaCatalogToString
 from deriva.utils.catalog.manage.utils import LoopbackCatalog, LoopbackModel

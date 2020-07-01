@@ -60,13 +60,12 @@ setup(
         'graphviz',
         'tabulate',
         'yapf',
-        'deriva>=1.1.0'
+        'deriva>=1.3.0'
     ],
     extras_require={
         'csv': ['goodtables',
                 'python-dateutil',
-                'simpleeval==0.9.6',
-                'jsonschema==2.6.0']
+                'simpleeval==0.9.6']
     },
     license='Apache 2.0',
     classifiers=[

@@ -5,7 +5,7 @@ from requests import exceptions
 from urllib.parse import urlparse
 
 import deriva.core.ermrest_model as em
-from deriva.core.ermrest_config import tag as chaise_tags
+from deriva.core import tag as chaise_tags
 
 from deriva.utils.catalog.components.deriva_model import DerivaCatalog, DerivaSchema, DerivaColumn, \
     DerivaTable, DerivaContext, DerivaKey, DerivaForeignKey, DerivaCatalogError, DerivaModel

@@ -9,7 +9,7 @@ from requests.exceptions import HTTPError, ConnectionError
 from urllib.parse import urlparse
 
 import deriva.core.ermrest_model as em
-from deriva.core.ermrest_config import tag as chaise_tags
+from deriva.core import tag as chaise_tags
 from deriva.core import ErmrestCatalog, get_credential, format_exception
 from deriva.core.utils import eprint
 from deriva.core.base_cli import BaseCLI

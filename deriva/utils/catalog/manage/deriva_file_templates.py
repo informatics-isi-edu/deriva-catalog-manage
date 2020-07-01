@@ -2,7 +2,7 @@ table_file_template = """
 import argparse
 from deriva.core import ErmrestCatalog, AttrDict, get_credential
 import deriva.core.ermrest_model as em
-from deriva.core.ermrest_config import tag as chaise_tags
+from deriva.core import tag as chaise_tags
 from deriva.utils.catalog.manage.update_catalog import CatalogUpdater, parse_args
 
 {groups}
@@ -44,7 +44,7 @@ schema_file_template = """
 import argparse
 from deriva.core import ErmrestCatalog, AttrDict, get_credential
 import deriva.core.ermrest_model as em
-from deriva.core.ermrest_config import tag as chaise_tags
+from deriva.core import tag as chaise_tags
 from deriva.utils.catalog.manage.update_catalog import CatalogUpdater, parse_args
 
 {groups}
@@ -83,7 +83,7 @@ catalog_file_template = """
 import argparse
 from deriva.core import ErmrestCatalog, AttrDict, get_credential
 from deriva.utils.catalog.manage.update_catalog import CatalogUpdater, parse_args
-from deriva.core.ermrest_config import tag as chaise_tags
+from deriva.core import tag as chaise_tags
 import deriva.core.ermrest_model as em
 
 {groups}
