@@ -48,13 +48,6 @@ setup(
             'deriva-csv = deriva.utils.catalog.manage.deriva_csv:main [csv]'
         ],
     },
-    requires=[
-        'deriva',
-        'requests',
-        'graphviz',
-        'tabulate',
-        'yapf'
-    ],
     install_requires=[
         'requests',
         'graphviz',
