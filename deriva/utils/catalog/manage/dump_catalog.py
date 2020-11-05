@@ -431,7 +431,7 @@ class DerivaDumpCatalogCLI (BaseCLI):
             else:
                 self._dump_catalog()
         except DerivaDumpCatalogException as e:
-            print(e.msg)
+            print(e)
         except HTTPError as e:
             if e.response.status_code == requests.codes.unauthorized:
                 msg = 'Authentication required for {}'.format(args.server)
