@@ -335,12 +335,13 @@ class DerivaDumpCatalogCLI (BaseCLI):
         parser = self.parser
         parser.add_argument('--catalog', '--catalog-id', metavar='CATALOG-NUMBER', default=1, help='ID number of desired catalog')
         parser.add_argument('--dir', default="catalog-configs", help='output directory name')
-        parser.add_argument('--table', default=None, help='Only dump out the spec for the specified table.  Format is '
+        group = parser.add_mutually_exclusive_group()
+        group.add_argument('--table', default=None, help='Only dump out the spec for the specified table.  Format is '
                                                           'schema_name:table_name')
         parser.add_argument('--schemas', nargs='*', default=[],
                             help='Only dump out the spec for the specified schemas.')
         parser.add_argument('--skip-schemas', nargs='*', default=[], help='List of schema so skip over')
-        parser.add_argument('--graph', action='store_true', help='Dump graph of catalog')
+        group.add_argument('--graph', action='store_true', help='Dump graph of catalog')
         parser.add_argument('--graph-format', choices=['pdf', 'dot', 'png', 'svg'],
                             default='pdf', help='Format to use for graph dump')
 
@@ -431,7 +432,7 @@ class DerivaDumpCatalogCLI (BaseCLI):
             else:
                 self._dump_catalog()
         except DerivaDumpCatalogException as e:
-            print(e.msg)
+            print(e)
         except HTTPError as e:
             if e.response.status_code == requests.codes.unauthorized:
                 msg = 'Authentication required for {}'.format(args.server)
