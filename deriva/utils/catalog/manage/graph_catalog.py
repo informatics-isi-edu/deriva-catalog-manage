@@ -38,7 +38,7 @@ class DerivaCatalogToGraph:
         :return:
         """
 
-        schemas = [s.name for s in self.catalog.schemas if s.name not in ['_acl_admin', 'public', 'WWW']] \
+        schemas = [s.name for s in self._model.schemas.values() if s.name not in ['_acl_admin', 'public', 'WWW']] \
             if schemas is None else schemas
 
         for schema in schemas:
