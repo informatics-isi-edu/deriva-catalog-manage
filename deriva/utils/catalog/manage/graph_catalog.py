@@ -129,9 +129,6 @@ class DerivaCatalogToGraph:
     def _repr_svg_(self):
         return self.graph._repr_svg_()
 
-    def view(self):
-        self.graph.view()
-
     @staticmethod
     def _is_vocabulary_table(t):
         if t.schema.name.lower() in 'vocabulary':
