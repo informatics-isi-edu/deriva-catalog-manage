@@ -1,5 +1,6 @@
 # deriva-catalog-manage
 [![PyPi Version](https://img.shields.io/pypi/v/deriva-catalog-manage.svg)](https://pypi.python.org/pypi/deriva-catalog-manage)
+[![PyPi Downloads](https://img.shields.io/pypi/dm/deriva-catalog-manage.svg)](https://pypistats.org/packages/deriva-catalog-manage)
 [![PyPi Wheel](https://img.shields.io/pypi/wheel/deriva-catalog-manage.svg)](https://pypi.python.org/pypi/deriva-catalog-manage)
 [![Python Versions](https://img.shields.io/pypi/pyversions/deriva-catalog-manage.svg)](https://pypi.python.org/pypi/deriva-catalog-manage)
 [![License](https://img.shields.io/pypi/l/deriva-catalog-manage.svg)](http://www.apache.org/licenses/LICENSE-2.0)
