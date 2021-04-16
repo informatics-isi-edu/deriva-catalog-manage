@@ -39,7 +39,7 @@ setup(
     version=__version__,
     packages=find_packages(exclude=["tests", "extra_tests", "examples"]),
     package_data={},
-    python_requires='>=3.5.4',
+    python_requires='>=3.6',
     test_suite='tests.deriva.utils.catalog.manage',
     entry_points={
         'console_scripts': [
@@ -53,7 +53,7 @@ setup(
         'graphviz',
         'tabulate',
         'yapf',
-        'deriva>=1.3.0'
+        'deriva>=1.4.1'
     ],
     extras_require={
         'csv': ['goodtables',
@@ -69,8 +69,8 @@ setup(
         'Operating System :: MacOS :: MacOS X',
         'Operating System :: Microsoft :: Windows',
         'Programming Language :: Python',
-        'Programming Language :: Python :: 3.5',
         'Programming Language :: Python :: 3.6',
-        'Programming Language :: Python :: 3.7'
+        'Programming Language :: Python :: 3.7',
+        'Programming Language :: Python :: 3.8'
     ]
 )
