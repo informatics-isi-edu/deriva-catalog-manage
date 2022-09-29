@@ -159,7 +159,7 @@ class DerivaCatalogConfigure(DerivaCatalog):
                     'admin': catalog_groups[admin]['ID'],
                     'curator': catalog_groups[curator]['ID'],
                     'writer': catalog_groups[writer]['ID'],
-                    'reader': catalog_groups[reader]['ID'] if reader is not '*' else '*'
+                    'reader': catalog_groups[reader]['ID'] if reader != '*' else '*'
                 })
             except KeyError as e:
                 raise DerivaConfigError(msg='Group {} not defined'.format(e.args[0]))
