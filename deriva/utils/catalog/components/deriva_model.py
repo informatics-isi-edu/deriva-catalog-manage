@@ -1520,7 +1520,6 @@ class DerivaVisibleSources(DerivaLogging):
 
             for col in columns:
                 # Columns may have already been deleted, so do not validate.
-                # Columns may have already been deleted, so do not validate.
                 col_spec = DerivaSourceSpec(self.table, col, validate=False)
                 self.logger.debug('checking %s %s %s', col, col_spec, vc_list)
                 if col_spec.spec in vc_list:
@@ -1544,7 +1543,7 @@ class DerivaVisibleForeignKeys(DerivaVisibleSources):
         super().__init__(table, chaise_tags.visible_foreign_keys)
 
 
-class DerivaSourceSpec(DerivaLogging):
+class DerivaSourceSpec:
     def __init__(self, table, spec, validate=True, src_tag=chaise_tags.visible_columns):
         super().__init__()
         self.logger.debug('table: %s spec: %s', table.name, spec)

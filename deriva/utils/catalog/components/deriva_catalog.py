@@ -1,21 +1,16 @@
-import argparse
 import sys
-import warnings
 import logging
-from requests import exceptions
 import traceback
 import requests
-from requests.exceptions import HTTPError, ConnectionError
-from urllib.parse import urlparse
+from requests.exceptions import HTTPError
 
-import deriva.core.ermrest_model as em
 from deriva.core import tag as chaise_tags
-from deriva.core import ErmrestCatalog, get_credential, format_exception
+from deriva.core import get_credential, format_exception
 from deriva.core.utils import eprint
 from deriva.core.base_cli import BaseCLI
-from deriva.utils.catalog.components.deriva_model import DerivaModel, DerivaCatalog, DerivaSchema, \
-    DerivaTable, DerivaContext
-from deriva.utils.catalog.components.configure_catalog import DerivaTable
+
+from deriva.utils.catalog.components.configure_catalog import DerivaCatalogConfigure, DerivaConfigError
+
 from deriva.utils.catalog.version import __version__ as VERSION
 
 logger = logging.getLogger(__name__)
@@ -33,9 +28,6 @@ class DerivaModelElementsCLI(BaseCLI):
         # initialized after argument parsing
         self.args = None
         self.host = None
-
-        # parent arg parser
-        parser = self.parser
 
 
 class DerivaConfigureCatalogCLI(BaseCLI):
@@ -63,8 +55,6 @@ class DerivaConfigureCatalogCLI(BaseCLI):
                             help='Group name to use for readers. For a catalog named "foo" defaults for foo-admin')
         parser.add_argument('--publish', default=False, action='store_true',
                             help='Make the catalog or table accessible for reading without logging in')
-        parser.add_argument('table', default=None, metavar='SCHEMA_NAME:TABLE_NAME',
-                            help='Name of table to be configured')
         parser.add_argument('--asset-table', default=None, metavar='KEY_COLUMN',
                             help='Create an asset table linked to table on key_column')
         parser.add_argument('--visible-columns', action='store_true',
@@ -82,30 +72,25 @@ class DerivaConfigureCatalogCLI(BaseCLI):
 
         args = self.parse_cli()
 
-        catalog = DerivaCatalogConfigure(args.host, catalog_id=args.catalog_model)
-
         try:
-            catalog = DerivaCatalog(args.host, args.catalog_model)
-            [schema_name, table_name] = args.table_model.split(':')
-            table = DerivaTable(catalog, schema_name, table_name)
-            if args.asset_table:
-                table.create_asset_table(args.asset_table)
-            if args._visible_columns:
-                table.create_default_visible_columns(really=args.replace)
-
+            logging.info('Configuring catalog {}:{}'.format(args.host, args.catalog))
+            catalog = DerivaCatalogConfigure(args.host, catalog_id=args.catalog)
             if args.configure == 'catalog':
-                logging.info('Configuring catalog {}:{}'.format(args.host, args.catalog_model))
-                cfg = DerivaCatalogConfigure(args.host, catalog_id=args.catalog_model)
-                cfg.configure_baseline_catalog(catalog_name=args.catalog_name,
-                                               reader=args.reader, writer=args.writer, curator=args.curator,
-                                               admin=args.admin,
-                                               set_policy=args.set_policy, public=args.publish)
-                cfg.apply()
-            if args.table_model:
-                [schema_name, table_name] = args.table_model.split(':')
-                table = catalog.schema(schema_name).table_model(table_name)
-                table.configure_table_defaults(set_policy=args.set_policy, public=args.publish)
-                table.apply()
+                catalog.configure_baseline_catalog(
+                    catalog_name=args.catalog_name,
+                    reader=args.reader, writer=args.writer, curator=args.curator,
+                    admin=args.admin,
+                    set_policy=args.set_policy, public=args.publish)
+            else:
+                if args.table:
+                    [schema_name, table_name] = args.model.split(':')
+                    table = catalog.schema(schema_name).table_model(table_name)
+                    table.configure_table_defaults(set_policy=args.set_policy, public=args.publish)
+                    table.apply()
+                if args.asset_table:
+                    table.create_asset_table(args.asset_table)
+                if args.visible_columns:
+                    table.create_default_visible_columns(really=args.replace)
         except DerivaConfigError as e:
             print(e.msg)
         except HTTPError as e:
