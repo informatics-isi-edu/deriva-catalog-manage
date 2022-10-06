@@ -1,21 +1,6 @@
 from pydantic import BaseModel, validator, root_validator
 from typing import Optional
-
-
-class MenuOptionList(list):
-    def __init__(self, iterable):
-        super().__init__(i if isinstance(i, MenuOption) else MenuOption.parse_obj(i) for i in iterable)
-
-    def __setitem__(self, index, value):
-        option = value if isinstance(value, MenuOption) else MenuOption.parse_obj(value)
-        super().__setitem__(index, option)
-
-    def append(self, *args, **kwargs):
-        option = args[0] if isinstance(args[0], MenuOption) else MenuOption.parse_obj(kwargs)
-        super().append(option)
-
-    def extend(self, iterable):
-        super().extend(MenuOptionList(iterable))
+from deriva.core.ermrest_model import Model
 
 
 class MenuACL(BaseModel):
@@ -24,6 +9,31 @@ class MenuACL(BaseModel):
 
     class Config:
         extra = 'forbid'
+
+
+class MenuOptionList(list):
+    """.
+    """
+
+    @classmethod
+    def __get_validators__(cls):
+        # one or more validators may be yielded which will be called in the
+        # order to validate the input, each validator will receive as an input
+        # the value returned from the previous validator
+        yield cls.validate
+
+    @classmethod
+    def validate(cls, v):
+        return cls([MenuOption.parse_obj(e) for e in v])
+
+    def __setitem__(self, index, value):
+        super()[index] = value if isinstance(value, MenuOption) else MenuOption.parse_obj(value)
+
+    def append(self, obj):
+        super().append(obj if isinstance(obj, MenuOption) else MenuOption.parse_obj(obj))
+
+    def extend(self, iterable):
+        super().extend(MenuOptionList(iterable))
 
 
 class MenuOption(BaseModel):
@@ -38,10 +48,10 @@ class MenuOption(BaseModel):
     class Config:
         extra = 'forbid'
 
-    @validator('children', pre=True)
-    def create_option_list(cls, v):
-        print(v)
-        return v
+    @classmethod
+    def menu_url(cls, schema_name, table_name):
+        return MenuOption(name=table_name,
+                          url="/chaise/recordset/#{{{$catalog.id}}}/" + "{}:{}".format(schema_name, table_name))
 
     @validator('url')
     def chase_url(cls, v):
@@ -50,13 +60,13 @@ class MenuOption(BaseModel):
 
     @root_validator()
     def child_or_url(cls, v):
-        if v['children'] and v['url'] or not (v['children'] or v['url']):  # child XOR url
+        if (v.get('children') and v.get('url')) or not (v.get('children') or v.get('url')):  # child XOR url
             raise ValueError('Must provide either children or url')
         else:
             return v
 
 
-class Navbar(BaseModel):
+class NavbarMenu(BaseModel):
     children: MenuOptionList
     acls: Optional[MenuACL]
     newTab: Optional[bool]
@@ -64,53 +74,9 @@ class Navbar(BaseModel):
     class Config:
         extra = 'forbid'
 
-    @validator('children', pre=True)
-    def create_option_list(cls, v):
-        print(v)
-        return MenuOptionList(v)
+    @staticmethod
+    def get_navbar(model: Model):
+        return NavbarMenu.parse_obj(model.annotations['tag:isrd.isi.edu,2019:chaise-config']['navbarMenu'])
 
-
-class NavbarMenu(BaseModel):
-    navbarMenu: Navbar
-
-    class Config:
-        extra = 'forbid'
-
-
-navspec_test = {
-    'navbarMenu': {
-        'newTab': False,
-        'children': [
-            {"name": "Search", "children": [
-                {"name": "Gene Expression Data", "children": [
-                    {"name": "Genes", "url": "/chaise/recordset/#2/Common:Gene"},
-                    {"name": "Sequencing Data (GUDMAP pre-2018)", "children": [
-                        {"name": "Series", "url": "/chaise/recordset/#2/Legacy_RNASeq:Series"},
-                        {"name": "Samples", "url": "/chaise/recordset/#2/Legacy_RNASeq:Sample"},
-                        {"name": "Protocols", "url": "/chaise/recordset/#2/Legacy_RNASeq:Protocol"}
-                    ]},
-                    {"name": "Specimens", "url": "/chaise/recordset/#2/Gene_Expression:Specimen"}
-                ]},
-                {"name": "Cell & Animal Models", "children": [
-                    {"name": "Parental Cell Lines", "url": "/chaise/recordset/#2/Cell_Line:Parental_Cell_Line"},
-                    {"name": "Mouse Strains", "url": "/chaise/recordset/#2/Cell_Line:Mouse_Strain"}
-                ]}
-            ]},
-            {"name": "Create", "children": [
-                {"name": "Protocol", "children": [
-                    {"name": "Protocol", "url": "/chaise/recordedit/#2/Protocol:Protocol"},
-                    {"name": "Subject", "url": "/chaise/recordedit/#2/Protocol:Subject"},
-                    {"name": "Keyword", "url": "/chaise/recordedit/#{{{$catalog.id}}}/Vocabulary:Keyword"}
-                ]}
-            ]},
-            {"name": "Help", "children": [
-                {"name": "Using the Data Browser",
-                 "url": "https://github.com/informatics-isi-edu/gudmap-rbk/wiki/Using-the-GUDMAP-RBK-Data-Browser"},
-                {"name": "Submitting Data", "url": "https://github.com/informatics-isi-edu/gudmap-rbk/wiki"},
-                {"name": "Create Citable Datasets",
-                 "url": "https://github.com/informatics-isi-edu/gudmap-rbk/wiki/Create-citable-datasets"},
-                {"name": "Cite Consortium Data", "url": "/about/usage.html"}
-            ]}
-        ]
-    }
-}
+    def set_navbar(self, model: Model):
+        model.annotations['tag:isrd.isi.edu,2019:chaise-config']['navbarMenu'] = self.dict(exclude_none=True)
