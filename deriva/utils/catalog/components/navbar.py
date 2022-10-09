@@ -1,15 +1,16 @@
-from pydantic import BaseModel, validator, root_validator
+from pydantic import validator, root_validator, Extra
+from pydantic import BaseModel as PydanticBaseModel
 from typing import Optional
 from deriva.core.ermrest_model import Model
 
+class BaseModel(PydanticBaseModel):
+    class Config:
+        extra = Extra.forbid
+        validate_assignment = True
 
 class MenuACL(BaseModel):
     show: Optional[list[str]]
     enable: Optional[list[str]]
-
-    class Config:
-        extra = 'forbid'
-
 
 class MenuOptionList(list):
     """.
@@ -45,9 +46,6 @@ class MenuOption(BaseModel):
     header: Optional[bool]
     newTab: Optional[bool]
 
-    class Config:
-        extra = 'forbid'
-
     @classmethod
     def menu_url(cls, schema_name, table_name):
         return MenuOption(name=table_name,
@@ -70,9 +68,6 @@ class NavbarMenu(BaseModel):
     children: MenuOptionList
     acls: Optional[MenuACL]
     newTab: Optional[bool]
-
-    class Config:
-        extra = 'forbid'
 
     @staticmethod
     def get_navbar(model: Model):

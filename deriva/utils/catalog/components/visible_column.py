@@ -1,17 +1,24 @@
-from pydantic import BaseModel, validator, root_validator
-from typing import Optional, Union
-from deriva.core.ermrest_model import Model
+from __future__ import annotations
+
+from pydantic import BaseModel as PydanticBaseModel
+from pydantic import validator, root_validator, Field, Extra, conlist
+from typing import Optional, Union, Generic, TypeVar, Literal, Any, Dict
+import core.ermrest_model as em
+
+Current_Model: em.Model = None
 
 
-class MenuACL(BaseModel):
-    show: Optional[list[str]]
-    enable: Optional[list[str]]
-
+class BaseModel(PydanticBaseModel):
     class Config:
-        extra = 'forbid'
+        extra = Extra.forbid
+        validate_assignment = True
+        catalog_model = Current_Model
 
 
-class ColumnList(list):
+ElementType = TypeVar('ElementType')
+
+
+class TypedList(Generic[ElementType], list):
     """.
     """
 
@@ -24,81 +31,114 @@ class ColumnList(list):
 
     @classmethod
     def validate(cls, v):
-        return cls([MenuOption.parse_obj(e) for e in v])
+        print(f"TypedList {v}")
+        return cls([ElementType.parse_obj(e) for e in v])
 
     def __setitem__(self, index, value):
-        super()[index] = value if isinstance(value, MenuOption) else MenuOption.parse_obj(value)
+        super()[index] = value if type(value) == ElementType else ElementType.parse_obj(value)
 
     def append(self, obj):
-        super().append(obj if isinstance(obj, MenuOption) else MenuOption.parse_obj(obj))
+        super().append(obj if type(obj) == ElementType else ElementType.parse_obj(obj))
 
     def extend(self, iterable):
-        super().extend(ColumnList(iterable))
+        super().extend(ElementType(iterable))
 
-
-class MenuOption(BaseModel):
-    name: str
-    markdownName: Optional[str]
-    url: Optional[str]
-    children: Optional[MenuOptionList]
-    acls: Optional[MenuACL]
-    header: Optional[bool]
-    newTab: Optional[bool]
-
-    class Config:
-        extra = 'forbid'
-
-    @classmethod
-    def menu_url(cls, schema_name, table_name):
-        return MenuOption(name=table_name,
-                          url="/chaise/recordset/#{{{$catalog.id}}}/" + "{}:{}".format(schema_name, table_name))
-
-    @validator('url')
-    def chase_url(cls, v):
-        # Should check URL to make sure its valid.
-        return v
-
-    @root_validator()
-    def child_or_url(cls, v):
-        if (v.get('children') and v.get('url')) or not (v.get('children') or v.get('url')):  # child XOR url
-            raise ValueError('Must provide either children or url')
-        else:
-            return v
-
-class SourceDefinitions:
-    pass
-
-class FkeyList:
-    pass
 
 class Column:
     pass
 
-class SearchBox(BaseModel):
-    or: ColumnList
 
-    class Config:
-    extra = 'forbid'
+class Fkey:
+    pass
+
+
+class ColumnOrder:
+    pass
+
+
+class ArrayOptions(BaseModel):
+    order: Any #Optional[ColumnOrder]
+    max_length: Any #Optional[int]
+
+
+class DisplayOptions(BaseModel):
+    markdown_pattern: str
+    template_engine: str
+    wait_for: TypedList[ColumnDirective]
+    show_foreign_key_link: Optional[bool]
+    show_key_link: Optional[bool]
+    array_ux_mode: Literal["olist", "ulist", "csv", "raw"]
+    array_options: ArrayOptions
+
+
+class ColumnSourceSpec(BaseModel):
+    inbound: Optional[list]
+    outbound: Optional[list]
+    sourcekey: Optional[str]
+
+    @validator('inbound', 'outbound')
+    def validate_spec(cls, v):
+        if len(v) != 2:
+            ValueError("inbound/outbout value must be list of length 2")
+        return v
+
+# A column can be either a source spec, or the name of the column.
+ColumnSpecType = TypeVar(Union[ColumnSourceSpec, str])
+
+
+class ColumnDirective(BaseModel):
+    source: Union[conlist(ColumnSpecType), str]
+    sourcekey:  Optional[str]
+    entity: Optional[bool]
+    aggregate: Any
+    markdown_name: Optional[str]
+    comment: Optional[str]
+    comment_display: Optional[Literal["tooltip", "inline"]]
+    hide_column_header: Optional[bool]
+    self_link: Optional[bool]
+    display: Optional[DisplayOptions]
+    array_options: Any
+
+    @root_validator(pre=True)
+    def typed_list_pre(cls, v):
+        print(f"ColumnDirective pre {v}")
+        return v
+
+    @root_validator()
+    def typed_list_post(cls, v):
+        print(f" ColumnDirective post{v}")
+        return v
+
+    @validator('source', pre=True)
+    def typed_list_pre(cls, v):
+        return v
+
+    @validator('source')
+    def typed_list_post(cls, v):
+        return v
+
+class SearchBox(BaseModel):
+    search_or: TypedList[Column] = Field(alias="or")
 
 
 class Source(BaseModel):
-    sources: SourceDefinitions
-    search_box: SearchBox
-    fkeys: Union[FkeyList, bool]
-    columns: Union[ColumnList, bool]
-
-    class Config:
-        extra = 'forbid'
+    sources: dict[str, ColumnDirective]
+    search_box: SearchBox = Field(alias="search-box")
+    fkeys: Union[TypedList[Fkey], bool]
+    columns: Union[TypedList[Column], bool]
 
     @validator('columns')
     def validate_columns(cls, v):
         if not v:
             ValueError("Column value must be a columnlist or True")
+        return v
 
     @validator('fkeys')
     def validate_columns(cls, v):
         if not v:
             ValueError("Fkeys value must be a fkey list or True")
+        return v
+
 
 example = {
     "columns": True,
