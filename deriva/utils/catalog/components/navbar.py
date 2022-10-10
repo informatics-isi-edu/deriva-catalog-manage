@@ -3,10 +3,12 @@ from pydantic import BaseModel as PydanticBaseModel
 from typing import Optional
 from deriva.core.ermrest_model import Model
 
+
 class BaseModel(PydanticBaseModel):
     class Config:
         extra = Extra.forbid
         validate_assignment = True
+
 
 class MenuACL(BaseModel):
     show: Optional[list[str]]

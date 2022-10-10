@@ -2,10 +2,10 @@ from __future__ import annotations
 
 from pydantic import BaseModel as PydanticBaseModel
 from pydantic import validator, root_validator, Field, Extra, conlist
-from typing import Optional, Union, Generic, TypeVar, Literal, Any, Dict
-import core.ermrest_model as em
+from typing import Optional, Union, Generic, TypeVar, Literal, Any
+import deriva.core.ermrest_model as em
 
-Current_Model: em.Model = None
+Current_Model: Optional[em.Model] = None
 
 
 class BaseModel(PydanticBaseModel):
@@ -57,8 +57,8 @@ class ColumnOrder:
 
 
 class ArrayOptions(BaseModel):
-    order: Any #Optional[ColumnOrder]
-    max_length: Any #Optional[int]
+    order: Any  # Optional[ColumnOrder]
+    max_length: Any  # Optional[int]
 
 
 class DisplayOptions(BaseModel):
@@ -82,13 +82,59 @@ class ColumnSourceSpec(BaseModel):
             ValueError("inbound/outbout value must be list of length 2")
         return v
 
-# A column can be either a source spec, or the name of the column.
-ColumnSpecType = TypeVar(Union[ColumnSourceSpec, str])
+
+class SourcePathSourceKeyElement(BaseModel):
+    sourcekey: str
+
+
+class SourcePathDirectionElement(BaseModel):
+    inbound: Optional[conlist(str, min_items=2, max_items=2)]
+    outbound: Optional[conlist(str, min_items=2, max_items=2)]
+
+    @root_validator()
+    def validate_direction(cls, val):
+        if val.get('inbound') and val.get('outbound') or not (val.get('inbound') or val.get('outbound')):
+            raise ValueError('Must specify inbound or outboud')
+        return val
+
+
+class SourceBoolElement(BaseModel):
+    source_and: list[Any] = Field(alias="and")
+    source_or: list[Any] = Field(alias="or")
+    negate: Optional[bool]
+
+
+FilterOperators = Literal[
+    '::null:',
+    '=',
+    '::lt::',
+    '::leq::',
+    '::gt::',
+    '::geq::',
+    '::regexp::',
+    '::ciregexp::',
+    '::ts::'
+]
+
+
+class SourceFilterElement(BaseModel):
+    filter: str
+    operator: Optional[FilterOperators]
+    negate: Optional[bool]
+
+
+SourcePathElement = Union[
+    str,
+    SourcePathSourceKeyElement,
+    SourcePathDirectionElement,
+    SourceBoolElement,
+    SourceFilterElement
+]
 
 
 class ColumnDirective(BaseModel):
-    source: Union[conlist(ColumnSpecType), str]
-    sourcekey:  Optional[str]
+    source: Optional[Union[conlist(SourcePathElement), str]]
+    sourcekey: Optional[str]
     entity: Optional[bool]
     aggregate: Any
     markdown_name: Optional[str]
@@ -117,15 +163,16 @@ class ColumnDirective(BaseModel):
     def typed_list_post(cls, v):
         return v
 
+
 class SearchBox(BaseModel):
-    search_or: TypedList[Column] = Field(alias="or")
+    search_or: TypedList[SearchColumn] = Field(alias="or")
 
 
-class Source(BaseModel):
+class SourceDefinition(BaseModel):
     sources: dict[str, ColumnDirective]
     search_box: SearchBox = Field(alias="search-box")
-    fkeys: Union[TypedList[Fkey], bool]
-    columns: Union[TypedList[Column], bool]
+    fkeys: Union[TypedList[ColumnDirective], bool]
+    columns: Union[conlist(str), bool]
 
     @validator('columns')
     def validate_columns(cls, v):
