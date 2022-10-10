@@ -131,12 +131,11 @@ SourcePathElement = Union[
     SourceFilterElement
 ]
 
-
 class ColumnDirective(BaseModel):
-    source: Optional[Union[conlist(SourcePathElement), str]]
+    source: Optional[conlist(SourcePathElement)]
     sourcekey: Optional[str]
     entity: Optional[bool]
-    aggregate: Any
+    aggregate: Any  # This should be restricted to only visible_columns specification.
     markdown_name: Optional[str]
     comment: Optional[str]
     comment_display: Optional[Literal["tooltip", "inline"]]
@@ -145,27 +144,28 @@ class ColumnDirective(BaseModel):
     display: Optional[DisplayOptions]
     array_options: Any
 
-    @root_validator(pre=True)
-    def typed_list_pre(cls, v):
-        print(f"ColumnDirective pre {v}")
-        return v
+    @validator('source', pre=True)
+    def make_source_list(cls, v):
+        # Normalize {'source': colname} into {'source': [colname]}
+        return [v] if isinstance(v, str) else v
 
     @root_validator()
-    def typed_list_post(cls, v):
-        print(f" ColumnDirective post{v}")
-        return v
+    def without_source(cls, v):
+        # Handle case column directive without any source
+        if not (v.get('source') or v.get('sourcekey') or
+            (v.get('display') and v.get('display').get("markdown_patterh"))):
+                ValueError("Must have either source/sourckey or markdown-name and display/markdown_pattern")
+        else:
+            return v
 
-    @validator('source', pre=True)
-    def typed_list_pre(cls, v):
-        return v
 
-    @validator('source')
-    def typed_list_post(cls, v):
-        return v
+class SearchBoxSource(BaseModel):
+    source: str
+    markdown_name: Optional[str]
 
 
 class SearchBox(BaseModel):
-    search_or: TypedList[SearchColumn] = Field(alias="or")
+    search_or: TypedList[SearchBoxSource] = Field(alias="or")
 
 
 class SourceDefinition(BaseModel):
